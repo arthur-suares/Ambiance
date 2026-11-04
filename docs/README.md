@@ -1,0 +1,1 @@
+Coloque aqui documentos textuais para a futura camada RAG: metodologia do Trase, dicionário de dados, relatórios e artigos. Registre fonte, URL, data de obtenção e versão. O CSV principal fica em data/raw e é consultado por SQL.
