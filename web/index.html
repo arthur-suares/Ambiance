@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste do RAG</title>
+<style>
+  :root { --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --panel: #f6f8fa; --accent: #0969da; --error: #cf222e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --border: #30363d; --panel: #161b22; --accent: #4493f8; --error: #f85149; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 20px; margin: 0 0 16px; }
+  textarea { width: 100%; min-height: 80px; padding: 10px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  button { padding: 8px 16px; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+  button:disabled { opacity: .6; cursor: wait; }
+  label { color: var(--muted); font-size: 14px; }
+  input[type=number] { width: 56px; padding: 4px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+  h2 { font-size: 15px; margin: 24px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  #answer { white-space: pre-wrap; padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+  ol { padding-left: 24px; margin: 0; }
+  li { margin-bottom: 4px; }
+  a { color: var(--accent); }
+  .meta { color: var(--muted); font-size: 13px; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; max-height: 480px; overflow: auto; }
+  .error { color: var(--error); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Teste do RAG — leis ambientais</h1>
+
+  <form id="form">
+    <textarea id="question" placeholder="Ex.: Qual a multa para quem desmata floresta nativa sem autorização?" required></textarea>
+    <div class="row">
+      <button id="send" type="submit">Perguntar</button>
+      <label>Trechos (k): <input id="k" type="number" min="1" max="20" value="6"></label>
+      <span id="status" class="meta"></span>
+    </div>
+  </form>
+
+  <section id="result" hidden>
+    <h2>Resposta</h2>
+    <div id="answer"></div>
+
+    <h2>Fontes</h2>
+    <ol id="sources"></ol>
+    <p id="usage" class="meta"></p>
+
+    <details>
+      <summary>Trechos enviados ao LLM</summary>
+      <pre id="context"></pre>
+    </details>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Markdown mínimo: só negrito, o resto fica como texto (igual ao terminal).
+function renderAnswer(text) {
+  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+$("question").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("form").requestSubmit();
+});
+
+$("form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const question = $("question").value.trim();
+  if (!question) return;
+
+  $("send").disabled = true;
+  $("status").textContent = "Buscando e gerando resposta...";
+  $("status").classList.remove("error");
+
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, k: Number($("k").value) || 6 }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+
+    $("answer").innerHTML = renderAnswer(data.answer);
+    $("sources").innerHTML = data.sources.map((s) => {
+      const parte = s.partes > 1 ? ` (parte ${s.parte}/${s.partes})` : "";
+      const ranks = `semântica #${s.semantic_rank ?? "–"}, palavra-chave #${s.keyword_rank ?? "–"}`;
+      return `<li>${escapeHtml(s.title)}, art. ${escapeHtml(String(s.artigo))}${parte} — ` +
+             `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">fonte</a> ` +
+             `<span class="meta">(score ${s.score.toFixed(4)}; ${ranks})</span></li>`;
+    }).join("");
+    $("usage").textContent =
+      `${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
+    $("context").textContent = data.context;
+    $("result").hidden = false;
+    $("status").textContent = "";
+  } catch (err) {
+    $("status").textContent = "Erro: " + err.message;
+    $("status").classList.add("error");
+  } finally {
+    $("send").disabled = false;
+  }
+});
+</script>
+</body>
+</html>

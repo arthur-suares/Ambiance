@@ -84,6 +84,36 @@ Mantenha o contrato de dados combinado com a equipe: nomes das colunas, tipos, c
 
 As métricas do Trase são estimativas de exposição associada às cadeias, não prova de ilegalidade, responsabilidade direta ou causalidade. A soma por município/exportador depende da granularidade e das regras de alocação dos registros. Valide a interpretação com a metodologia oficial. A razão exposição/volume só deve ser comparada entre registros com escopo e unidades compatíveis.
 
+## Banco vetorial (PostgreSQL + pgvector)
+
+As tabelas do Trase continuam no DuckDB (consultas analíticas por SQL). Os documentos de `docs/` ficam no Postgres com pgvector, que oferece índice HNSW persistente, filtros por metadados e busca híbrida (vetor + full-text).
+
+```bash
+docker compose up -d --wait          # sobe o Postgres na porta 5433 (PG_PORT)
+python -m src.cli init-vector-db     # cria tabelas e índices (idempotente)
+python -m src.cli vector-stats
+```
+
+Defina `PG_PASSWORD` no `.env` antes de subir o container. `EMBEDDING_DIM` precisa bater com o modelo de embedding. Para trocar de modelo com outra dimensão, recrie as tabelas e regere os embeddings.
+
+- `sql/schema.sql`: tabelas `documents` (um registro por arquivo, com sha256 e modelo de embedding) e `chunks` (texto, páginas, embedding e `tsvector` gerado).
+- `src/vector_store.py`: `upsert_document` (substitui o documento e seus chunks numa transação), `semantic_search`, `hybrid_search` (Reciprocal Rank Fusion) e `delete_document`. Recebe vetores prontos e não depende do modelo de embedding.
+
+### Leis ambientais
+
+```bash
+python scripts/remove_revoked.py      # remove trechos revogados (docs/leis/original -> docs/leis)
+python -m src.cli ingest-laws         # divide por artigo, gera embeddings e indexa (pula leis sem mudança)
+python -m src.cli search "multa por desmatar sem autorização" --limit 5
+python -m src.cli search "reserva legal" --mode semantic --doc-type law
+```
+
+- `src/law_parser.py`: divide cada lei em artigos e guarda a hierarquia (Capítulo/Seção). Artigos acima de 480 tokens viram partes de até 256 tokens, e cada parte repete o caput.
+- `src/embeddings.py`: modelo `intfloat/multilingual-e5-small`, com os prefixos `passage:` e `query:`.
+- `src/ingest_laws.py`: lê `docs/leis/manifest.json` e grava no Postgres.
+
+Limitação conhecida: perguntas de definição ("o que é área rural consolidada?") podem não trazer o art. 3º no topo quando outros artigos repetem o termo muitas vezes. O próximo passo recomendado é um reranker (cross-encoder) sobre os candidatos.
+
 ## Próxima etapa: RAG documental
 
 1. Adicionar documentos em `docs/` (metodologia, dicionário, relatórios).
