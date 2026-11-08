@@ -33,8 +33,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "Pergunta vazia."})
             k = max(1, min(int(body.get("k") or 6), 20))
 
+            domain = (body.get("domain") or "auto").strip().lower()
+
             start = time.perf_counter()
-            result = answer(question, k=k)
+            result = answer(question, k=k, domain=domain)
             elapsed = time.perf_counter() - start
 
             self._json(200, {
@@ -43,6 +45,7 @@ class Handler(BaseHTTPRequestHandler):
                 "input_tokens": result.input_tokens,
                 "output_tokens": result.output_tokens,
                 "seconds": round(elapsed, 1),
+                "domain": result.domain,
                 "context": build_context(result.sources) if result.sources else "",
                 "sources": [
                     {
