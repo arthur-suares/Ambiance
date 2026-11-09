@@ -16,6 +16,7 @@ from src.config import (
     EMBEDDING_DIM,
     EMBEDDING_MODEL,
     FTS_CONFIG,
+    PG_CONNECT_TIMEOUT,
     PG_DATABASE,
     PG_HOST,
     PG_PASSWORD,
@@ -46,6 +47,8 @@ def get_connection(register: bool = True) -> psycopg.Connection:
         password=PG_PASSWORD,
         dbname=PG_DATABASE,
         row_factory=dict_row,
+        # Sem isso, com o Postgres desligado a conexão pode esperar indefinidamente (Windows).
+        connect_timeout=PG_CONNECT_TIMEOUT,
     )
     if register:
         register_vector(con)

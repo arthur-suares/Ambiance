@@ -13,16 +13,19 @@ def resolve_project_path(value: str) -> Path:
     return path.resolve()
 
 
-CSV_PATH = resolve_project_path(
-    os.getenv("TRASE_CSV_PATH", "data/raw/brazil_beef.csv")
-)
+# --- Camada tabular (Parquet -> DuckDB) ---
+# Os Parquet são a fonte; o arquivo DuckDB é gerado a partir deles (python -m src.cli build-db).
+PARQUET_DIR = resolve_project_path(os.getenv("PARQUET_DIR", "data/processed/parquet"))
+SUPPLY_CHAIN_FILE = os.getenv("SUPPLY_CHAIN_FILE", "brazil_beef_v2_2_2.parquet")
+SPATIAL_METRICS_GLOB = os.getenv("SPATIAL_METRICS_GLOB", "spatial-metrics-brazil-beef-*.parquet")
+FACILITIES_GLOB = os.getenv("FACILITIES_GLOB", "*br_beef_logistics_map*.parquet")
 DUCKDB_PATH = resolve_project_path(
     os.getenv("DUCKDB_PATH", "data/processed/trase.duckdb")
 )
-TABLE_NAME = os.getenv("TRASE_TABLE_NAME", "supply_chain")
-
-if not TABLE_NAME.replace("_", "").isalnum():
-    raise ValueError("TRASE_TABLE_NAME deve conter apenas letras, números e underscore.")
+TABLE_NAME = "supply_chain"
+# Limites do SQL gerado pelo LLM.
+SQL_TIMEOUT_SECONDS = float(os.getenv("SQL_TIMEOUT_SECONDS", "20"))
+SQL_MAX_ROWS = int(os.getenv("SQL_MAX_ROWS", "200"))
 
 # --- Camada documental (PostgreSQL + pgvector) ---
 PG_HOST = os.getenv("PG_HOST", "localhost")
@@ -30,6 +33,7 @@ PG_PORT = int(os.getenv("PG_PORT", "5433"))
 PG_USER = os.getenv("PG_USER", "rag")
 PG_PASSWORD = os.getenv("PG_PASSWORD", "")
 PG_DATABASE = os.getenv("PG_DATABASE", "trase_rag")
+PG_CONNECT_TIMEOUT = int(os.getenv("PG_CONNECT_TIMEOUT", "5"))
 
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
 EMBEDDING_DIM = int(os.getenv("EMBEDDING_DIM", "384"))

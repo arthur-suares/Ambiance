@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Teste do RAG</title>
+<title>Trase RAG</title>
 <style>
   :root { --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --panel: #f6f8fa; --accent: #0969da; --error: #cf222e; }
   @media (prefers-color-scheme: dark) {
@@ -29,18 +29,25 @@
   summary { cursor: pointer; color: var(--muted); }
   pre { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; padding: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; max-height: 480px; overflow: auto; }
   .error { color: var(--error); }
+  .call { margin-bottom: 10px; }
+  .call code { font-size: 12.5px; word-break: break-word; }
+  select { padding: 4px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; margin: 8px 0; font-size: 14px; white-space: normal; }
+  th, td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Teste do RAG — leis ambientais</h1>
+  <h1>Trase RAG — cadeia da carne bovina e leis ambientais</h1>
 
   <form id="form">
-    <textarea id="question" placeholder="Ex.: Qual a multa para quem desmata floresta nativa sem autorização?" required></textarea>
+    <textarea id="question" placeholder="Ex.: Quais grupos exportadores tiveram maior exposição ao desmatamento em 2023? / Qual a multa para quem desmata sem autorização?" required></textarea>
     <div class="row">
       <button id="send" type="submit">Perguntar</button>
-      <label>Trechos (k): <input id="k" type="number" min="1" max="20" value="6"></label>
+      <label>Modo: <select id="mode"><option value="agent">Dados + leis</option><option value="laws">Só leis</option></select></label>
+      <label>Trechos de lei (k): <input id="k" type="number" min="1" max="20" value="6"></label>
       <span id="status" class="meta"></span>
     </div>
   </form>
@@ -49,11 +56,18 @@
     <h2>Resposta</h2>
     <div id="answer"></div>
 
-    <h2>Fontes</h2>
-    <ol id="sources"></ol>
+    <section id="calls-section" hidden>
+      <h2>Consultas aos dados</h2>
+      <div id="calls"></div>
+    </section>
+
+    <section id="sources-section">
+      <h2>Fontes (leis)</h2>
+      <ol id="sources"></ol>
+    </section>
     <p id="usage" class="meta"></p>
 
-    <details>
+    <details id="context-details">
       <summary>Trechos enviados ao LLM</summary>
       <pre id="context"></pre>
     </details>
@@ -67,9 +81,32 @@ function escapeHtml(s) {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Markdown mínimo: só negrito, o resto fica como texto (igual ao terminal).
+// Markdown mínimo: negrito e tabelas; o resto fica como texto (igual ao terminal).
+function renderInline(s) {
+  return escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
 function renderAnswer(text) {
-  return escapeHtml(text).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const lines = text.split("\n");
+  const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
+  const isSep = (l) => /^\s*\|[\s:|-]+\|\s*$/.test(l);
+  const cells = (l) => l.trim().slice(1, -1).split("|").map((c) => renderInline(c.trim()));
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    if (isRow(lines[i]) && isSep(lines[i + 1] || "")) {
+      let html = "<div class='table-wrap'><table><thead><tr>" +
+        cells(lines[i]).map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+      i += 2;
+      for (; i < lines.length && isRow(lines[i]); i++) {
+        html += "<tr>" + cells(lines[i]).map((c) => `<td>${c}</td>`).join("") + "</tr>";
+      }
+      i--;
+      out.push(html + "</tbody></table></div>");
+    } else {
+      out.push(renderInline(lines[i]) + "\n");
+    }
+  }
+  return out.join("");
 }
 
 $("question").addEventListener("keydown", (e) => {
@@ -89,7 +126,7 @@ $("form").addEventListener("submit", async (e) => {
     const res = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, k: Number($("k").value) || 6 }),
+      body: JSON.stringify({ question, k: Number($("k").value) || 6, mode: $("mode").value }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -98,13 +135,23 @@ $("form").addEventListener("submit", async (e) => {
     $("sources").innerHTML = data.sources.map((s) => {
       const parte = s.partes > 1 ? ` (parte ${s.parte}/${s.partes})` : "";
       const ranks = `semântica #${s.semantic_rank ?? "–"}, palavra-chave #${s.keyword_rank ?? "–"}`;
-      return `<li>${escapeHtml(s.title)}, art. ${escapeHtml(String(s.artigo))}${parte} — ` +
+      const label = s.label ? `[${escapeHtml(s.label)}] ` : "";
+      return `<li>${label}${escapeHtml(s.title)}, art. ${escapeHtml(String(s.artigo))}${parte} — ` +
              `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">fonte</a> ` +
              `<span class="meta">(score ${s.score.toFixed(4)}; ${ranks})</span></li>`;
     }).join("");
     $("usage").textContent =
       `${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
-    $("context").textContent = data.context;
+    const calls = data.tool_calls || [];
+    $("calls").innerHTML = calls.map((c) =>
+      `<details class="call"><summary>[${escapeHtml(c.label)}] <code>${escapeHtml(c.summary)}</code> ` +
+      `<span class="meta">${c.ok ? (c.rows ?? "") + " linhas" : "<span class='error'>erro</span>"} · ${c.seconds}s</span></summary>` +
+      `<pre>${escapeHtml(c.output)}</pre></details>`
+    ).join("");
+    $("calls-section").hidden = calls.length === 0;
+    $("sources-section").hidden = data.sources.length === 0;
+    $("context").textContent = data.context || "";
+    $("context-details").hidden = !data.context;
     $("result").hidden = false;
     $("status").textContent = "";
   } catch (err) {

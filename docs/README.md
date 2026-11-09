@@ -1,1 +1,3 @@
-Coloque aqui documentos textuais para a futura camada RAG: metodologia do Trase, dicionário de dados, relatórios e artigos. Registre fonte, URL, data de obtenção e versão. O CSV principal fica em data/raw e é consultado por SQL.
+Documentos textuais da camada RAG: leis ambientais (`leis/`), metodologia do Trase, relatórios e artigos. Registre fonte, URL, data de obtenção e versão.
+
+`dicionario_dados.md` é gerado por `python -m src.cli dictionary` a partir de `src/data_dictionary.py`. Os dados tabulares ficam em `data/processed/parquet/` e são consultados por SQL no DuckDB.

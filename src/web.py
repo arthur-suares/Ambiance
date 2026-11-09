@@ -3,7 +3,7 @@
 Uso: python -m src.cli serve   (abre em http://127.0.0.1:8000)
 
 - GET  /          -> página web/index.html
-- POST /api/ask   -> {"question": "...", "k": 6} -> resposta + fontes + trechos
+- POST /api/ask   -> {"question": "...", "k": 6, "mode": "agent"|"laws"} -> resposta + consultas + fontes
 Só escuta em 127.0.0.1 (acessível apenas nesta máquina).
 """
 
@@ -12,6 +12,7 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from src.config import PROJECT_ROOT
+from src.agent import ask as agent_ask, tool_call_summary
 from src.rag import answer, build_context
 
 INDEX_HTML = PROJECT_ROOT / "web" / "index.html"
@@ -34,6 +35,8 @@ class Handler(BaseHTTPRequestHandler):
             k = max(1, min(int(body.get("k") or 6), 20))
 
             start = time.perf_counter()
+            if body.get("mode", "agent") == "agent":
+                return self._agent(question, k, start)
             result = answer(question, k=k)
             elapsed = time.perf_counter() - start
 
@@ -61,6 +64,28 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # mostra o erro na página em vez de derrubar o servidor
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
+    def _agent(self, question, k, start):
+        result = agent_ask(question, k_laws=k)
+        self._json(200, {
+            "answer": result.text,
+            "stop_reason": result.stop_reason,
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "seconds": round(time.perf_counter() - start, 1),
+            "tool_calls": [
+                {"label": c.label, "name": c.name, "summary": tool_call_summary(c),
+                 "ok": c.ok, "rows": c.rows, "seconds": c.seconds, "output": c.output}
+                for c in result.tool_calls
+            ],
+            "sources": [
+                {"label": f"L{i}", "title": s["title"], "artigo": s["metadata"].get("artigo"),
+                 "parte": s["metadata"].get("parte"), "partes": s["metadata"].get("partes"),
+                 "url": s["url"], "score": float(s["score"]),
+                 "semantic_rank": s.get("semantic_rank"), "keyword_rank": s.get("keyword_rank")}
+                for i, s in enumerate(result.law_sources, 1)
+            ],
+        })
+
     def _json(self, status, data):
         self._send(status, "application/json; charset=utf-8", json.dumps(data, ensure_ascii=False).encode("utf-8"))
 
@@ -76,7 +101,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port: int = 8000) -> None:
+    from src.database import ensure_database
     from src.embeddings import get_model
+    ensure_database()
     print("Carregando modelo de embeddings...")
     get_model()  # carrega antes, para a primeira pergunta não demorar
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
