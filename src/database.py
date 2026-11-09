@@ -302,9 +302,13 @@ ALLOWED_STATEMENTS = {duckdb.StatementType.SELECT}
 
 
 def run_readonly_sql(sql: str, max_rows: int = SQL_MAX_ROWS,
-                     timeout: float = SQL_TIMEOUT_SECONDS) -> tuple[pd.DataFrame, bool]:
-    """Executa uma única consulta SELECT. Devolve (resultado, truncado?)."""
-    con = _sandbox_connection()
+                     timeout: float = SQL_TIMEOUT_SECONDS, connect=None) -> tuple[pd.DataFrame, bool]:
+    """Executa uma única consulta SELECT. Devolve (resultado, truncado?).
+
+    `connect` abre a conexão (padrão: banco da carne bovina). O banco da soja passa
+    src.soy.queries.connect_readonly, com a mesma configuração de sandbox.
+    """
+    con = (connect or _sandbox_connection)()
     try:
         try:
             statements = con.extract_statements(sql)

@@ -3,7 +3,9 @@
 Uso: python -m src.cli serve   (abre em http://127.0.0.1:8000)
 
 - GET  /          -> página web/index.html
-- POST /api/ask   -> {"question": "...", "k": 6, "mode": "agent"|"laws"} -> resposta + consultas + fontes
+- POST /api/ask   -> {"question": "...", "k": 6, "mode": "agent"|"laws",
+                      "domain": "auto"|"law"|"beef"|"soy"|"mixed"} -> resposta + consultas + fontes
+  mode=agent: agente (carne bovina, soja e leis), direcionado pelo domínio; mode=laws: RAG só de leis.
 Só escuta em 127.0.0.1 (acessível apenas nesta máquina).
 """
 
@@ -13,7 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from src.config import PROJECT_ROOT
 from src.agent import ask as agent_ask, tool_call_summary
-from src.rag import answer, build_context
+from src.rag import AGENT_DOMAINS, answer, build_context, resolve_domain
 
 INDEX_HTML = PROJECT_ROOT / "web" / "index.html"
 
@@ -34,10 +36,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "Pergunta vazia."})
             k = max(1, min(int(body.get("k") or 6), 20))
 
+            domain = resolve_domain(question, (body.get("domain") or "auto").strip().lower())
+
             start = time.perf_counter()
-            if body.get("mode", "agent") == "agent":
-                return self._agent(question, k, start)
-            result = answer(question, k=k)
+            if body.get("mode", "agent") == "agent" and domain in AGENT_DOMAINS:
+                return self._agent(question, k, start, domain)
+            result = answer(question, k=k, domain=domain)
             elapsed = time.perf_counter() - start
 
             self._json(200, {
@@ -46,6 +50,7 @@ class Handler(BaseHTTPRequestHandler):
                 "input_tokens": result.input_tokens,
                 "output_tokens": result.output_tokens,
                 "seconds": round(elapsed, 1),
+                "domain": result.domain,
                 "context": build_context(result.sources) if result.sources else "",
                 "sources": [
                     {
@@ -64,10 +69,11 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:  # mostra o erro na página em vez de derrubar o servidor
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
-    def _agent(self, question, k, start):
-        result = agent_ask(question, k_laws=k)
+    def _agent(self, question, k, start, domain):
+        result = agent_ask(question, k_laws=k, domain=domain)
         self._json(200, {
             "answer": result.text,
+            "domain": domain,
             "stop_reason": result.stop_reason,
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,

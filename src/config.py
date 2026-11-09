@@ -27,6 +27,14 @@ TABLE_NAME = "supply_chain"
 SQL_TIMEOUT_SECONDS = float(os.getenv("SQL_TIMEOUT_SECONDS", "20"))
 SQL_MAX_ROWS = int(os.getenv("SQL_MAX_ROWS", "200"))
 
+# --- Camada tabular da soja (banco DuckDB separado, gerado por python -m src.cli ingest-soy) ---
+SOY_DUCKDB_PATH = resolve_project_path(
+    os.getenv("SOY_DUCKDB_PATH", "data/processed/soy/soy.duckdb")
+)
+SOY_DATA_ROOT = resolve_project_path(
+    os.getenv("SOY_DATA_ROOT", "data")
+)
+
 # --- Camada documental (PostgreSQL + pgvector) ---
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = int(os.getenv("PG_PORT", "5433"))

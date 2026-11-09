@@ -40,13 +40,22 @@
 </head>
 <body>
 <main>
-  <h1>Trase RAG — cadeia da carne bovina e leis ambientais</h1>
+  <h1>Trase RAG — carne bovina, soja e leis ambientais</h1>
 
   <form id="form">
-    <textarea id="question" placeholder="Ex.: Quais grupos exportadores tiveram maior exposição ao desmatamento em 2023? / Qual a multa para quem desmata sem autorização?" required></textarea>
+    <textarea id="question" placeholder="Ex.: Quais grupos exportadores tiveram maior exposição ao desmatamento em 2023? / Quais municípios apresentam maior exposição ao desmatamento da soja? / Qual a multa para quem desmata sem autorização?" required></textarea>
     <div class="row">
       <button id="send" type="submit">Perguntar</button>
       <label>Modo: <select id="mode"><option value="agent">Dados + leis</option><option value="laws">Só leis</option></select></label>
+      <label>Domínio:
+        <select id="domain">
+          <option value="auto">Automático</option>
+          <option value="law">Legislação ambiental</option>
+          <option value="soy">Soja</option>
+          <option value="beef">Carne bovina</option>
+          <option value="mixed">Consulta integrada</option>
+        </select>
+      </label>
       <label>Trechos de lei (k): <input id="k" type="number" min="1" max="20" value="6"></label>
       <span id="status" class="meta"></span>
     </div>
@@ -78,7 +87,7 @@
 const $ = (id) => document.getElementById(id);
 
 function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  return String(s ?? "").replace(/[&<>\"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
 // Markdown mínimo: negrito e tabelas; o resto fica como texto (igual ao terminal).
@@ -126,7 +135,7 @@ $("form").addEventListener("submit", async (e) => {
     const res = await fetch("/api/ask", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, k: Number($("k").value) || 6, mode: $("mode").value }),
+      body: JSON.stringify({ question, k: Number($("k").value) || 6, mode: $("mode").value, domain: $("domain").value }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
@@ -141,7 +150,7 @@ $("form").addEventListener("submit", async (e) => {
              `<span class="meta">(score ${s.score.toFixed(4)}; ${ranks})</span></li>`;
     }).join("");
     $("usage").textContent =
-      `${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
+      `${data.domain || "auto"} · ${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
     const calls = data.tool_calls || [];
     $("calls").innerHTML = calls.map((c) =>
       `<details class="call"><summary>[${escapeHtml(c.label)}] <code>${escapeHtml(c.summary)}</code> ` +

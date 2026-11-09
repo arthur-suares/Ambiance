@@ -4,6 +4,16 @@ import sys
 import pandas as pd
 
 from src import queries
+from src.soy.catalog import load_manifest
+from src.soy.ingest import detect_missing_datasets, get_soy_profile, ingest_soy_datasets
+from src.soy.queries import (
+    deforestation_by_biome,
+    exposure_by_municipality,
+    top_destinations,
+    top_exporters,
+    top_municipalities,
+    yearly_trend,
+)
 
 pd.set_option("display.width", 200)
 pd.set_option("display.max_columns", 20)
@@ -18,11 +28,11 @@ def print_df(df):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="RAG do Trase: dados da cadeia da carne bovina (DuckDB) e leis ambientais (pgvector)."
+        description="RAG do Trase: cadeias da carne bovina e da soja (DuckDB) e leis ambientais (pgvector)."
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # --- Banco analítico ---
+    # --- Banco analítico (carne bovina) ---
     sub.add_parser("profile", help="Tabelas e views do banco, com linhas e colunas.")
     sub.add_parser("build-db", help="Recria o banco DuckDB a partir dos Parquet.")
     sub.add_parser("reload", help="Alias de build-db.")
@@ -81,12 +91,37 @@ def main():
 
     # --- Camada documental ---
     init_db = sub.add_parser("init-vector-db", help="Cria tabelas e índices no Postgres/pgvector.")
-    init_db.add_argument("--reset", action="store_true",
-                         help="Apaga e recria as tabelas (perde os dados indexados).")
+    init_db.add_argument("--reset", action="store_true", help="Apaga e recria as tabelas (perde os dados indexados).")
     sub.add_parser("vector-stats", help="Contagem de documentos e chunks indexados.")
 
     ingest = sub.add_parser("ingest-laws", help="Divide as leis por artigo e indexa no Postgres.")
     ingest.add_argument("--force", action="store_true", help="Reindexa mesmo sem mudança no arquivo.")
+
+    soy_profile = sub.add_parser("soy-profile", help="Mostra o perfil dos datasets da soja.")
+    soy_profile.add_argument("--full", action="store_true", help="Mostra também a lista de datasets ausentes.")
+
+    ingest_soy = sub.add_parser("ingest-soy", help="Ingesta datasets estruturados da soja em DuckDB.")
+    ingest_soy.add_argument("--force", action="store_true", help="Reprocessa mesmo sem mudança no arquivo.")
+
+    soy_muni = sub.add_parser("soy-top-municipalities", help="Ranking de municípios da soja.")
+    soy_muni.add_argument("--limit", type=int, default=10)
+    soy_muni.add_argument("--year", type=int)
+    soy_muni.add_argument("--state")
+    soy_muni.add_argument("--biome")
+
+    soy_exporters = sub.add_parser("soy-top-exporters", help="Ranking de exportadores da soja.")
+    soy_exporters.add_argument("--limit", type=int, default=10)
+    soy_exporters.add_argument("--year", type=int)
+
+    soy_destinations = sub.add_parser("soy-top-destinations", help="Ranking de destinos da soja.")
+    soy_destinations.add_argument("--limit", type=int, default=10)
+    soy_destinations.add_argument("--year", type=int)
+
+    soy_trend = sub.add_parser("soy-trend", help="Tendências anuais dos indicadores da soja.")
+
+    soy_exposure = sub.add_parser("soy-exposure", help="Exposição por município e bioma para soja.")
+    soy_exposure.add_argument("--limit", type=int, default=10)
+    soy_exposure.add_argument("--year", type=int)
 
     search = sub.add_parser("search", help="Busca nos documentos indexados.")
     search.add_argument("query")
@@ -98,8 +133,10 @@ def main():
     ask = sub.add_parser("ask", help="Pergunta ao chatbot (dados do Trase + leis, com citações).")
     ask.add_argument("question")
     ask.add_argument("--k", type=int, default=6, help="Quantos trechos de lei por busca.")
-    ask.add_argument("--laws-only", action="store_true", help="Só a busca nas leis (fluxo antigo, sem dados).")
-    ask.add_argument("--doc-type", help="Com --laws-only: filtra o tipo de documento.")
+    ask.add_argument("--domain", choices=["auto", "law", "beef", "soy", "mixed"], default="auto",
+                     help="Direciona o agente (auto = o roteador decide pela pergunta).")
+    ask.add_argument("--laws-only", action="store_true", help="Só a busca nas leis (sem o agente de dados).")
+    ask.add_argument("--doc-type", help="Fora do agente: filtra o tipo de documento.")
     ask.add_argument("--show-context", action="store_true", help="Mostra os resultados enviados ao LLM.")
 
     serve = sub.add_parser("serve", help="Abre uma página web local para testar o chatbot.")
@@ -107,10 +144,20 @@ def main():
 
     args = parser.parse_args()
 
-    # Comandos que leem o DuckDB: confere uma vez, aqui, se o banco precisa ser (re)gerado.
-    # O "serve" faz o mesmo em src/web.py. Durante as consultas o banco nunca é reconstruído.
-    no_duckdb = {"build-db", "reload", "dictionary", "init-vector-db", "vector-stats", "ingest-laws", "search"}
-    if args.command not in no_duckdb and not getattr(args, "laws_only", False):
+    # "ask": agente (carne bovina, soja e leis) direcionado pelo roteador; --laws-only usa o RAG só de leis.
+    use_agent = False
+    if args.command == "ask":
+        from src.rag import AGENT_DOMAINS, resolve_domain
+        domain = resolve_domain(args.question, args.domain)
+        use_agent = not args.laws_only and domain in AGENT_DOMAINS
+
+    # Comandos que leem o DuckDB da carne bovina: confere uma vez, aqui, se o banco precisa ser
+    # (re)gerado. O "serve" faz o mesmo em src/web.py. Durante as consultas o banco nunca é
+    # reconstruído. Os comandos soy-* usam o banco próprio da soja (gerado por ingest-soy).
+    no_duckdb = {"build-db", "reload", "dictionary", "init-vector-db", "vector-stats", "ingest-laws", "search",
+                 "soy-profile", "ingest-soy", "soy-top-municipalities", "soy-top-exporters",
+                 "soy-top-destinations", "soy-trend", "soy-exposure"}
+    if args.command not in no_duckdb and (args.command != "ask" or use_agent):
         from src.database import ensure_database
         ensure_database()
 
@@ -174,6 +221,24 @@ def main():
     elif args.command == "ingest-laws":
         from src.ingest_laws import ingest_laws
         ingest_laws(force=args.force)
+    elif args.command == "soy-profile":
+        manifest = load_manifest()
+        print(f"Datasets esperados: {len(manifest)}")
+        print(f"Ausentes: {detect_missing_datasets(manifest)}")
+        print(get_soy_profile())
+    elif args.command == "ingest-soy":
+        summary = ingest_soy_datasets(force=args.force)
+        print(summary)
+    elif args.command == "soy-top-municipalities":
+        print_df(top_municipalities(limit=args.limit, year=args.year, state=args.state, biome=args.biome))
+    elif args.command == "soy-top-exporters":
+        print_df(top_exporters(limit=args.limit, year=args.year))
+    elif args.command == "soy-top-destinations":
+        print_df(top_destinations(limit=args.limit, year=args.year))
+    elif args.command == "soy-trend":
+        print_df(yearly_trend())
+    elif args.command == "soy-exposure":
+        print_df(exposure_by_municipality(limit=args.limit, year=args.year))
     elif args.command == "search":
         from src import vector_store
         from src.embeddings import embed_query
@@ -185,14 +250,13 @@ def main():
         for i, r in enumerate(rows, 1):
             m = r["metadata"]
             parte = f" (parte {m['parte']}/{m['partes']})" if m.get("partes", 1) > 1 else ""
-            ranks = (f"  [semântica #{r['semantic_rank']}, palavra-chave #{r['keyword_rank']}]"
-                     if args.mode == "hybrid" else "")
+            ranks = (f"  [semântica #{r['semantic_rank']}, palavra-chave #{r['keyword_rank']}]" if args.mode == "hybrid" else "")
             print(f"\n{i}. {r['title']} - Art. {m.get('artigo')}{parte}  score={float(r['score']):.4f}{ranks}")
             body = r["content"].split("\n")
             print("   " + " ".join(body[1:])[:400] + "...")
-    elif args.command == "ask" and not args.laws_only:
+    elif args.command == "ask" and use_agent:
         from src.agent import ask as agent_ask, tool_call_summary
-        result = agent_ask(args.question, k_laws=args.k)
+        result = agent_ask(args.question, k_laws=args.k, domain=domain)
         if args.show_context:
             print("=== Ferramentas chamadas ===")
             for c in result.tool_calls:
@@ -214,11 +278,12 @@ def main():
               f"{len(result.tool_calls)} chamadas de ferramenta)")
     elif args.command == "ask":
         from src.rag import answer, build_context
-        result = answer(args.question, k=args.k, doc_type=args.doc_type)
+        result = answer(args.question, k=args.k, doc_type=args.doc_type, domain=domain)
         if args.show_context:
             print("=== Trechos enviados ao LLM ===")
             print(build_context(result.sources))
             print()
+        print(f"Domínio: {result.domain}")
         print(result.text)
         print("\nFontes:")
         for i, s in enumerate(result.sources, 1):
