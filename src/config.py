@@ -19,6 +19,12 @@ CSV_PATH = resolve_project_path(
 DUCKDB_PATH = resolve_project_path(
     os.getenv("DUCKDB_PATH", "data/processed/trase.duckdb")
 )
+SOY_DUCKDB_PATH = resolve_project_path(
+    os.getenv("SOY_DUCKDB_PATH", "data/processed/soy/soy.duckdb")
+)
+SOY_DATA_ROOT = resolve_project_path(
+    os.getenv("SOY_DATA_ROOT", "data")
+)
 TABLE_NAME = os.getenv("TRASE_TABLE_NAME", "supply_chain")
 
 if not TABLE_NAME.replace("_", "").isalnum():

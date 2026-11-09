@@ -1,0 +1,91 @@
+[
+  {
+    "dataset_name": "soy_supply_chain",
+    "source_file": "brazil_soy_v2_6_1_composite.csv",
+    "table_name": "soy_supply_chain",
+    "commodity": "soy",
+    "country": "Brazil",
+    "dataset_type": "supply_chain",
+    "version": "2.6",
+    "period": {
+      "start": 2004,
+      "end": 2022
+    },
+    "url": "https://trase.earth/open-data/search/soy?country=BRAZIL",
+    "data_obtained_at": "2025-01-01",
+    "description": "Brazil soy supply chain data for 2004-2022.",
+    "unit": "tonnes",
+    "granularity": "municipality + exporter + importer + year",
+    "observations": "The dataset is the central source for the Brazilian soy supply chain.",
+    "columns": [
+      "year",
+      "biome",
+      "country_of_production",
+      "state",
+      "municipality_of_production",
+      "logistics_hub",
+      "port_of_export",
+      "exporter",
+      "importer",
+      "country_of_first_import",
+      "soy_deforestation_5_year_total_exposure",
+      "co2_net_emissions_soy_deforestation_5_year_total_exposure",
+      "co2_gross_emissions_soy_deforestation_5_year_total_exposure",
+      "volume",
+      "fob",
+      "land_use"
+    ]
+  },
+  {
+    "dataset_name": "soy_deforestation",
+    "source_file": "spatial-metrics-brazil-soy-soy_deforestation_5_year_total_municipality.csv",
+    "table_name": "soy_deforestation",
+    "commodity": "soy",
+    "country": "Brazil",
+    "dataset_type": "deforestation",
+    "version": "2.6",
+    "period": {
+      "start": 2014,
+      "end": 2024
+    },
+    "url": "https://trase.earth/open-data/search/soy?country=BRAZIL",
+    "data_obtained_at": "2025-01-01",
+    "description": "Municipal deforestation exposure associated with soy supply chains.",
+    "unit": "hectares",
+    "granularity": "municipality and year",
+    "observations": "This indicator should not be treated as direct illegal deforestation by a firm.",
+    "columns": [
+      "year",
+      "country",
+      "region",
+      "parent_region",
+      "soy_deforestation_hectares"
+    ]
+  },
+  {
+    "dataset_name": "soy_gross_emissions",
+    "source_file": "spatial-metrics-brazil-soy-co2_gross_emissions_soy_deforestation_5_year_total_municipality.csv",
+    "table_name": "soy_gross_emissions",
+    "commodity": "soy",
+    "country": "Brazil",
+    "dataset_type": "emissions",
+    "version": "2.6",
+    "period": {
+      "start": 2014,
+      "end": 2024
+    },
+    "url": "https://trase.earth/open-data/search/soy?country=BRAZIL",
+    "data_obtained_at": "2025-01-01",
+    "description": "Gross emissions from soy deforestation exposure.",
+    "unit": "tonnes CO2e",
+    "granularity": "municipality and year",
+    "observations": "Gross emissions are not the same as net emissions.",
+    "columns": [
+      "year",
+      "country",
+      "region",
+      "parent_region",
+      "gross_emissions_from_soy_deforestation_tonnes_co₂-equivalent"
+    ]
+  }
+]
