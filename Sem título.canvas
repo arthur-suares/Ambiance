@@ -1,0 +1,6 @@
+{
+	"nodes":[
+		{"id":"c417a76933d589e6","x":-115,"y":-10,"width":250,"height":50,"type":"text","text":"Plano de implementação do pipeline de ingestão"}
+	],
+	"edges":[]
+}

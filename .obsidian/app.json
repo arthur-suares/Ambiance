@@ -1,0 +1,8 @@
+{
+  "alwaysUpdateLinks": true,
+  "newFileLocation": "folder",
+  "newFileFolderPath": "knowledge/00-Capturas",
+  "attachmentFolderPath": "knowledge/_attachments",
+  "showUnsupportedFiles": false,
+  "useMarkdownLinks": false
+}
