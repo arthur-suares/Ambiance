@@ -10,3 +10,4 @@ lxml>=5.0.0
 sentence-transformers>=3.0.0
 anthropic>=2.0.0
 pytest>=8.0.0
+sacrebleu>=2.4.0

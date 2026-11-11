@@ -1,0 +1,66 @@
+{
+  "data": "2026-11-11T15:32:48",
+  "perguntas": [
+    "L01",
+    "L02",
+    "L04",
+    "L06",
+    "L07",
+    "S01",
+    "S05",
+    "C01",
+    "C04",
+    "M01",
+    "M02",
+    "M03",
+    "M04",
+    "M05",
+    "M06",
+    "M07",
+    "M08",
+    "M09",
+    "M10",
+    "M11"
+  ],
+  "modelo_agente": "anthropic/claude-haiku-5.5",
+  "modelo_juiz": "anthropic/claude-haiku-5.5",
+  "temperatura": "padrão da API (o Claude Haiku 5.5 não aceita temperatura 0)",
+  "modelo_embeddings": "intfloat/multilingual-e5-small",
+  "busca": {
+    "tipo": "híbrida (pgvector + full-text) com RRF",
+    "rrf_k": 60,
+    "k_busca_direta": 10,
+    "ks_avaliados": [
+      1,
+      3,
+      5,
+      10
+    ],
+    "k_leis_agente": 6,
+    "max_turnos_agente": 10
+  },
+  "juiz": {
+    "max_caracteres_por_item": 6000,
+    "prompts": {
+      "faithfulness": "Você avalia se a RESPOSTA de um sistema de RAG é fiel ao CONTEXTO que o sistema recuperou.\n\nPasso 1: divida a RESPOSTA em afirmações factuais atômicas (números, nomes, percentuais, artigos de lei, conclusões). Ignore cortesias, frases sobre o próprio sistema e ressalvas genéricas sem conteúdo factual.\nPasso 2: para cada afirmação, decida se ela pode ser inferida diretamente do CONTEXTO. Arredondamentos razoáveis de números do contexto e cálculos simples sobre eles (soma, diferença, percentual) contam como sustentados. Conhecimento externo ao contexto NÃO conta, mesmo que seja verdadeiro.\n\nResponda apenas com JSON, sem texto fora dele:\n{\"afirmacoes\": [{\"afirmacao\": \"...\", \"sustentada\": true, \"evidencia\": \"id do item (ex.: D1, L3) ou null\", \"justificativa\": \"uma frase\"}]}",
+      "context_recall": "Você avalia se o CONTEXTO recuperado por um sistema de RAG contém as informações da RESPOSTA DE REFERÊNCIA.\n\nPasso 1: divida a RESPOSTA DE REFERÊNCIA em afirmações factuais atômicas.\nPasso 2: para cada afirmação, decida se ela pode ser atribuída ao CONTEXTO (a informação está lá, mesmo que com outras palavras, outro formato de número ou arredondamento razoável).\n\nResponda apenas com JSON, sem texto fora dele:\n{\"afirmacoes\": [{\"afirmacao\": \"...\", \"no_contexto\": true, \"evidencia\": \"id do item (ex.: D1, L3) ou null\", \"justificativa\": \"uma frase\"}]}",
+      "context_precision": "Você avalia a utilidade de cada item do CONTEXTO recuperado por um sistema de RAG.\n\nPara cada item, na ordem, decida se ele foi útil para chegar à RESPOSTA DE REFERÊNCIA da PERGUNTA (contém pelo menos uma informação que aparece na resposta de referência ou que é necessária para obtê-la). Avalie todos os itens, um por um, usando exatamente os ids fornecidos.\n\nResponda apenas com JSON, sem texto fora dele:\n{\"itens\": [{\"id\": \"D1\", \"util\": true, \"justificativa\": \"uma frase\"}]}"
+    }
+  },
+  "bleu": {
+    "n": 4,
+    "pesos": "iguais (1/4)",
+    "por_pergunta": "sacrebleu, smooth_method=exp",
+    "corpus": "sacrebleu, sem suavização",
+    "tokenizacao": "normalização própria (eval/text_metrics.py)"
+  },
+  "versoes": {
+    "python": "3.12.10",
+    "anthropic": "2.6.0",
+    "sacrebleu": "2.6.0",
+    "duckdb": "2.0.0",
+    "psycopg": "3.3.8",
+    "sentence-transformers": "6.2.0",
+    "pgvector": "0.5.1"
+  }
+}
