@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 
 from eval.metrics import KS, mean
-from eval.text_metrics import bleu_corpus
+from eval.text_metrics import bleu_corpus, cosine_baseline
 
 TYPES = [("lei", "Lei"), ("carne", "Carne bovina"), ("soja", "Soja"), ("mista", "Mista")]
 TRECHO = 220        # caracteres de cada chunk mostrados na trilha
@@ -61,8 +61,10 @@ def write_question_trail(rec: dict, path: Path) -> None:
         L += ["> **Erros nesta pergunta:** " + "; ".join(rec["erros"]), ""]
 
     # 1 ----------------------------------------------------------------------
-    L += ["## 1. Pergunta e gabarito", "", f"**Resposta esperada (referência curta):** {g['resposta_esperada']}", "",
-          f"**Referência longa:** {g.get('resposta_referencia') or '—'}", ""]
+    L += ["## 1. Pergunta e gabarito", "",
+          f"**Resposta esperada (referência curta, fatos-chave usados no Context Recall):** {g['resposta_esperada']}", "",
+          "**Referência longa (estrutura do prompt do agente; usada em ROUGE-L, BLEU e cosseno):**", "",
+          *[f"> {ln}" if ln.strip() else ">" for ln in (g.get("resposta_referencia") or "—").splitlines()], ""]
     if g["valores"]:
         L += ["**Valores esperados:**", ""] + table(
             ["Descrição", "Valor", "Unidade", "Tolerância"],
@@ -174,7 +176,7 @@ def write_question_trail(rec: dict, path: Path) -> None:
                        [[it["id"], "✓" if it["util"] else "✗", it["justificativa"]] for it in res["itens"]])
 
     # 7 ----------------------------------------------------------------------
-    L += ["## 7. ROUGE-L e BLEU", ""]
+    L += ["## 7. ROUGE-L, BLEU e cosseno", ""]
     t = rec["texto"]
     if not t:
         L += ["Sem resposta para comparar.", ""]
@@ -187,6 +189,14 @@ def write_question_trail(rec: dict, path: Path) -> None:
                          " / ".join(f"{x}/{y}" for x, y in zip(bl["acertos"], bl["totais"])), fmt(bl["bp"]), fmt(bl["bleu"])])
         L += table(["Referência", "LCS", "Palavras resposta", "Palavras referência", "ROUGE-L P", "ROUGE-L R",
                     "ROUGE-L F1", "BLEU p1/p2/p3/p4", "Acertos/totais (n=1..4)", "BP", "BLEU (suavizado)"], rows)
+        crow = []
+        for ref in ("curta", "longa"):
+            c = t[ref]["cosseno"]
+            crow.append([ref, fmt(c["cosseno"], 3), c["tokens_resposta"], c["tokens_referencia"], c["limite_tokens"],
+                         "sim" if c["truncada_resposta"] else "não", "sim" if c["truncada_referencia"] else "não"])
+        L += ["**Similaridade de cosseno** (embeddings do e5-small; texto sem tabelas, rótulos e markdown):", ""]
+        L += table(["Referência", "Cosseno", "Tokens resposta", "Tokens referência", "Limite do modelo",
+                    "Resposta cortada?", "Referência cortada?"], crow)
         L += ["Textos normalizados usados na comparação:", "", "```text", "RESPOSTA: " + cut(t["resposta_normalizada"], 3000),
               "", "REFERÊNCIA CURTA: " + t["curta"]["referencia_normalizada"], "",
               "REFERÊNCIA LONGA: " + t["longa"]["referencia_normalizada"], "```", ""]
@@ -211,6 +221,16 @@ def _corpus(records, ref):
             refs.append(r["texto"][ref]["referencia_normalizada"].split())
     res = bleu_corpus(hyps, refs)
     return (res["bleu"] if res else None), len(hyps)
+
+
+def _baseline(records, ref):
+    rs = [r for r in records if r["texto"]]
+    return cosine_baseline([r["texto"]["resposta_limpa"] for r in rs], [r["texto"][ref]["referencia_limpa"] for r in rs])
+
+
+def _truncated(records, who):
+    rs = [r for r in records if r["texto"]]
+    return sum(r["texto"]["longa"]["cosseno"][f"truncada_{who}"] for r in rs), len(rs)
 
 
 def write_report(records: list[dict], config: dict, path: Path) -> None:
@@ -242,6 +262,8 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
         row("ROUGE-L F1 (ref. longa)", "rouge_l_f1_longa", "sobreposição de palavras em ordem com a referência longa"),
         row("BLEU de corpus (ref. curta)", "curta", "n-gramas (1 a 4) em comum, somados no grupo", kind="corpus"),
         row("BLEU de corpus (ref. longa)", "longa", "n-gramas (1 a 4) em comum, somados no grupo", kind="corpus"),
+        row("Cosseno (ref. curta)", "cosseno_curta", "semelhança de significado (embeddings) com a referência curta", casas=3),
+        row("Cosseno (ref. longa)", "cosseno_longa", "semelhança de significado (embeddings) com a referência longa", casas=3),
     ])
     L += ["### Custo: quanto custa responder?", ""]
     L += table(["Métrica", "Valor", "n", "O que mede"], [
@@ -254,7 +276,8 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
     # por tipo
     cols = [("Hit@5", "hit@5"), ("MRR", "mrr"), ("Recall@5", "recall@5"), ("Context Recall", "context_recall"),
             ("Context Precision", "context_precision"), ("Faithfulness", "faithfulness"),
-            ("Acerto de valores", "acerto_valores"), ("ROUGE-L F1 (longa)", "rouge_l_f1_longa")]
+            ("Acerto de valores", "acerto_valores"), ("ROUGE-L F1 (longa)", "rouge_l_f1_longa"),
+            ("Cosseno (longa)", "cosseno_longa")]
     rows = []
     for label, group in [(name, by_type[t]) for t, name in TYPES] + [("**Geral**", records)]:
         if not group:
@@ -272,20 +295,39 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
     L += ["## Busca nas leis por k (busca direta com a pergunta original)", ""]
     L += table(["Métrica"] + [f"{n} (n={_avg(g, 'mrr')[1]})" for n, g in groups], rk)
 
-    # ROUGE/BLEU em detalhe
-    L += ["## ROUGE-L e BLEU em detalhe", ""]
-    L += table(["Referência", "ROUGE-L P", "ROUGE-L R", "ROUGE-L F1", "BLEU de corpus", "BLEU médio por pergunta (suavizado)"],
+    # ROUGE/BLEU/cosseno em detalhe
+    L += ["## ROUGE-L, BLEU e cosseno em detalhe", ""]
+    L += table(["Referência", "ROUGE-L P", "ROUGE-L R", "ROUGE-L F1", "BLEU de corpus", "BLEU médio por pergunta (suavizado)",
+                "Cosseno"],
                [[ref, fmt(_avg(records, f"rouge_l_p_{ref}")[0]), fmt(_avg(records, f"rouge_l_r_{ref}")[0]),
                  fmt(_avg(records, f"rouge_l_f1_{ref}")[0]), fmt(_corpus(records, ref)[0]),
-                 fmt(_avg(records, f"bleu_{ref}")[0])] for ref in ("curta", "longa")])
+                 fmt(_avg(records, f"bleu_{ref}")[0]), fmt(_avg(records, f"cosseno_{ref}")[0], 3)] for ref in ("curta", "longa")])
+    L += ["**Como ler o cosseno.** O e5-small dá notas altas até para textos sem relação, então o número só diz algo "
+          "quando comparado com uma linha de base: o cosseno médio de cada resposta com as referências das outras "
+          "perguntas.", ""]
+    base_rows = []
+    for ref in ("curta", "longa"):
+        b = _baseline(records, ref)
+        if b:
+            base_rows.append([ref, fmt(b["proprio_media"], 3), fmt(b["outras_media"], 3), fmt(b["outras_max"], 3),
+                              fmt(b["proprio_media"] - b["outras_media"], 3)])
+    if base_rows:
+        L += table(["Referência", "Cosseno com a referência da própria pergunta (média)",
+                    "Cosseno com referências de outras perguntas (média)", "Maior cosseno com outra pergunta",
+                    "Diferença"], base_rows)
+    cut_a, n_t = _truncated(records, "resposta")
+    cut_r, _ = _truncated(records, "referencia")
+    L += [f"Respostas do agente cortadas no limite de 512 tokens do modelo: {cut_a} de {n_t}; referências longas cortadas: "
+          f"{cut_r} de {n_t}. O que passa do limite não entra no cosseno.", ""]
 
     # por pergunta
     L += ["## Resultados por pergunta", "", "Clique no ID para ver a trilha completa (cada etapa da pergunta).", ""]
     L += table(["ID", "Tipo", "Hit@5", "MRR", "Recall@5", "Ctx Recall", "Ctx Precision", "Faithfulness", "Valores",
-                "ROUGE-L F1 (longa)", "BLEU (longa)", "Tempo (s)", "Tokens", "Erros"],
+                "ROUGE-L F1 (longa)", "BLEU (longa)", "Cosseno (longa)", "Tempo (s)", "Tokens", "Erros"],
                [[f"[{r['id']}](perguntas/{r['id']}.md)", r["tipo"]] +
                 [fmt(r["metricas"].get(k)) for k in ("hit@5", "mrr", "recall@5", "context_recall", "context_precision",
-                                                     "faithfulness", "acerto_valores", "rouge_l_f1_longa", "bleu_longa")] +
+                                                     "faithfulness", "acerto_valores", "rouge_l_f1_longa", "bleu_longa",
+                                                     "cosseno_longa")] +
                 [fmt(r["metricas"].get("segundos"), 1), fmt(r["metricas"].get("tokens"), 0), len(r["erros"]) or ""]
                 for r in records])
 
@@ -300,6 +342,7 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
           (", ".join(f"[{i}](perguntas/{i}.md)" for i in misses) or "nenhum")]
     L += worst("faithfulness", "Menor Faithfulness") + worst("context_recall", "Menor Context Recall")
     L += worst("acerto_valores", "Menor acerto de valores") + worst("rouge_l_f1_longa", "Menor ROUGE-L F1 (ref. longa)")
+    L += worst("cosseno_longa", "Menor cosseno (ref. longa)")
     errs = [r for r in records if r["erros"]]
     if errs:
         L += ["", "**Erros durante a rodada:**", ""] + [f"- {r['id']}: {'; '.join(r['erros'])}" for r in errs]
@@ -317,6 +360,10 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
           "texto de busca e escolhe o k (ver seção 3 de cada trilha).",
           "- **ROUGE-L e BLEU medem palavras, não significado:** uma resposta correta com outra redação recebe nota baixa; "
           "por isso são complemento do juiz, não substituto.",
+          "- **Cosseno do e5-small tem faixa estreita e limite de 512 tokens:** textos sem relação também recebem notas "
+          "altas (ver a linha de base) e respostas mais longas que o limite são cortadas. Serve para comparar perguntas e "
+          "rodadas, não como nota absoluta. Números errados mudam pouco o cosseno: quem confere os valores é o "
+          "acerto de valores.",
           f"- **Custo do juiz nesta rodada:** {judge_in} tokens de entrada e {judge_out} de saída (fora do bloco Custo, "
           "que mede só o sistema).", ""]
     path.write_text("\n".join(L), encoding="utf-8")

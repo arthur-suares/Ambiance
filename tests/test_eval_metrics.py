@@ -9,7 +9,16 @@ from eval.metrics import (
     parse_br_number,
     ranking_scores,
 )
-from eval.text_metrics import bleu_corpus, bleu_sentence, canonical_number, normalize, rouge_l
+from eval.text_metrics import (
+    bleu_corpus,
+    bleu_sentence,
+    canonical_number,
+    clean_text,
+    cosine,
+    cosine_baseline,
+    normalize,
+    rouge_l,
+)
 
 CF = "Lei nº 12.651/2012 – Código Florestal"
 
@@ -102,3 +111,35 @@ def test_bleu_corpus_pools_counts():
     assert c["acertos"][3] == 3 and c["totais"][3] == 8 + 2
     b = bleu_sentence(b_hyp, b_ref)
     assert b["acertos"][3] == 0 and b["p4"] > 0  # sem acerto de 4 palavras, a suavização evita o zero
+
+
+def test_clean_text_keeps_words_but_drops_markup():
+    txt = ("**Resposta curta:** a multa é de R$ 1.000,00 [L1, Decreto 6.514/2008, art. 52].\n"
+           "| a | b |\n|---|---|\n- item [D1]")
+    out = clean_text(txt)
+    assert "[L1" not in out and "[D1]" not in out and "|" not in out and "*" not in out
+    assert "R$ 1.000,00" in out and "multa" in out and "item" in out
+    assert "Decreto 6.514/2008, art. 52" in out  # a lei e o artigo citados continuam; só o rótulo [L1, ...] sai
+    assert "l1" not in normalize(txt)
+
+
+def test_cosine_identical_text_is_one_and_unrelated_is_lower():
+    ref = "A multa por desmatar a corte raso fora da reserva legal é de R$ 1.000,00 por hectare ou fração."
+    same = cosine(ref + " [L1]", ref)
+    assert same["cosseno"] == pytest.approx(1.0, abs=1e-4)
+    assert not same["truncada_resposta"] and not same["truncada_referencia"]
+    other = cosine("O Brasil exportou soja para a China em 2022.", ref)
+    assert other["cosseno"] < same["cosseno"]
+
+
+def test_cosine_flags_truncation():
+    long = "desmatamento na cadeia da soja " * 400
+    assert cosine(long, "multa por hectare")["truncada_resposta"] is True
+
+
+def test_cosine_baseline_compares_own_reference_with_others():
+    hyps = ["A multa é de R$ 1.000,00 por hectare.", "A China foi o maior destino da soja em 2022."]
+    refs = ["Multa de R$ 1.000,00 por hectare ou fração.", "O principal destino da soja brasileira em 2022 foi a China."]
+    b = cosine_baseline(hyps, refs)
+    assert b["proprio_media"] > b["outras_media"]
+    assert cosine_baseline(hyps[:1], refs[:1]) is None

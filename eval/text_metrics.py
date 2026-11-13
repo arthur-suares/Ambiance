@@ -1,4 +1,7 @@
-"""ROUGE-L e BLEU entre a resposta do agente e as referências.
+"""ROUGE-L, BLEU e similaridade de cosseno entre a resposta do agente e as referências.
+
+- Cosseno: embeddings do e5-small (o modelo do projeto) do texto limpo (sem tabelas, rótulos e markdown, mas
+  com acentos e números originais); mede se os dois textos dizem a mesma coisa, mesmo com outras palavras.
 
 Antes de comparar, o texto é normalizado (decisão do plano): sem rótulos [D1]/[L1], sem markdown
 e tabelas, minúsculas, sem acentos e com números padronizados (valor completo arredondado a
@@ -19,6 +22,7 @@ from sacrebleu.metrics import BLEU
 from eval.metrics import NUMBER_RE, SCALES, br_value, strip_accents
 
 _LABELS = re.compile(r"\[\s*[DL]\d+(?:\s*[-–,;]\s*[DL]?\d+)*\s*\]")
+_LABEL_WITH_TEXT = re.compile(r"\[\s*[DL]\d+\s*,\s*([^\]]*[^\]\s])\s*\]")  # "[L1, Decreto 6.514/2008, art. 52]"
 _LINK = re.compile(r"\[([^\]]+)\]\([^)]*\)")
 _TOKEN = re.compile(r"r\$|\d+(?:\.\d+)?|[a-z]+|%")
 
@@ -45,17 +49,73 @@ def _number_token(m: re.Match) -> str:
     return f" {canonical_number(v * SCALES.get((scale or '').lower(), 1.0))} "
 
 
-def normalize(text: str) -> list[str]:
-    """Texto -> lista de tokens normalizados."""
+def _strip_markup(text: str) -> str:
+    """Tira tabelas markdown, rótulos [D1]/[L1], links, marcadores de lista/título e ênfase."""
     lines = [ln for ln in (text or "").splitlines() if not ln.strip().startswith("|")]  # tabelas markdown
     t = "\n".join(lines)
     t = _LABELS.sub(" ", t)
+    t = _LABEL_WITH_TEXT.sub(r" \1 ", t)  # tira só o rótulo e mantém a lei e o artigo citados
     t = _LINK.sub(r"\1", t)
     t = re.sub(r"(?m)^\s*(?:#+|>|[-*+]|\d+[.)])\s+", " ", t)  # títulos, citações, listas
-    t = re.sub(r"[*_`]+", " ", t)
-    t = strip_accents(t).lower()
+    return re.sub(r"[*_`]+", " ", t)
+
+
+def normalize(text: str) -> list[str]:
+    """Texto -> lista de tokens normalizados (ROUGE-L e BLEU)."""
+    t = strip_accents(_strip_markup(text)).lower()
     t = NUMBER_RE.sub(_number_token, t)
     return _TOKEN.findall(t)
+
+
+def clean_text(text: str) -> str:
+    """Texto limpo para o cosseno: sem tabelas, rótulos e markdown, mas com acentos, maiúsculas e números originais."""
+    return " ".join(_strip_markup(text).split())
+
+
+# ----------------------------------------------------------------------------- cosseno
+
+def _embed_pair_texts(texts: list[str]):
+    """Vetores unitários do e5-small com o prefixo "query: " (tarefa simétrica de similaridade, como o e5 recomenda)."""
+    from src.embeddings import get_model
+    return get_model().encode(["query: " + t for t in texts], normalize_embeddings=True, batch_size=16)
+
+
+def _n_tokens(text: str) -> int:
+    from src.embeddings import get_model
+    return len(get_model().tokenizer.encode("query: " + text, add_special_tokens=True))
+
+
+def cosine(hyp_text: str, ref_text: str) -> dict:
+    """Similaridade de cosseno entre os embeddings da resposta e da referência (já limpos de markup).
+
+    O e5-small lê no máximo `limite_tokens` (512): o que passa disso é cortado sem aviso, então o resultado
+    informa quando a resposta ou a referência foi truncada.
+    """
+    from src.embeddings import get_model
+    hyp, ref = clean_text(hyp_text), clean_text(ref_text)
+    a, b = _embed_pair_texts([hyp, ref])
+    limit = get_model().max_seq_length
+    n_hyp, n_ref = _n_tokens(hyp), _n_tokens(ref)
+    return {"cosseno": float(a @ b), "tokens_resposta": n_hyp, "tokens_referencia": n_ref, "limite_tokens": limit,
+            "truncada_resposta": n_hyp > limit, "truncada_referencia": n_ref > limit}
+
+
+def cosine_baseline(hyp_texts: list[str], ref_texts: list[str]) -> dict | None:
+    """Linha de base: cosseno médio de cada resposta com as referências das OUTRAS perguntas.
+
+    O e5 dá notas altas mesmo para textos sem relação (a faixa útil é estreita). Comparar o cosseno da
+    resposta com a referência da própria pergunta contra esta média mostra quanto da nota é só "mesmo assunto".
+    """
+    n = len(hyp_texts)
+    if n < 2:
+        return None
+    hv = _embed_pair_texts([clean_text(t) for t in hyp_texts])
+    rv = _embed_pair_texts([clean_text(t) for t in ref_texts])
+    sims = hv @ rv.T
+    own = [float(sims[i, i]) for i in range(n)]
+    other = [float(sims[i, j]) for i in range(n) for j in range(n) if i != j]
+    return {"proprio_media": sum(own) / n, "outras_media": sum(other) / len(other),
+            "outras_max": max(other), "perguntas": n}
 
 
 def lcs_length(a: list[str], b: list[str]) -> int:

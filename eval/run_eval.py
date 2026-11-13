@@ -26,7 +26,7 @@ from pathlib import Path
 from eval import judge
 from eval.metrics import KS, chunk_key, find_value, first_positions, gold_sets, mean, ranking_scores
 from eval.report import write_question_trail, write_report
-from eval.text_metrics import bleu_sentence, normalize, rouge_l
+from eval.text_metrics import bleu_sentence, clean_text, cosine, normalize, rouge_l
 from src.config import EMBEDDING_MODEL, LLM_MODEL, PROJECT_ROOT
 
 EVAL_DIR = PROJECT_ROOT / "eval"
@@ -181,10 +181,12 @@ def check_values(item: dict, resposta: str, itens: list[dict]) -> dict:
 
 def text_scores(item: dict, resposta: str) -> dict:
     hyp = normalize(resposta)
-    out = {"resposta_normalizada": " ".join(hyp)}
+    out = {"resposta_normalizada": " ".join(hyp), "resposta_limpa": clean_text(resposta)}
     for name, field in (("curta", "resposta_esperada"), ("longa", "resposta_referencia")):
-        ref = normalize(item.get(field) or "")
-        out[name] = {"referencia_normalizada": " ".join(ref), "rouge_l": rouge_l(hyp, ref), "bleu": bleu_sentence(hyp, ref)}
+        text = item.get(field) or ""
+        ref = normalize(text)
+        out[name] = {"referencia_normalizada": " ".join(ref), "referencia_limpa": clean_text(text),
+                     "rouge_l": rouge_l(hyp, ref), "bleu": bleu_sentence(hyp, ref), "cosseno": cosine(resposta, text)}
     return out
 
 
@@ -205,6 +207,7 @@ def flat_metrics(rec: dict) -> dict:
             m[f"rouge_l_r_{ref}"] = r["rouge_l"]["recall"]
             m[f"rouge_l_f1_{ref}"] = r["rouge_l"]["f1"]
             m[f"bleu_{ref}"] = r["bleu"]["bleu"]
+            m[f"cosseno_{ref}"] = r["cosseno"]["cosseno"]
     if rec["agente"]:
         m["segundos"] = rec["agente"]["segundos"]
         m["tokens_entrada"] = rec["agente"]["tokens_entrada"]
@@ -261,9 +264,45 @@ def run_config(items: list[dict], use_judge: bool) -> dict:
         "juiz": {"max_caracteres_por_item": judge.MAX_ITEM_CHARS, "prompts": judge.PROMPTS} if use_judge else None,
         "bleu": {"n": 4, "pesos": "iguais (1/4)", "por_pergunta": "sacrebleu, smooth_method=exp",
                  "corpus": "sacrebleu, sem suavização", "tokenizacao": "normalização própria (eval/text_metrics.py)"},
+        "cosseno": {"modelo": EMBEDDING_MODEL, "prefixo": "query: ", "texto": "limpo (sem tabelas, rótulos e markdown)",
+                    "limite_tokens": "512 (o que passar é cortado; cada pergunta registra se houve corte)"},
+        "referencias": {"curta": "resposta_esperada (fatos-chave; usada no Context Recall)",
+                        "longa": "resposta_referencia (estrutura do prompt do agente; ROUGE-L, BLEU e cosseno)"},
         "versoes": {"python": platform.python_version(), **{p: _version(p) for p in
                     ("anthropic", "sacrebleu", "duckdb", "psycopg", "sentence-transformers", "pgvector")}},
     }
+
+
+def rescore_text(old_dir: Path, out: Path) -> None:
+    """Refaz só as métricas de texto (ROUGE-L, BLEU, cosseno) de uma rodada já feita, com o gabarito atual.
+
+    Reaproveita as respostas do agente, o contexto, a busca direta e as notas do juiz da rodada antiga: não chama
+    o agente, o juiz nem o Postgres. Vale enquanto a `resposta_esperada` (usada pelo juiz no Context Recall)
+    não mudar; o que muda é a `resposta_referencia`.
+    """
+    items = {i["id"]: i for i in load_tests()}
+    old = [json.loads(line) for line in open(old_dir / "detalhes.jsonl", encoding="utf-8")]
+    config = json.loads((old_dir / "config.json").read_text(encoding="utf-8"))
+    new_cfg = run_config([items[r["id"]] for r in old], use_judge=bool(config.get("modelo_juiz")))
+    for key in ("data", "modelo_agente", "modelo_juiz", "temperatura", "juiz"):  # o que veio da rodada antiga
+        new_cfg[key] = config.get(key)
+    new_cfg["reaproveitado_de"] = {"pasta": old_dir.name, "data_original": config["data"],
+                                   "o_que_foi_refeito": "ROUGE-L, BLEU e cosseno, com as referências atuais do gabarito"}
+    (out / "perguntas").mkdir(parents=True, exist_ok=True)
+    (out / "config.json").write_text(json.dumps(new_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+    records = []
+    with open(out / "detalhes.jsonl", "w", encoding="utf-8") as f:
+        for rec in old:
+            item = items[rec["id"]]
+            rec["gabarito"].update({k: item.get(k) for k in ("resposta_esperada", "resposta_referencia")})
+            if rec["agente"]:
+                rec["texto"] = text_scores(item, rec["agente"]["resposta"])
+            rec["metricas"] = flat_metrics(rec)
+            records.append(rec)
+            f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
+            write_question_trail(rec, out / "perguntas" / f"{rec['id']}.md")
+    write_report(records, new_cfg, out / "relatorio.md")
+    print(f"Pronto: {out / 'relatorio.md'}")
 
 
 def main() -> None:
@@ -272,7 +311,14 @@ def main() -> None:
     ap.add_argument("--limit", type=int, help="roda só as N primeiras perguntas")
     ap.add_argument("--sem-juiz", action="store_true", help="não chama o LLM-as-a-judge")
     ap.add_argument("--saida", help="pasta de saída (padrão: eval/resultados/<data-hora>)")
+    ap.add_argument("--refazer-texto", metavar="PASTA",
+                    help="reaproveita uma rodada pronta e refaz só ROUGE-L, BLEU e cosseno (não chama agente, juiz nem banco)")
     args = ap.parse_args()
+
+    if args.refazer_texto:
+        out = Path(args.saida) if args.saida else EVAL_DIR / "resultados" / datetime.now().strftime("%Y-%m-%d_%H%M")
+        rescore_text(Path(args.refazer_texto), out)
+        return
 
     from src.database import ensure_database
     ensure_database()
