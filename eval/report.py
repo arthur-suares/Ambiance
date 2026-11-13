@@ -103,15 +103,31 @@ def write_question_trail(rec: dict, path: Path) -> None:
         L += ["O agente não rodou (ver erros acima).", ""]
     else:
         L += [f"Domínio roteado: `{a['dominio']}` · {len(a['chamadas'])} chamada(s) de ferramenta", ""]
+        if a.get("subconsultas"):
+            L += ["### Plano de subconsultas", ""]
+            L += table(["ID", "Domínio", "Pergunta enviada", "Dependências", "Status"],
+                       [[s["id"], s["domain"], s["question"], ", ".join(s["depends_on"]) or "—", s["status"]]
+                        for s in a["subconsultas"]])
         for n, c in enumerate(a["chamadas"], start=1):
             L += [f"### Chamada {n}: `{c['ferramenta']}` → {c['rotulo'] or '—'}", "",
                   f"ok: {fmt(c['ok'])} · linhas: {c['linhas'] if c['linhas'] is not None else '—'} · {fmt(c['segundos'])} s", "",
+                  f"Subconsulta: `{c.get('subconsulta_id') or 'fluxo simples'}` · pergunta: {c.get('pergunta_da_subconsulta') or '—'}", "",
                   "Argumentos escolhidos pelo LLM:", "", "```json",
                   json.dumps(c["argumentos"], ensure_ascii=False, indent=2), "```", "",
                   "Resultado devolvido ao LLM:", "", "```text", cut(c["saida"], SAIDA_MAX), "```", ""]
         L += ["### Contexto recebido pelo LLM (itens avaliados pelo juiz)", ""]
         L += table(["Item", "Descrição", "Relevância (gabarito)"],
                    [[it["id"], it["descricao"], it.get("relevancia", "—")] for it in rec["contexto"]])
+        if a.get("buscas_juridicas"):
+            L += ["### Recuperação jurídica nas consultas reais do agente", "",
+                  "Estas métricas usam o texto enviado à ferramenta `search_laws`, não apenas a pergunta original.", ""]
+            L += table(["Subconsulta", "Consulta enviada", "Hit@5", "Recall@5", "MRR", "Artigos esperados encontrados"],
+                       [[search.get("subconsulta_id") or "fluxo simples", search["pergunta_enviada"],
+                         fmt(search["metricas"]["hit@5"]), fmt(search["metricas"]["recall@5"]),
+                         fmt(search["metricas"]["mrr"]),
+                         "; ".join(f"{key}: {value or 'não'}"
+                                   for key, value in search["posicao_dos_artigos_do_gabarito"].items())]
+                        for search in a["buscas_juridicas"]])
 
     # 4 ----------------------------------------------------------------------
     L += ["## 4. Resposta do LLM", ""]

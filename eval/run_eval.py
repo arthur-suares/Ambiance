@@ -110,6 +110,35 @@ def context_items(answer, essenciais: set, todos: set) -> list[dict]:
     return items
 
 
+def agent_law_retrieval_metrics(answer, item: dict) -> list[dict]:
+    """Calcula métricas por consulta real enviada a search_laws durante a execução do agente."""
+    essenciais, todos = gold_sets(item) if item["artigos"] else (set(), set())
+    searches = []
+    for call in answer.tool_calls:
+        if call.name != "search_laws":
+            continue
+        chunks = (
+            answer.law_sources[call.law_source_start - 1:call.law_source_end]
+            if call.law_source_start is not None and call.law_source_end is not None
+            else []
+        )
+        positions = first_positions(chunks)
+        searches.append({
+            "subconsulta_id": call.subquery_id,
+            "pergunta_enviada": call.input.get("query", ""),
+            "fontes_recuperadas": [
+                {"lei": chunk.get("title"), "artigo": (chunk.get("metadata") or {}).get("artigo")}
+                for chunk in chunks
+            ],
+            "posicao_dos_artigos_do_gabarito": {
+                f"{law}, art. {article}": positions.get((law, article))
+                for law, article in sorted(todos)
+            },
+            "metricas": ranking_scores(positions, essenciais, todos),
+        })
+    return searches
+
+
 def run_agent(item: dict) -> tuple[dict, list[dict]]:
     from src.agent import ask
     from src.rag import resolve_domain
@@ -119,10 +148,16 @@ def run_agent(item: dict) -> tuple[dict, list[dict]]:
     seconds = round(time.perf_counter() - start, 2)
     essenciais, todos = gold_sets(item) if item["artigos"] else (set(), set())
     calls = [{"rotulo": c.label, "ferramenta": c.name, "argumentos": c.input, "ok": c.ok, "linhas": c.rows,
-              "segundos": c.seconds, "saida": c.output} for c in answer.tool_calls]
+              "segundos": c.seconds, "saida": c.output, "subconsulta_id": c.subquery_id,
+              "dominio": c.domain, "pergunta_da_subconsulta": c.question,
+              "faixa_fontes_juridicas": [c.law_source_start, c.law_source_end]
+              if c.law_source_start is not None else None} for c in answer.tool_calls]
     agent = {"dominio": domain, "resposta": answer.text, "stop_reason": answer.stop_reason,
              "tokens_entrada": answer.input_tokens, "tokens_saida": answer.output_tokens,
-             "segundos": seconds, "chamadas": calls}
+             "segundos": seconds, "chamadas": calls,
+             "tipo_pergunta": answer.question_type,
+             "subconsultas": answer.subqueries,
+             "buscas_juridicas": agent_law_retrieval_metrics(answer, item)}
     return agent, context_items(answer, essenciais, todos)
 
 

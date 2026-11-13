@@ -12,10 +12,13 @@ Cada resultado recebe um rótulo ([D1], [D2]... para dados, [L1], [L2]... para
 trechos de lei) que o LLM usa para citar a origem de cada número ou afirmação.
 """
 
+import csv
+import io
 import json
 import math
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -28,6 +31,52 @@ from src.soy import queries as soy_queries
 
 MAX_TURNS = 10
 MAX_ROWS_TO_LLM = 60
+MAX_SUBQUERIES = 6
+
+PLAN_TOOL = {
+    "name": "create_retrieval_plan",
+    "description": "Decompõe a pergunta em subconsultas independentes por domínio.",
+    "input_schema": {
+        "type": "object",
+        "required": ["question_type", "subqueries"],
+        "properties": {
+            "question_type": {"type": "string", "enum": ["data", "legislation", "mixed"]},
+            "subqueries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_SUBQUERIES,
+                "items": {
+                    "type": "object",
+                    "required": ["id", "domain", "question", "depends_on"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "domain": {"type": "string", "enum": ["soy_data", "beef_data", "legislation"]},
+                        "question": {"type": "string"},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+        },
+    },
+}
+
+PLAN_PROMPT = """\
+Planeje a execução da pergunta original sem respondê-la.
+Divida-a apenas quando houver objetivos independentes que exijam fontes diferentes.
+Use somente os domínios disponíveis: soy_data (ferramentas soy_*), beef_data \
+(ferramentas de dados sem prefixo soy_) e legislation (search_laws).
+Cada subconsulta deve conter somente o objetivo daquele domínio, preservando ano, \
+localidade, entidade, métrica e outras condições relevantes. Nunca misture termos \
+jurídicos na subconsulta de dados nem indicadores do Trase na subconsulta jurídica.
+Perguntas sobre fatos ou regras legais vão para legislation; perguntas sobre métricas \
+e séries das cadeias vão para o domínio de dados correspondente.
+Em pergunta mista que dependa do resultado dos dados para determinar quais regras \
+se aplicam, a subconsulta legislation deve depender do id da subconsulta de dados. \
+Não infira que exposição ambiental prova infração.
+Para pergunta simples, retorne uma subconsulta, sem divisão artificial.
+Use ids únicos, depends_on vazio quando independente, e liste dependências antes \
+do item que depende delas.
+"""
 
 SYSTEM_PROMPT = """\
 Você é o assistente de dados de um sistema que monitora riscos ambientais nas cadeias da \
@@ -340,6 +389,11 @@ class ToolCall:
     output: str
     rows: int | None = None
     seconds: float = 0.0
+    subquery_id: str | None = None
+    domain: str | None = None
+    question: str | None = None
+    law_source_start: int | None = None
+    law_source_end: int | None = None
 
 
 @dataclass
@@ -351,6 +405,92 @@ class AgentAnswer:
     stop_reason: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    question_type: str | None = None
+    subqueries: list[dict] = field(default_factory=list)
+
+
+def validate_retrieval_plan(raw: Any) -> dict:
+    """Valida o plano antes de permitir que qualquer subconsulta acione ferramentas."""
+    if not isinstance(raw, dict):
+        raise ValueError("Plano de recuperação inválido: esperado um objeto JSON.")
+    question_type = raw.get("question_type")
+    if question_type not in {"data", "legislation", "mixed"}:
+        raise ValueError("Plano de recuperação inválido: question_type desconhecido.")
+    items = raw.get("subqueries")
+    if not isinstance(items, list) or not 1 <= len(items) <= MAX_SUBQUERIES:
+        raise ValueError(f"Plano de recuperação inválido: subqueries deve conter de 1 a {MAX_SUBQUERIES} itens.")
+
+    valid_domains = {"soy_data", "beef_data", "legislation"}
+    normalized: list[dict] = []
+    seen_ids: set[str] = set()
+    seen_domains: dict[str, str] = {}
+    seen_queries: set[tuple[str, str]] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("Plano de recuperação inválido: cada subconsulta deve ser um objeto.")
+        subquery_id = item.get("id")
+        domain = item.get("domain")
+        question = item.get("question")
+        dependencies = item.get("depends_on")
+        if not isinstance(subquery_id, str) or not subquery_id.strip():
+            raise ValueError("Plano de recuperação inválido: id de subconsulta vazio.")
+        subquery_id = subquery_id.strip()
+        if subquery_id in seen_ids:
+            raise ValueError(f"Plano de recuperação inválido: id duplicado {subquery_id!r}.")
+        if domain not in valid_domains:
+            raise ValueError(f"Plano de recuperação inválido: domínio desconhecido {domain!r}.")
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError(f"Plano de recuperação inválido: pergunta vazia em {subquery_id!r}.")
+        if not isinstance(dependencies, list) or any(not isinstance(dep, str) for dep in dependencies):
+            raise ValueError(f"Plano de recuperação inválido: depends_on inválido em {subquery_id!r}.")
+        if len(set(dependencies)) != len(dependencies):
+            raise ValueError(f"Plano de recuperação inválido: dependência duplicada em {subquery_id!r}.")
+        if any(dep not in seen_ids for dep in dependencies):
+            raise ValueError(f"Plano de recuperação inválido: dependência deve apontar para subconsulta anterior ({subquery_id!r}).")
+        if dependencies and (
+            domain != "legislation"
+            or any(seen_domains[dependency] == "legislation" for dependency in dependencies)
+        ):
+            raise ValueError(
+                "Plano inválido: somente uma subconsulta jurídica pode depender de "
+                "subconsultas anteriores de dados."
+            )
+
+        normalized_question = " ".join(question.lower().split())
+        dedupe_key = (domain, normalized_question)
+        if dedupe_key in seen_queries:
+            raise ValueError(f"Plano de recuperação inválido: subconsulta redundante em {subquery_id!r}.")
+        seen_queries.add(dedupe_key)
+        seen_ids.add(subquery_id)
+        seen_domains[subquery_id] = domain
+        normalized.append({
+            "id": subquery_id,
+            "domain": domain,
+            "question": question.strip(),
+            "depends_on": list(dependencies),
+        })
+
+    domains = {item["domain"] for item in normalized}
+    if question_type == "legislation" and domains != {"legislation"}:
+        raise ValueError("Plano inválido: uma pergunta classificada como legislação deve usar apenas legislação.")
+    if question_type == "data" and "legislation" in domains:
+        raise ValueError("Plano inválido: uma pergunta classificada como dados não pode incluir legislação.")
+    if question_type == "mixed" and ("legislation" not in domains or not (domains & {"soy_data", "beef_data"})):
+        raise ValueError("Plano inválido: pergunta mista exige subconsultas de dados e legislação.")
+    return {"question_type": question_type, "subqueries": normalized}
+
+
+def _tools_for_domain(domain: str, soy_available: bool) -> list[dict]:
+    if domain == "legislation":
+        return [tool for tool in TOOLS if tool["name"] == "search_laws"]
+    if domain == "soy_data":
+        return SOY_TOOLS if soy_available else []
+    if domain == "beef_data":
+        return [
+            tool for tool in TOOLS
+            if tool["name"] != "search_laws"
+        ]
+    raise ValueError(f"Domínio sem ferramentas: {domain}")
 
 
 def _round(v):
@@ -375,10 +515,15 @@ class _Session:
         self.law_sources: list[dict] = []
         self.calls: list[ToolCall] = []
         self.laws_down = False
+        self.active_subquery_id: str | None = None
+        self.active_domain: str | None = None
+        self.active_question: str | None = None
+        self.last_law_range: tuple[int, int] | None = None
 
     def run(self, name: str, args: dict) -> tuple[str, bool]:
         start = time.perf_counter()
         label, rows = "", None
+        self.last_law_range = None
         try:
             if name == "search_laws" and self.laws_down:
                 raise RuntimeError("base de leis indisponível")
@@ -411,8 +556,21 @@ class _Session:
                 text = ("Erro: a base de leis está indisponível (sem conexão com o Postgres). "
                         "Não tente de novo; responda sem os trechos de lei e avise o usuário.")
 
-        self.calls.append(ToolCall(label or name, name, args, ok, text, rows,
-                                   round(time.perf_counter() - start, 2)))
+        source_range = self.last_law_range
+        self.calls.append(ToolCall(
+            label=label or name,
+            name=name,
+            input=args,
+            ok=ok,
+            output=text,
+            rows=rows,
+            seconds=round(time.perf_counter() - start, 2),
+            subquery_id=self.active_subquery_id,
+            domain=self.active_domain,
+            question=self.active_question,
+            law_source_start=source_range[0] if source_range else None,
+            law_source_end=source_range[1] if source_range else None,
+        ))
         if label and ok:
             text = f"Resultado [{label}]\n{text}"
         return text, ok
@@ -422,6 +580,7 @@ class _Session:
         chunks = retrieve(args["query"], k=args.get("k") or self.k_laws)
         if not chunks:
             return "(nenhum trecho encontrado)", ""
+        start = len(self.law_sources) + 1
         docs = []
         for c in chunks:
             self.law_sources.append(c)
@@ -430,7 +589,8 @@ class _Session:
             parte = f' parte="{m["parte"]}/{m["partes"]}"' if m.get("partes", 1) > 1 else ""
             docs.append(f'<documento rotulo="L{i}" lei="{c["title"]}" artigo="{m.get("artigo")}"{parte} '
                         f'fonte="{c["url"]}">\n{c["content"]}\n</documento>')
-        first, last = len(self.law_sources) - len(chunks) + 1, len(self.law_sources)
+        first, last = start, len(self.law_sources)
+        self.last_law_range = (first, last)
         return "<documentos>\n" + "\n".join(docs) + "\n</documentos>", f"L{first}-L{last}"
 
 
@@ -440,6 +600,286 @@ DOMAIN_HINTS = {
     "mixed": "A pergunta combina dados e legislação: use as ferramentas de dados e search_laws.",
     "law": "A pergunta é sobre legislação: priorize search_laws.",
 }
+
+
+def _create_retrieval_plan(
+    question: str, history: list[dict] | None = None
+) -> tuple[dict, int, int]:
+    response = get_client().messages.create(
+        model=LLM_MODEL,
+        max_tokens=2000,
+        system=[{"type": "text", "text": PLAN_PROMPT}],
+        tools=[PLAN_TOOL],
+        tool_choice={"type": "tool", "name": PLAN_TOOL["name"]},
+        messages=list(history or []) + [{"role": "user", "content": question}],
+    )
+    block = next(
+        (content for content in response.content
+         if getattr(content, "type", None) == "tool_use"
+         and getattr(content, "name", None) == PLAN_TOOL["name"]),
+        None,
+    )
+    if block is None:
+        raise ValueError("O planejador não retornou o plano estruturado obrigatório.")
+    plan = validate_retrieval_plan(block.input)
+    return plan, response.usage.input_tokens, response.usage.output_tokens
+
+
+def _dependency_context(
+    subquery: dict,
+    previous: dict[str, dict],
+    calls: list[ToolCall],
+) -> str:
+    if not subquery["depends_on"]:
+        return ""
+    allowed_columns = {
+        "municipality", "municipality_of_production", "region", "parent_region",
+        "state", "state_of_production", "biome", "level",
+    }
+    values: dict[str, list[str]] = {}
+    for dependency_id in subquery["depends_on"]:
+        if previous[dependency_id]["status"] != "completed":
+            raise RuntimeError(f"Dependência {dependency_id!r} não foi concluída.")
+        for call in calls:
+            if call.subquery_id != dependency_id or not call.ok:
+                continue
+            lines = (call.output or "").splitlines()
+            if not lines:
+                continue
+            try:
+                rows = csv.DictReader(io.StringIO("\n".join(lines)))
+                if rows.fieldnames is None:
+                    continue
+                selected_columns = [
+                    name for name in rows.fieldnames
+                    if name and name.strip().lower() in allowed_columns
+                ]
+                for row in rows:
+                    for column in selected_columns:
+                        value = (row.get(column) or "").strip()
+                        if value and value not in values.setdefault(column, []):
+                            values[column].append(value)
+            except csv.Error:
+                continue
+    if not values:
+        return (
+            "Contexto de dependência: a consulta anterior não identificou localidade "
+            "em campos estruturados; não presuma uma região específica."
+        )
+    compact = "; ".join(
+        f"{column}: {', '.join(entries[:10])}"
+        for column, entries in values.items()
+    )
+    return (
+        "Contexto territorial extraído dos resultados anteriores (use apenas se "
+        f"relevante à regra jurídica): {compact}"
+    )
+
+
+def _run_planned_subquery(
+    subquery: dict,
+    system: list[dict],
+    tools: list[dict],
+    session: _Session,
+    dependency_context: str,
+) -> tuple[str, str, int, int]:
+    domain = subquery["domain"]
+    if not tools:
+        return f"Não há ferramentas disponíveis para o domínio {domain}.", "failed", 0, 0
+
+    domain_instructions = {
+        "soy_data": "Responda somente esta subpergunta usando ferramentas da soja. Não consulte leis.",
+        "beef_data": "Responda somente esta subpergunta usando ferramentas da cadeia bovina. Não consulte leis nem dados da soja.",
+        "legislation": "Responda somente esta subpergunta usando search_laws. Não consulte SQL nem dados de cadeia.",
+    }
+    sub_system = list(system) + [{
+        "type": "text",
+        "text": (
+            f"Subconsulta {subquery['id']} ({domain}). {domain_instructions[domain]} "
+            "Não tente responder às outras partes da pergunta original. "
+            "Use somente evidências retornadas pelas ferramentas."
+        ),
+    }]
+    user_content = subquery["question"]
+    if dependency_context:
+        user_content += "\n\n" + dependency_context
+    messages = [{"role": "user", "content": user_content}]
+    session.active_subquery_id = subquery["id"]
+    session.active_domain = domain
+    session.active_question = subquery["question"]
+    start_call = len(session.calls)
+    answer_text = ""
+    stop_reason = "max_turns"
+    input_tokens = output_tokens = 0
+
+    for _ in range(MAX_TURNS):
+        response = get_client().messages.create(
+            model=LLM_MODEL,
+            max_tokens=8000,
+            system=sub_system,
+            tools=tools,
+            messages=messages,
+        )
+        input_tokens += response.usage.input_tokens
+        output_tokens += response.usage.output_tokens
+        stop_reason = response.stop_reason
+        if stop_reason != "tool_use":
+            answer_text = "".join(
+                block.text for block in response.content
+                if getattr(block, "type", None) == "text"
+            ).strip()
+            if stop_reason == "refusal":
+                answer_text = "O modelo recusou responder a esta subpergunta."
+            elif stop_reason == "max_tokens":
+                answer_text += "\n\n[Resposta cortada: limite de tokens atingido.]"
+            break
+
+        messages.append({"role": "assistant", "content": response.content})
+        tool_results = []
+        for block in response.content:
+            if getattr(block, "type", None) != "tool_use":
+                continue
+            if block.name not in {tool["name"] for tool in tools}:
+                raise ValueError(
+                    f"O modelo tentou chamar {block.name!r}, fora das ferramentas do domínio {domain!r}."
+                )
+            text, ok = session.run(block.name, dict(block.input or {}))
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": text,
+                "is_error": not ok,
+            })
+        messages.append({"role": "user", "content": tool_results})
+
+    session.active_subquery_id = None
+    session.active_domain = None
+    session.active_question = None
+    subquery_calls = session.calls[start_call:]
+    if subquery_calls and not any(call.ok for call in subquery_calls):
+        status = "failed"
+    elif not answer_text and stop_reason == "max_turns":
+        status = "failed"
+    else:
+        status = "completed"
+    return answer_text, status, input_tokens, output_tokens
+
+
+def _synthesize_mixed_answer(
+    question: str,
+    plan: dict,
+    results: list[dict],
+    calls: list[ToolCall],
+    system: list[dict],
+    history: list[dict] | None = None,
+) -> tuple[str, int, int]:
+    evidence = []
+    for result in results:
+        matched_calls = [
+            call for call in calls if call.subquery_id == result["id"]
+        ]
+        evidence.append({
+            "subquery": result,
+            "tool_results": [
+                {
+                    "tool": call.name,
+                    "arguments": call.input,
+                    "ok": call.ok,
+                    "label": call.label,
+                    "result": call.output,
+                }
+                for call in matched_calls
+            ],
+        })
+    synthesis_prompt = (
+        "Responda à pergunta original integrando os resultados das subconsultas. "
+        "Diferencie dados estruturados de fundamentação jurídica e cite os rótulos "
+        "[D...] e [L...] recebidos. Não trate exposição como prova de infração. "
+        "Se alguma subconsulta falhou ou ficou bloqueada, diga explicitamente qual "
+        "parte não pôde ser concluída; não apresente a resposta como completa. "
+        "Não invente relações, dados nem regras que não estejam nos resultados.\n\n"
+        f"Plano executado:\n{json.dumps(plan, ensure_ascii=False)}\n\n"
+        f"Resultados:\n{json.dumps(evidence, ensure_ascii=False)}\n\n"
+        f"Pergunta original:\n{question}"
+    )
+    response = get_client().messages.create(
+        model=LLM_MODEL,
+        max_tokens=8000,
+        system=system,
+        messages=list(history or []) + [{"role": "user", "content": synthesis_prompt}],
+    )
+    answer = "".join(
+        block.text for block in response.content
+        if getattr(block, "type", None) == "text"
+    ).strip()
+    if response.stop_reason == "refusal":
+        answer = "O modelo recusou responder à pergunta."
+    elif response.stop_reason == "max_tokens":
+        answer += "\n\n[Resposta cortada: limite de tokens atingido.]"
+    return answer, response.usage.input_tokens, response.usage.output_tokens
+
+
+def _ask_decomposed(
+    question: str,
+    k_laws: int,
+    system: list[dict],
+    soy_available: bool,
+    history: list[dict] | None = None,
+) -> AgentAnswer:
+    plan, plan_input_tokens, plan_output_tokens = _create_retrieval_plan(question, history)
+    session = _Session(k_laws)
+    results_by_id: dict[str, dict] = {}
+    subquery_results: list[dict] = []
+    input_tokens, output_tokens = plan_input_tokens, plan_output_tokens
+
+    for subquery in plan["subqueries"]:
+        try:
+            dependency_context = _dependency_context(subquery, results_by_id, session.calls)
+        except RuntimeError as error:
+            result = {
+                **subquery,
+                "status": "blocked",
+                "answer": str(error),
+            }
+            results_by_id[subquery["id"]] = result
+            subquery_results.append(result)
+            continue
+
+        tools = _tools_for_domain(subquery["domain"], soy_available)
+        try:
+            answer_text, status, used_input, used_output = _run_planned_subquery(
+                subquery, system, tools, session, dependency_context
+            )
+        except Exception as error:
+            answer_text = f"Falha explícita na execução: {type(error).__name__}: {error}"
+            status, used_input, used_output = "failed", 0, 0
+        input_tokens += used_input
+        output_tokens += used_output
+        result = {
+            **subquery,
+            "status": status,
+            "answer": answer_text,
+            "dependency_context": dependency_context or None,
+        }
+        results_by_id[subquery["id"]] = result
+        subquery_results.append(result)
+
+    answer_text, used_input, used_output = _synthesize_mixed_answer(
+        question, plan, subquery_results, session.calls, system, history
+    )
+    input_tokens += used_input
+    output_tokens += used_output
+    return AgentAnswer(
+        question,
+        answer_text,
+        tool_calls=session.calls,
+        law_sources=session.law_sources,
+        stop_reason="end_turn",
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        question_type=plan["question_type"],
+        subqueries=subquery_results,
+    )
 
 
 def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
@@ -457,7 +897,23 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
     }]
     if domain in DOMAIN_HINTS:
         system.append({"type": "text", "text": f"Roteamento: {DOMAIN_HINTS[domain]}"})
-    tools = TOOLS + SOY_TOOLS if soy_ok else TOOLS
+    if domain == "mixed":
+        try:
+            return _ask_decomposed(question, k_laws, system, soy_ok, history)
+        except ValueError as error:
+            return AgentAnswer(
+                question,
+                f"Não foi possível validar um plano seguro para esta pergunta mista: {error}",
+                stop_reason="planning_error",
+            )
+    if domain == "law":
+        tools = _tools_for_domain("legislation", soy_ok)
+    elif domain == "soy":
+        tools = _tools_for_domain("soy_data", soy_ok)
+    elif domain == "beef":
+        tools = _tools_for_domain("beef_data", soy_ok)
+    else:
+        tools = TOOLS + SOY_TOOLS if soy_ok else TOOLS
     messages = list(history or []) + [{"role": "user", "content": question}]
     session = _Session(k_laws)
     result = AgentAnswer(question, "")

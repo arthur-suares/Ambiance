@@ -53,8 +53,8 @@ def route_question(question: str) -> dict:
     if has_beef and not re.search(r"\b(soja|soy)\b", text):
         has_soy = False
 
-    if has_legal and has_soy:
-        return {"domain": "mixed", "retrieval": "hybrid", "reason": "Pergunta mistura legislação e dados de soja."}
+    if has_legal and (has_soy or has_beef):
+        return {"domain": "mixed", "retrieval": "hybrid", "reason": "Pergunta mistura legislação e dados estruturados."}
     if has_legal and not (has_soy or has_beef):
         return {"domain": "law", "retrieval": "document", "reason": "Pergunta documental sobre legislação."}
     if has_soy:

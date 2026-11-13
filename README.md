@@ -277,14 +277,14 @@ Para números, a "recuperação" é uma consulta SQL. O agente tem três caminho
 | `law` | Termos jurídicos ("código florestal", "reserva legal", "artigo", "decreto", "licenciamento"...) sem menção a uma cadeia |
 | `soy` | Termos da soja ("soja", "cadeia da soja", "volume de soja"...) |
 | `beef` | Termos da carne bovina ("bovino", "gado", "pecuária", "carne bovina"...) |
-| `mixed` | Termos jurídicos + soja |
+| `mixed` | Termos jurídicos + soja ou carne bovina |
 | `auto` | Nenhum padrão claro |
 
 Termos genéricos como "exportador" ou "importador" valem para as duas cadeias: se a pergunta fala de carne bovina e não cita soja explicitamente, ela é roteada para `beef`.
 
 `resolve_domain()` em [src/rag.py](src/rag.py) respeita um domínio escolhido pelo usuário (`--domain` na CLI ou seletor na web) e só usa o roteador quando o domínio é `auto`.
 
-O roteamento **não restringe** o agente: ele vira uma dica no prompt de sistema ("A pergunta é sobre a cadeia da soja: use as ferramentas soy_* e run_soy_sql"). O agente continua com todas as ferramentas e pode, por exemplo, consultar leis numa pergunta roteada para `soy`.
+O roteamento também restringe as ferramentas nas perguntas simples: `soy` recebe ferramentas da soja, `beef` recebe ferramentas da carne e `law` recebe `search_laws`. Perguntas `mixed` passam por um planejador e recebem conjuntos de ferramentas separados por subconsulta.
 
 ---
 
@@ -325,13 +325,31 @@ A parte fixa do prompt é marcada com `cache_control` (prompt caching), porque o
 | `run_soy_sql` | soja | SELECT livre no `soy.duckdb` |
 | `search_laws` | leis | Busca híbrida nas leis (a mesma da seção 4.1) |
 
-**Loop de execução** (`ask()`):
+**Perguntas de domínio único — loop de execução** (`ask()`):
 
 1. Envia pergunta, histórico, prompt e ferramentas ao LLM.
 2. Se o LLM pedir ferramentas (`stop_reason = tool_use`), executa todas as chamadas daquela rodada e devolve os resultados.
 3. Repete até o LLM responder em texto, com no máximo **10 rodadas**.
 4. Se uma ferramenta der erro (SQL inválido, nome inexistente), o erro volta ao LLM como `is_error`, e o prompt o instrui a corrigir a chamada e tentar de novo (no máximo duas vezes).
 5. Trata recusa do modelo e corte por limite de tokens com mensagens explícitas.
+
+**Perguntas mistas — planejamento e execução isolada**:
+
+1. `ask()` solicita ao LLM um plano estruturado com tipo da pergunta e subconsultas para `soy_data`, `beef_data` e/ou `legislation`.
+2. O plano é validado em Python antes de qualquer ferramenta: domínios permitidos, IDs únicos, ausência de duplicatas e dependências somente de subconsultas anteriores.
+3. Cada subconsulta executa seu próprio loop com ferramentas restritas ao domínio. A consulta de dados não recebe `search_laws`, e a consulta jurídica não recebe ferramentas SQL.
+4. As subconsultas são executadas em sequência. Se houver dependência, somente campos territoriais explícitos (município, região, UF/estado, bioma e nível) são extraídos dos resultados de dados para contextualizar a consulta seguinte; linhas numéricas completas ou SQL não são repassados.
+5. Uma chamada final sintetiza a resposta à pergunta original, mantendo os rótulos de dados e leis. Falhas e dependências bloqueadas são informadas, sem descartar resultados válidos de outras subconsultas.
+
+Exemplo de decomposição:
+
+```text
+Original: Qual município tem maior exposição da soja ao desmatamento e quais obrigações de Reserva Legal se aplicam?
+soy_data: Qual município tem maior exposição da soja ao desmatamento?
+legislation: Quais obrigações legais de Reserva Legal se aplicam?
+```
+
+O plano e os metadados das chamadas ficam disponíveis em `AgentAnswer.subqueries` e `AgentAnswer.tool_calls`. O avaliador em [eval/run_eval.py](eval/run_eval.py) mantém as métricas da busca direta com a pergunta original e também registra Hit@k, Recall@k e MRR por consulta real enviada a `search_laws`.
 
 **Formato dos resultados enviados ao LLM**:
 
@@ -348,6 +366,8 @@ A resposta final (`AgentAnswer`) traz, além do texto: a lista de chamadas de fe
 
 - **Postgres fora do ar**: na primeira falha, `search_laws` é desligada para o resto da pergunta e o LLM recebe a instrução de responder a parte de dados e avisar que não conseguiu consultar as leis.
 - **Banco da soja ausente**: as ferramentas `soy_*` não são oferecidas e o prompt explica ao LLM que os dados da soja estão indisponíveis.
+- **Planejamento misto inválido**: o agente não executa ferramentas e informa que não conseguiu validar um plano seguro.
+- **Planejamento é serial**: mesmo subconsultas independentes ainda são executadas em sequência; paralelismo não foi habilitado para preservar a simplicidade e o estado compartilhado dos rótulos/fontes.
 
 ### 6.4 Modo "só leis" ([src/rag.py](src/rag.py))
 
