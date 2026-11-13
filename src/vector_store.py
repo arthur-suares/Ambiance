@@ -24,6 +24,7 @@ from src.config import (
     PG_USER,
     PROJECT_ROOT,
 )
+from src.fts_query import build_relaxed_fts_query, extract_terms, weight_terms
 
 SCHEMA_PATH = PROJECT_ROOT / "sql" / "schema.sql"
 RRF_K = 60  # constante padrão do Reciprocal Rank Fusion
@@ -188,19 +189,67 @@ def semantic_search(
         ).fetchall()
 
 
+LEXICAL_MODES = ("strict", "relaxed", "idf")
+
+
+def _term_doc_freq(con: psycopg.Connection, terms: list[str], doc_type: str | None) -> tuple[int, dict[str, int]]:
+    """Número de chunks do índice (com o filtro de doc_type) e, para cada termo, em quantos chunks ele aparece."""
+    params = {"terms": terms, "doc_type": doc_type}
+    n_docs = con.execute(
+        "SELECT count(*) AS n FROM chunks c JOIN documents d ON d.id = c.document_id "
+        "WHERE (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)", params).fetchone()["n"]
+    rows = con.execute(
+        f"""
+        SELECT t.term,
+               (SELECT count(*) FROM chunks c JOIN documents d ON d.id = c.document_id
+                 WHERE c.tsv @@ websearch_to_tsquery('{FTS_CONFIG}', t.term)
+                   AND (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)) AS df
+        FROM unnest(%(terms)s::text[]) AS t(term)
+        """, params).fetchall()
+    return n_docs, {r["term"]: r["df"] for r in rows}
+
+
 def hybrid_search(
     query_text: str,
     query_embedding,
     limit: int = 5,
     candidates: int = 40,
     doc_type: str | None = None,
+    lexical_mode: str = "idf",
 ) -> list[dict]:
     """Combina busca vetorial e full-text com Reciprocal Rank Fusion.
 
     Cada busca devolve até `candidates` resultados; a posição de cada chunk em
-    cada lista vira score 1/(RRF_K + posição) e os scores são somados.
+    cada lista vira score 1/(RRF_K + posição) e os scores são somados. Os scores do
+    canal lexical só ordenam esse canal: o RRF recebe posições.
+
+    `lexical_mode` escolhe a consulta do canal lexical (src/fts_query.py):
+    - "strict": a pergunta inteira no `websearch_to_tsquery` (todas as palavras, AND). Modo antigo, só para comparar.
+    - "relaxed": termos informativos ligados por OR; ordem do canal por `ts_rank_cd`.
+    - "idf" (padrão): os mesmos termos com OR, mas cada chunk é ordenado pela soma do IDF dos termos que ele
+      contém (IDF do BM25 sobre os chunks do índice), com `ts_rank_cd` só para desempatar. Termo comum
+      ("reserva", "legal") pesa pouco; termo raro pesa muito.
+    Em todos, o filtro `c.tsv @@ q` continua: chunk sem nenhum termo da consulta não entra pelo canal lexical.
+    Sem termo válido, o canal lexical fica vazio e a busca é só semântica.
     """
+    if lexical_mode not in LEXICAL_MODES:
+        raise ValueError(f"lexical_mode deve ser um de: {', '.join(LEXICAL_MODES)}")
+    terms: list[str] = []
+    weights: list[float] = []
+    if lexical_mode == "strict":
+        fts_text = query_text
+    elif lexical_mode == "relaxed":
+        fts_text = build_relaxed_fts_query(query_text)
+    else:
+        fts_text = ""
     with get_connection() as con:
+        if lexical_mode == "idf":
+            pool = extract_terms(query_text)
+            if pool:
+                n_docs, doc_freq = _term_doc_freq(con, pool, doc_type)
+                weighted = weight_terms(pool, doc_freq, n_docs)
+                terms, weights = [t for t, _ in weighted], [w for _, w in weighted]
+                fts_text = " or ".join(terms)
         if doc_type:
             con.execute("SET hnsw.iterative_scan = relaxed_order")
         return con.execute(
@@ -216,15 +265,18 @@ def hybrid_search(
                 ) s
             ),
             keyword AS (
-                SELECT id, ROW_NUMBER() OVER (ORDER BY text_rank DESC) AS rank
+                SELECT id, ROW_NUMBER() OVER (ORDER BY idf_score DESC, text_rank DESC) AS rank
                 FROM (
-                    SELECT c.id, ts_rank_cd(c.tsv, q) AS text_rank
+                    SELECT c.id, ts_rank_cd(c.tsv, q) AS text_rank,
+                           (SELECT COALESCE(SUM(t.w), 0)
+                              FROM unnest(%(terms)s::text[], %(weights)s::float8[]) AS t(term, w)
+                             WHERE c.tsv @@ websearch_to_tsquery('{FTS_CONFIG}', t.term)) AS idf_score
                     FROM chunks c
                     JOIN documents d ON d.id = c.document_id,
                          websearch_to_tsquery('{FTS_CONFIG}', %(query)s) q
                     WHERE c.tsv @@ q
                       AND (%(doc_type)s::text IS NULL OR d.doc_type = %(doc_type)s)
-                    ORDER BY text_rank DESC
+                    ORDER BY idf_score DESC, text_rank DESC
                     LIMIT %(candidates)s
                 ) k
             ),
@@ -245,7 +297,7 @@ def hybrid_search(
             LIMIT %(limit)s
             """,
             {"emb": np.asarray(query_embedding, dtype=np.float32),
-             "query": query_text, "doc_type": doc_type,
+             "query": fts_text, "doc_type": doc_type, "terms": terms, "weights": weights,
              "candidates": candidates, "limit": limit},
         ).fetchall()
 

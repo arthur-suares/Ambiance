@@ -1,0 +1,1098 @@
+[
+ {
+  "id": "L01",
+  "tipo": "lei",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.651",
+    "12"
+   ]
+  ],
+  "complementares": [
+   [
+    "12.651",
+    "3"
+   ]
+  ],
+  "direta_ms": 35.0,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L12.651/2012 art.12",
+   "L12.651/2012 art.68",
+   "L12.651/2012 art.19",
+   "L12.651/2012 art.3",
+   "L12.651/2012 art.16"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 1
+   },
+   {
+    "pos_rrf_completo": 3,
+    "rank_semantico": 3,
+    "rank_kw": null,
+    "parte": 2
+   },
+   {
+    "pos_rrf_completo": 5,
+    "rank_semantico": 5,
+    "rank_kw": null,
+    "parte": 3
+   },
+   {
+    "pos_rrf_completo": 14,
+    "rank_semantico": 14,
+    "rank_kw": null,
+    "parte": 4
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.651 art.12": 1,
+   "12.651 art.3": 6
+  },
+  "agente": [
+   {
+    "query": "percentual de reserva legal imóvel rural Amazônia Legal florestas 80% cerrado campos gerais 35% demais regiões 20%",
+    "k": 6,
+    "kw_matches": 0,
+    "primeiro_essencial": 1,
+    "top": [
+     "L12.651/2012 art.12",
+     "L12.651/2012 art.68",
+     "L12.651/2012 art.3",
+     "L12.651/2012 art.4"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "L02",
+  "tipo": "lei",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.651",
+    "4"
+   ]
+  ],
+  "complementares": [
+   [
+    "12.651",
+    "3"
+   ]
+  ],
+  "direta_ms": 46.1,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L12.651/2012 art.4",
+   "L12.651/2012 art.61-A",
+   "L12.651/2012 art.65",
+   "L12.651/2012 art.62",
+   "L12.651/2012 art.6"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 1
+   },
+   {
+    "pos_rrf_completo": 5,
+    "rank_semantico": 5,
+    "rank_kw": null,
+    "parte": 2
+   },
+   {
+    "pos_rrf_completo": 7,
+    "rank_semantico": 7,
+    "rank_kw": null,
+    "parte": 4
+   },
+   {
+    "pos_rrf_completo": 10,
+    "rank_semantico": 10,
+    "rank_kw": null,
+    "parte": 5
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.651 art.3": null,
+   "12.651 art.4": 1
+  },
+  "agente": [
+   {
+    "query": "largura mínima da faixa de preservação permanente às margens de rios com menos de 10 metros de largura",
+    "k": 6,
+    "kw_matches": 0,
+    "primeiro_essencial": 1,
+    "top": [
+     "L12.651/2012 art.4",
+     "L12.651/2012 art.65",
+     "L12.651/2012 art.61-A",
+     "L12.651/2012 art.6"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "L04",
+  "tipo": "lei",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "6.514",
+    "52"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 45.5,
+  "direta_candidatos_lexicais_top40": 1,
+  "direta_candidatos_lexicais_top10": 1,
+  "direta_kw_matches": 1,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "D6.514/2008 art.52",
+   "L12.651/2012 art.30",
+   "D6.514/2008 art.55",
+   "D6.514/2008 art.31",
+   "L12.651/2012 art.70"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": 1,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "6.514 art.52": 1
+  },
+  "agente": [
+   {
+    "query": "multa por desmatamento corte raso sem autorização em área fora da reserva legal",
+    "k": 6,
+    "kw_matches": 0,
+    "primeiro_essencial": 1,
+    "top": [
+     "D6.514/2008 art.52",
+     "D6.514/2008 art.39",
+     "D6.514/2008 art.16",
+     "L12.651/2012 art.30"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "L06",
+  "tipo": "lei",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "9.605",
+    "38"
+   ]
+  ],
+  "complementares": [
+   [
+    "9.605",
+    "39"
+   ]
+  ],
+  "direta_ms": 29.8,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L9.605/1998 art.38",
+   "L9.605/1998 art.39",
+   "L9.605/1998 art.50",
+   "L9.605/1998 art.44",
+   "L9.605/1998 art.48"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "9.605 art.38": 1,
+   "9.605 art.39": 2
+  },
+  "agente": [
+   {
+    "query": "destruir ou danificar floresta de preservação permanente pena detenção multa",
+    "k": 6,
+    "kw_matches": 1,
+    "primeiro_essencial": 1,
+    "top": [
+     "L9.605/1998 art.38",
+     "L9.605/1998 art.50",
+     "L9.605/1998 art.52",
+     "L9.605/1998 art.48"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "L07",
+  "tipo": "lei",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "9.985",
+    "8"
+   ]
+  ],
+  "complementares": [
+   [
+    "9.985",
+    "7"
+   ]
+  ],
+  "direta_ms": 47.1,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L9.985/2000 art.8",
+   "L9.985/2000 art.14",
+   "L9.985/2000 art.7",
+   "L9.985/2000 art.49",
+   "L9.985/2000 art.28"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "9.985 art.7": 3,
+   "9.985 art.8": 1
+  },
+  "agente": [
+   {
+    "query": "categorias de unidades de conservação de proteção integral SNUC",
+    "k": 6,
+    "kw_matches": 4,
+    "primeiro_essencial": 1,
+    "top": [
+     "L9.985/2000 art.8",
+     "L9.985/2000 art.7",
+     "L9.985/2000 art.20",
+     "L9.985/2000 art.14"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M01",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.651",
+    "12"
+   ]
+  ],
+  "complementares": [
+   [
+    "12.651",
+    "3"
+   ]
+  ],
+  "direta_ms": 44.7,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": null,
+  "direta_primeiro_essencial_top40": 17,
+  "direta_top5": [
+   "L12.651/2012 art.81",
+   "L12.651/2012 art.29",
+   "L12.651/2012 art.66",
+   "L12.651/2012 art.26",
+   "L12.651/2012 art.59"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 17,
+    "rank_semantico": 17,
+    "rank_kw": null,
+    "parte": 2
+   },
+   {
+    "pos_rrf_completo": 64,
+    "rank_semantico": 64,
+    "rank_kw": null,
+    "parte": 1
+   },
+   {
+    "pos_rrf_completo": 67,
+    "rank_semantico": 67,
+    "rank_kw": null,
+    "parte": 5
+   },
+   {
+    "pos_rrf_completo": 78,
+    "rank_semantico": 78,
+    "rank_kw": null,
+    "parte": 4
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.651 art.12": null,
+   "12.651 art.3": null
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": null,
+  "metade_lei_top5": [
+   "L12.651/2012 art.22",
+   "L12.651/2012 art.21",
+   "L12.651/2012 art.81",
+   "L12.651/2012 art.54",
+   "L12.651/2012 art.56"
+  ],
+  "agente": [
+   {
+    "query": "Código Florestal reserva legal percentual por bioma Amazônia Cerrado Mata Atlântica Caatinga Pampa Pantanal",
+    "k": 8,
+    "kw_matches": 0,
+    "primeiro_essencial": null,
+    "top": [
+     "L12.651/2012 art.41",
+     "L12.651/2012 art.3",
+     "L12.651/2012 art.6",
+     "L12.651/2012 art.1-A"
+    ]
+   },
+   {
+    "query": "Art. 12 reserva legal percentual imóvel rural Amazônia Legal 80% cerrado 35% campos gerais 20% demais regiões 20%",
+    "k": 6,
+    "kw_matches": 0,
+    "primeiro_essencial": 1,
+    "top": [
+     "L12.651/2012 art.12",
+     "L12.651/2012 art.68",
+     "L12.651/2012 art.3",
+     "L12.651/2012 art.4"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M02",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.651",
+    "12"
+   ]
+  ],
+  "complementares": [
+   [
+    "12.651",
+    "3"
+   ]
+  ],
+  "direta_ms": 42.1,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 4,
+  "direta_primeiro_essencial_top40": 4,
+  "direta_top5": [
+   "L12.651/2012 art.3",
+   "L12.651/2012 art.13",
+   "L12.651/2012 art.12",
+   "L12.651/2012 art.18",
+   "L12.651/2012 art.68"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 4,
+    "rank_semantico": 4,
+    "rank_kw": null,
+    "parte": 2
+   },
+   {
+    "pos_rrf_completo": 6,
+    "rank_semantico": 6,
+    "rank_kw": null,
+    "parte": 1
+   },
+   {
+    "pos_rrf_completo": 94,
+    "rank_semantico": 94,
+    "rank_kw": null,
+    "parte": 3
+   },
+   {
+    "pos_rrf_completo": 102,
+    "rank_semantico": 102,
+    "rank_kw": null,
+    "parte": 4
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.651 art.12": 4,
+   "12.651 art.3": 1
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": 1,
+  "metade_lei_top5": [
+   "L12.651/2012 art.12",
+   "L12.651/2012 art.68",
+   "L12.651/2012 art.3",
+   "L12.651/2012 art.13",
+   "L12.651/2012 art.30"
+  ],
+  "agente": [
+   {
+    "query": "reserva legal percentual imóvel rural em área de floresta na Amazônia Legal",
+    "k": 6,
+    "kw_matches": 2,
+    "primeiro_essencial": 1,
+    "top": [
+     "L12.651/2012 art.12",
+     "L12.651/2012 art.15",
+     "L12.651/2012 art.68",
+     "L12.651/2012 art.14"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M03",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "6.514",
+    "51"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 35.4,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": null,
+  "direta_primeiro_essencial_top40": null,
+  "direta_top5": [
+   "D6.514/2008 art.54-A",
+   "D6.514/2008 art.37",
+   "D6.514/2008 art.32",
+   "D6.514/2008 art.31",
+   "D6.514/2008 art.24"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 53,
+    "rank_semantico": 53,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "6.514 art.51": null
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": 5,
+  "metade_lei_top5": [
+   "D6.514/2008 art.55",
+   "D6.514/2008 art.52",
+   "D6.514/2008 art.51",
+   "D6.514/2008 art.152-A",
+   "D6.514/2008 art.54-A"
+  ],
+  "agente": [
+   {
+    "query": "Decreto 6.514/2008 multa por desmatar em reserva legal sem autorização",
+    "k": 6,
+    "kw_matches": 2,
+    "primeiro_essencial": 2,
+    "top": [
+     "D6.514/2008 art.52",
+     "D6.514/2008 art.51",
+     "D6.514/2008 art.55",
+     "D6.514/2008 art.39"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M04",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "11.428",
+    "11"
+   ]
+  ],
+  "complementares": [
+   [
+    "11.428",
+    "14"
+   ]
+  ],
+  "direta_ms": 31.1,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 9,
+  "direta_primeiro_essencial_top40": 9,
+  "direta_top5": [
+   "L11.428/2006 art.20",
+   "L11.428/2006 art.19",
+   "L11.428/2006 art.7",
+   "L11.428/2006 art.12",
+   "L11.428/2006 art.21"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 9,
+    "rank_semantico": 9,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "11.428 art.11": 9,
+   "11.428 art.14": null
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": 9,
+  "metade_lei_top5": [
+   "L11.428/2006 art.20",
+   "L11.428/2006 art.19",
+   "L11.428/2006 art.8",
+   "L11.428/2006 art.21",
+   "L11.428/2006 art.25"
+  ],
+  "agente": [
+   {
+    "query": "Mata Atlântica proibido cortar vegetação primária ou em estágio avançado de regeneração",
+    "k": 6,
+    "kw_matches": 0,
+    "primeiro_essencial": 5,
+    "top": [
+     "L11.428/2006 art.19",
+     "L11.428/2006 art.30",
+     "L11.428/2006 art.5",
+     "L11.428/2006 art.23"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M05",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.187",
+    "12"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 42.7,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": null,
+  "direta_primeiro_essencial_top40": 23,
+  "direta_top5": [
+   "L12.187/2009 art.6",
+   "L12.187/2009 art.4",
+   "L12.187/2009 art.11",
+   "L12.187/2009 art.2",
+   "D6.514/2008 art.98"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 23,
+    "rank_semantico": 23,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.187 art.12": null
+  },
+  "metade_lei_kw_matches": 2,
+  "metade_lei_primeiro_essencial": 3,
+  "metade_lei_top5": [
+   "L12.187/2009 art.6",
+   "L12.187/2009 art.11",
+   "L12.187/2009 art.12",
+   "L12.187/2009 art.1",
+   "L12.187/2009 art.4"
+  ],
+  "agente": [
+   {
+    "query": "Política Nacional sobre Mudança do Clima meta de redução de emissões de gases de efeito estufa",
+    "k": 6,
+    "kw_matches": 1,
+    "primeiro_essencial": null,
+    "top": [
+     "L12.187/2009 art.6",
+     "L12.187/2009 art.5",
+     "L12.187/2009 art.4"
+    ]
+   },
+   {
+    "query": "compromisso nacional voluntário redução de emissões projeções até 2020 Política Nacional sobre Mudança do Clima",
+    "k": 4,
+    "kw_matches": 0,
+    "primeiro_essencial": null,
+    "top": [
+     "L12.187/2009 art.6",
+     "L12.187/2009 art.5",
+     "L12.187/2009 art.4"
+    ]
+   }
+  ],
+  "agente_achou_essencial": false
+ },
+ {
+  "id": "M06",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.651",
+    "12"
+   ]
+  ],
+  "complementares": [
+   [
+    "12.651",
+    "3"
+   ]
+  ],
+  "direta_ms": 45.4,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L12.651/2012 art.12",
+   "L12.651/2012 art.13",
+   "L12.651/2012 art.68",
+   "L12.651/2012 art.3",
+   "L12.651/2012 art.66"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 1
+   },
+   {
+    "pos_rrf_completo": 2,
+    "rank_semantico": 2,
+    "rank_kw": null,
+    "parte": 2
+   },
+   {
+    "pos_rrf_completo": 16,
+    "rank_semantico": 16,
+    "rank_kw": null,
+    "parte": 4
+   },
+   {
+    "pos_rrf_completo": 24,
+    "rank_semantico": 24,
+    "rank_kw": null,
+    "parte": 3
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.651 art.12": 1,
+   "12.651 art.3": 5
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": 1,
+  "metade_lei_top5": [
+   "L12.651/2012 art.12",
+   "L12.651/2012 art.68",
+   "L12.651/2012 art.3",
+   "L12.651/2012 art.13",
+   "L12.651/2012 art.30"
+  ],
+  "agente": [
+   {
+    "query": "Reserva Legal Amazônia Legal imóvel em área de floresta percentual mínimo 80% Código Florestal",
+    "k": 6,
+    "kw_matches": 1,
+    "primeiro_essencial": 2,
+    "top": [
+     "L12.651/2012 art.15",
+     "L12.651/2012 art.12",
+     "L12.651/2012 art.68",
+     "L12.651/2012 art.41"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M07",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "12.651",
+    "29"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 45.7,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L12.651/2012 art.29",
+   "L12.187/2009 art.6",
+   "D6.514/2008 art.98",
+   "L12.651/2012 art.4",
+   "L12.651/2012 art.59"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 4
+   },
+   {
+    "pos_rrf_completo": 4,
+    "rank_semantico": 4,
+    "rank_kw": null,
+    "parte": 2
+   },
+   {
+    "pos_rrf_completo": 5,
+    "rank_semantico": 5,
+    "rank_kw": null,
+    "parte": 5
+   },
+   {
+    "pos_rrf_completo": 10,
+    "rank_semantico": 10,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "12.651 art.29": 1
+  },
+  "metade_lei_kw_matches": 13,
+  "metade_lei_primeiro_essencial": 1,
+  "metade_lei_top5": [
+   "L12.651/2012 art.29",
+   "L12.651/2012 art.59",
+   "L12.651/2012 art.61-A",
+   "L12.651/2012 art.53",
+   "L12.651/2012 art.18"
+  ],
+  "agente": [
+   {
+    "query": "Cadastro Ambiental Rural CAR definição finalidade registro obrigatório imóveis rurais",
+    "k": 4,
+    "kw_matches": 0,
+    "primeiro_essencial": 1,
+    "top": [
+     "L12.651/2012 art.29"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M08",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "9.605",
+    "38"
+   ]
+  ],
+  "complementares": [
+   [
+    "9.605",
+    "39"
+   ]
+  ],
+  "direta_ms": 43.8,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 1,
+  "direta_primeiro_essencial_top40": 1,
+  "direta_top5": [
+   "L9.605/1998 art.38",
+   "L9.605/1998 art.29",
+   "L12.651/2012 art.29",
+   "L9.605/1998 art.32",
+   "L12.651/2012 art.26"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 1,
+    "rank_semantico": 1,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "9.605 art.38": 1,
+   "9.605 art.39": null
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": 1,
+  "metade_lei_top5": [
+   "L9.605/1998 art.38",
+   "L9.605/1998 art.39",
+   "L9.605/1998 art.50",
+   "L9.605/1998 art.44",
+   "L12.651/2012 art.6"
+  ],
+  "agente": [
+   {
+    "query": "pena para quem destrói floresta ou vegetação em área de preservação permanente",
+    "k": 6,
+    "kw_matches": 0,
+    "primeiro_essencial": 1,
+    "top": [
+     "L9.605/1998 art.38",
+     "L9.605/1998 art.50",
+     "L9.605/1998 art.48",
+     "L9.605/1998 art.39"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M09",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "6.514",
+    "52"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 45.5,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": 3,
+  "direta_primeiro_essencial_top40": 3,
+  "direta_top5": [
+   "D6.514/2008 art.98",
+   "D6.514/2008 art.29",
+   "D6.514/2008 art.52",
+   "D6.514/2008 art.82",
+   "D6.514/2008 art.32"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 3,
+    "rank_semantico": 3,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "6.514 art.52": 3
+  },
+  "metade_lei_kw_matches": 1,
+  "metade_lei_primeiro_essencial": 1,
+  "metade_lei_top5": [
+   "D6.514/2008 art.52",
+   "L12.651/2012 art.30",
+   "D6.514/2008 art.55",
+   "D6.514/2008 art.85",
+   "D6.514/2008 art.31"
+  ],
+  "agente": [
+   {
+    "query": "multa por desmatar corte raso fora da reserva legal",
+    "k": 6,
+    "kw_matches": 1,
+    "primeiro_essencial": 1,
+    "top": [
+     "D6.514/2008 art.52",
+     "D6.514/2008 art.39",
+     "D6.514/2008 art.55",
+     "D6.514/2008 art.85"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M10",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "6.514",
+    "51"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 32.1,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": null,
+  "direta_primeiro_essencial_top40": 39,
+  "direta_top5": [
+   "D6.514/2008 art.54-A",
+   "D6.514/2008 art.31",
+   "D6.514/2008 art.52",
+   "D6.514/2008 art.98",
+   "L12.651/2012 art.19"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 39,
+    "rank_semantico": 39,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "6.514 art.51": null
+  },
+  "metade_lei_kw_matches": 0,
+  "metade_lei_primeiro_essencial": null,
+  "metade_lei_top5": [
+   "D6.514/2008 art.52",
+   "D6.514/2008 art.55",
+   "L12.651/2012 art.30",
+   "L12.651/2012 art.19",
+   "L12.651/2012 art.42"
+  ],
+  "agente": [
+   {
+    "query": "multa por desmatamento em reserva legal",
+    "k": 6,
+    "kw_matches": 2,
+    "primeiro_essencial": 2,
+    "top": [
+     "D6.514/2008 art.52",
+     "D6.514/2008 art.51",
+     "L12.651/2012 art.30",
+     "L12.651/2012 art.19"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ },
+ {
+  "id": "M11",
+  "tipo": "mista",
+  "modo_lexical": "strict",
+  "essenciais": [
+   [
+    "6.938",
+    "10"
+   ]
+  ],
+  "complementares": [],
+  "direta_ms": 32.2,
+  "direta_candidatos_lexicais_top40": 0,
+  "direta_candidatos_lexicais_top10": 0,
+  "direta_kw_matches": 0,
+  "direta_primeiro_essencial": null,
+  "direta_primeiro_essencial_top40": null,
+  "direta_top5": [
+   "L12.651/2012 art.34",
+   "L12.651/2012 art.11-A",
+   "L12.651/2012 art.38",
+   "L12.651/2012 art.4",
+   "L9.985/2000 art.22-A"
+  ],
+  "essencial_com_todos_candidatos": [
+   {
+    "pos_rrf_completo": 49,
+    "rank_semantico": 49,
+    "rank_kw": null,
+    "parte": 1
+   }
+  ],
+  "posicao_gabarito_top10": {
+   "6.938 art.10": null
+  },
+  "metade_lei_kw_matches": 1,
+  "metade_lei_primeiro_essencial": 1,
+  "metade_lei_top5": [
+   "L6.938/1981 art.10",
+   "L11.428/2006 art.32",
+   "D6.514/2008 art.66",
+   "L11.428/2006 art.15",
+   "L9.985/2000 art.22-A"
+  ],
+  "agente": [
+   {
+    "query": "atividades que dependem de licenciamento ambiental prévio",
+    "k": 6,
+    "kw_matches": 1,
+    "primeiro_essencial": 1,
+    "top": [
+     "L6.938/1981 art.10",
+     "L11.428/2006 art.32",
+     "L12.651/2012 art.36",
+     "L11.428/2006 art.15"
+    ]
+   }
+  ],
+  "agente_achou_essencial": true
+ }
+]

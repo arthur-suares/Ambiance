@@ -1,22 +1,30 @@
 """Diagnóstico da recuperação nas leis: onde cai o artigo essencial em cada busca (sem LLM).
 
-Uso: python -m eval.diagnostico_busca <pasta-da-rodada> <saida.json>
+Uso: python -m eval.diagnostico_busca <pasta-da-rodada> <saida.json> [estrito|relaxado|idf]
+
+Modo do canal lexical (src/vector_store.py, `lexical_mode`): `estrito` = todas as palavras (AND, modo antigo),
+`relaxado` = termos informativos com OR, `idf` (padrão) = OR com ordenação pela soma do IDF dos termos.
+Veja docs/PLANO_BUSCA_LEXICAL_RELAXADA.md.
 
 Para cada pergunta com artigo no gabarito, mede a busca direta com a pergunta inteira, a busca só com a metade de
 lei da pergunta mista (texto em LAW_HALF) e as buscas que o agente fez na rodada (lidas do detalhes.jsonl).
 """
 import json
+import statistics
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, ".")
 from eval.metrics import chunk_key, first_positions, gold_sets  # noqa: E402
 from eval.run_eval import load_tests  # noqa: E402
 from src.embeddings import embed_query  # noqa: E402
-from src.vector_store import get_connection, hybrid_search  # noqa: E402
+from src.fts_query import build_relaxed_fts_query, extract_terms, weight_terms  # noqa: E402
+from src.vector_store import _term_doc_freq, get_connection, hybrid_search  # noqa: E402
 
 RUN = Path(sys.argv[1]) / "detalhes.jsonl"
 OUT = Path(sys.argv[2])
+MODE = {"estrito": "strict", "relaxado": "relaxed", "idf": "idf"}[sys.argv[3] if len(sys.argv) > 3 else "idf"]
 
 # metade de lei de cada pergunta mista (o texto da própria pergunta, sem a parte de dados)
 LAW_HALF = {
@@ -38,14 +46,23 @@ items = [i for i in load_tests() if i["artigos"]]
 
 
 def n_keyword_matches(query: str) -> int:
+    """Chunks que casam com a consulta lexical (a mesma que o hybrid_search usa no modo escolhido)."""
     with get_connection() as con:
+        if MODE == "strict":
+            fts = query
+        elif MODE == "relaxed":
+            fts = build_relaxed_fts_query(query)
+        else:
+            pool = extract_terms(query)
+            n_docs, doc_freq = _term_doc_freq(con, pool, None) if pool else (0, {})
+            fts = " or ".join(term for term, _ in weight_terms(pool, doc_freq, n_docs))
         row = con.execute("SELECT count(*) AS n FROM chunks c, websearch_to_tsquery('portuguese', %s) q WHERE c.tsv @@ q",
-                          [query]).fetchone()
+                          [fts]).fetchone()
         return list(row.values())[0] if isinstance(row, dict) else row[0]
 
 
 def search(query: str, k: int = 10, candidates: int = 40):
-    return hybrid_search(query, embed_query(query), limit=k, candidates=candidates)
+    return hybrid_search(query, embed_query(query), limit=k, candidates=candidates, lexical_mode=MODE)
 
 
 def first_essential(chunks, ess):
@@ -71,9 +88,18 @@ rows = []
 for it in items:
     ess, todos = gold_sets(it)
     q = it["pergunta"]
-    row = {"id": it["id"], "tipo": it["tipo"], "essenciais": sorted(ess), "complementares": sorted(todos - ess)}
+    row = {"id": it["id"], "tipo": it["tipo"], "modo_lexical": MODE, "essenciais": sorted(ess), "complementares": sorted(todos - ess)}
     # busca direta com a pergunta original (produção: 40 candidatos por lista)
     top = search(q, k=40)
+    tempos = []
+    for _ in range(5):  # só a consulta SQL + embedding da pergunta já calculado fora do cronômetro
+        emb = embed_query(q)
+        t0 = time.perf_counter()
+        hybrid_search(q, emb, limit=40, candidates=40, lexical_mode=MODE)
+        tempos.append((time.perf_counter() - t0) * 1000)
+    row["direta_ms"] = round(statistics.median(tempos), 1)
+    row["direta_candidatos_lexicais_top40"] = sum(1 for c in top if c["keyword_rank"] is not None)
+    row["direta_candidatos_lexicais_top10"] = sum(1 for c in top[:10] if c["keyword_rank"] is not None)
     row["direta_kw_matches"] = n_keyword_matches(q)
     row["direta_primeiro_essencial"] = first_essential(top[:10], ess)
     row["direta_primeiro_essencial_top40"] = first_essential(top, ess)
