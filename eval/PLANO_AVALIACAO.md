@@ -9,7 +9,11 @@ O sistema de RAG (soja, carne bovina e leis ambientais) precisa de uma avaliaç�
 - **Faithfulness, Context Precision, Context Recall:** no fluxo completo do agente (`src/agent.py:ask`), nas 20 perguntas.
 - **Juiz:** implementação própria seguindo as definições do RAGAS, usando o cliente já existente (`src/rag.py:get_client`) e **o mesmo modelo do sistema (claude-haiku-5.5)**. O viés de autoavaliação entra como limitação no relatório.
 - **ROUGE-L e BLEU** (semelhança de texto entre a resposta do agente e uma referência), nas 20 perguntas:
-  - **Duas referências:** a atual (`resposta_esperada`, curta) e uma nova, longa (`resposta_referencia`), escrita no estilo de uma resposta completa do sistema a partir do gabarito numérico e do texto dos artigos. A longa é escrita **antes** de rodar o agente (sem olhar as respostas do sistema) e deve ser revisada pela equipe antes da rodada final. O relatório mostra as duas.
+  - **Duas referências, com papéis separados (decidido em 2026-11-13):**
+    - `resposta_esperada` (curta): lista de fatos-chave. Só o Context Recall (juiz) a usa como referência principal, para a nota não cair por causa de ressalvas que não dependem da busca. ROUGE-L, BLEU e cosseno também são calculados contra ela, só para comparação.
+    - `resposta_referencia` (longa): escrita **na estrutura do prompt do agente** (`src/agent.py`, "Como responder"): resposta curta primeiro; depois os dados `[D]` e as leis `[L]` com ano, filtros e unidade, citando a lei e o artigo na primeira citação; no fim "Limites da resposta" (exposição não prova ilegalidade, o que seria necessário para verificar um caso). É a referência principal de ROUGE-L, BLEU e cosseno. Tem de 50 a 253 palavras (as respostas do agente têm de 81 a 417).
+    - As duas são escritas só com o gabarito (SQL e texto dos artigos), **sem copiar as respostas do agente**. Devem ser revisadas pela equipe. O relatório mostra as duas.
+  - **Cosseno** (decidido em 2026-11-13): similaridade de cosseno entre os embeddings do e5-small (o modelo do projeto, com o prefixo `query: `) da resposta e da referência, sobre o texto limpo (sem tabelas, rótulos e markdown; com acentos e números originais). Limites: o modelo lê só 512 tokens (o relatório diz quantas respostas foram cortadas) e dá notas altas até para textos sem relação. Por isso o relatório traz uma **linha de base**: o cosseno médio de cada resposta com as referências das outras perguntas. A nota só vale pela diferença para essa linha.
   - **ROUGE-L:** precisão, recall e F1 (F1 como número principal).
   - **BLEU:** os dois cálculos. **BLEU de corpus** por tipo e geral como número principal (soma as contagens de n-gramas de todas as respostas do grupo; não precisa de suavização; é a definição original) e **BLEU por pergunta** com suavização (padrão do sacrebleu, `exp`), só para achar os piores casos. N = 4, pesos iguais (wₙ = 1/4), com penalidade de tamanho (BP).
   - **Normalização antes de comparar** (resposta e referências): remover rótulos `[D1]`/`[L1]`, markdown e tabelas; minúsculas; tirar acentos ("São Félix" = "Sao Felix"); padronizar números ("36.100" e "36,1 mil" viram o mesmo token; o número é convertido para o valor completo e arredondado a 3 algarismos significativos, para que "277.582,68" e "277,6 mil" também coincidam).
@@ -23,7 +27,7 @@ O sistema de RAG (soja, carne bovina e leis ambientais) precisa de uma avaliaç�
 | Etapa | Pergunta que responde | Métricas |
 |---|---|---|
 | **Recuperação** | O sistema buscou o que precisava? | Hit@5, MRR, Recall@5, Context Recall, Context Precision |
-| **Geração** | A resposta está certa e apoiada no que foi buscado? | Faithfulness, acerto de valores, ROUGE-L F1, BLEU de corpus |
+| **Geração** | A resposta está certa e apoiada no que foi buscado? | Faithfulness, acerto de valores, ROUGE-L F1, BLEU de corpus, cosseno |
 | **Custo** | Quanto custa responder? | Latência média, tokens médios por pergunta |
 
   Abaixo do painel: a mesma tabela por tipo (lei / carne / soja / mista), a tabela com todas as métricas de cada pergunta e os piores casos.
@@ -132,7 +136,9 @@ O juiz é uma chamada extra ao LLM depois que o sistema respondeu. Entradas: (a)
 - **Temperatura:** o pedido era temperatura 0, mas o Claude Haiku 5.5 recusa qualquer valor diferente do padrão (e o SDK `anthropic` 2.6 nem tem mais o parâmetro). Decisão do usuário: **rodar cada pergunta uma vez** e registrar a variação como limitação. O mesmo vale para o juiz.
 - `eval/build_gold.py`: campos `nivel` nos artigos, `no_teste`, `resposta_referencia` (referência longa, escrita antes de rodar o agente) e as mistas M06–M11.
 - `eval/metrics.py`: Hit@k, Recall@k, MRR, precisão média (Context Precision) e leitura de números no formato BR e CSV.
-- `eval/text_metrics.py`: normalização do texto, ROUGE-L (LCS próprio) e BLEU (sacrebleu: por pergunta com `exp`, corpus sem suavização).
+- `eval/text_metrics.py`: normalização do texto, ROUGE-L (LCS próprio), BLEU (sacrebleu: por pergunta com `exp`, corpus sem suavização) e cosseno (e5-small, com aviso de truncamento e linha de base).
+  - Correção feita em 2026-11-13: a limpeza só tirava rótulos puros (`[L1]`). O agente cita `[L1, Decreto 6.514/2008, art. 52]`, e o rótulo sobrava como token "l1". Agora só o rótulo sai e a lei e o artigo ficam.
+- `python -m eval.run_eval --refazer-texto <pasta-da-rodada>`: refaz só ROUGE-L, BLEU e cosseno de uma rodada pronta com o gabarito atual (reaproveita respostas, contexto, busca direta e notas do juiz; não chama agente, juiz nem Postgres). Só vale enquanto a `resposta_esperada` não mudar, porque o juiz a usa. A rodada `rodada_20_perguntas_v3` é a v2 reavaliada assim.
 - `eval/judge.py`: Faithfulness, Context Precision e Context Recall com prompts em português; o juiz devolve JSON com veredito e justificativa por item; a nota é calculada no código. Itens de contexto com mais de 6.000 caracteres são cortados para o juiz (marcado no texto). Erro do juiz deixa a nota vazia e vai para a trilha.
 - `eval/run_eval.py`: `python -m eval.run_eval [--ids L01,M01] [--limit N] [--sem-juiz] [--saida pasta]`. Executa as etapas 1–5 por pergunta e grava os arquivos descritos em **Rastreabilidade**.
 - `eval/report.py`: trilha `perguntas/<ID>.md` e `relatorio.md` (painel, por tipo, busca por k, ROUGE/BLEU em detalhe, por pergunta, piores casos, limitações).
