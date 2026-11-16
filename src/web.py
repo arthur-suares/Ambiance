@@ -20,6 +20,14 @@ from src.rag import AGENT_DOMAINS, answer, build_context, resolve_domain
 INDEX_HTML = PROJECT_ROOT / "web" / "index.html"
 
 
+def _soy_provenance():
+    """Qual carga do medalhão (e qual commit) respondeu: None se o agente está lendo a tabela bruta."""
+    from src.soy import queries as soy_queries
+    from src.medallion.registry import provenance
+    p = provenance() if soy_queries.using_gold() else None
+    return {k: p[k] for k in ("run_id", "built_at", "git_commit", "source_name", "source_sha256")} if p else None
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path not in ("/", "/index.html"):
@@ -78,6 +86,7 @@ class Handler(BaseHTTPRequestHandler):
             "input_tokens": result.input_tokens,
             "output_tokens": result.output_tokens,
             "seconds": round(time.perf_counter() - start, 1),
+            "soy_data": _soy_provenance(),
             "tool_calls": [
                 {"label": c.label, "name": c.name, "summary": tool_call_summary(c),
                  "ok": c.ok, "rows": c.rows, "seconds": c.seconds, "output": c.output}

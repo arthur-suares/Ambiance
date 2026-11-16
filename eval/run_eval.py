@@ -249,6 +249,19 @@ def _version(pkg: str) -> str | None:
         return None
 
 
+def _code_version() -> dict:
+    from src.medallion.core import git_info
+    return git_info()
+
+
+def _soy_data_version() -> dict:
+    """Carga do medalhão usada pelo agente (None = o agente leu a tabela bruta, sem medalhão)."""
+    from src.soy import queries as soy_queries
+    from src.medallion.registry import provenance
+    return {"modo": "gold" if soy_queries.using_gold() else "bruto",
+            "carga": provenance() if soy_queries.using_gold() else None}
+
+
 def run_config(items: list[dict], use_judge: bool) -> dict:
     from src.agent import MAX_TURNS
     from src.vector_store import RRF_K
@@ -270,6 +283,9 @@ def run_config(items: list[dict], use_judge: bool) -> dict:
                         "longa": "resposta_referencia (estrutura do prompt do agente; ROUGE-L, BLEU e cosseno)"},
         "versoes": {"python": platform.python_version(), **{p: _version(p) for p in
                     ("anthropic", "sacrebleu", "duckdb", "psycopg", "sentence-transformers", "pgvector")}},
+        # Rastreabilidade: qual código e quais dados geraram esta rodada (resolve "o commit de cada rodada não foi registrado").
+        "codigo": _code_version(),
+        "dados_soja": _soy_data_version(),
     }
 
 
