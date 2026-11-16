@@ -6,5 +6,6 @@ __pycache__/
 data/raw/*
 !data/raw/.gitkeep
 data/processed/*
+data/lake/
 !data/processed/.gitkeep
 .ipynb_checkpoints/

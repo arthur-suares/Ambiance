@@ -100,6 +100,11 @@ def main():
     soy_profile = sub.add_parser("soy-profile", help="Mostra o perfil dos datasets da soja.")
     soy_profile.add_argument("--full", action="store_true", help="Mostra também a lista de datasets ausentes.")
 
+    medallion = sub.add_parser("build-medallion", help="Medalhão da soja: bronze -> silver -> gold + banco do agente (soy_gold.duckdb).")
+    medallion.add_argument("--raw", help="parquet do Trase soja (padrão: SOY_RAW_PARQUET)")
+    medallion.add_argument("--force", action="store_true", help="Refaz a bronze mesmo com a mesma fonte.")
+    medallion.add_argument("--no-inpe", action="store_true", help="Pula as camadas do INPE.")
+
     ingest_soy = sub.add_parser("ingest-soy", help="Ingesta datasets estruturados da soja em DuckDB.")
     ingest_soy.add_argument("--force", action="store_true", help="Reprocessa mesmo sem mudança no arquivo.")
 
@@ -155,7 +160,7 @@ def main():
     # (re)gerado. O "serve" faz o mesmo em src/web.py. Durante as consultas o banco nunca é
     # reconstruído. Os comandos soy-* usam o banco próprio da soja (gerado por ingest-soy).
     no_duckdb = {"build-db", "reload", "dictionary", "init-vector-db", "vector-stats", "ingest-laws", "search",
-                 "soy-profile", "ingest-soy", "soy-top-municipalities", "soy-top-exporters",
+                 "soy-profile", "ingest-soy", "build-medallion", "soy-top-municipalities", "soy-top-exporters",
                  "soy-top-destinations", "soy-trend", "soy-exposure"}
     if args.command not in no_duckdb and (args.command != "ask" or use_agent):
         from src.database import ensure_database
@@ -226,6 +231,9 @@ def main():
         print(f"Datasets esperados: {len(manifest)}")
         print(f"Ausentes: {detect_missing_datasets(manifest)}")
         print(get_soy_profile())
+    elif args.command == "build-medallion":
+        from src.medallion.build import main as medallion_main
+        medallion_main((["--raw", args.raw] if args.raw else []) + (["--force"] if args.force else []) + (["--no-inpe"] if args.no_inpe else []))
     elif args.command == "ingest-soy":
         summary = ingest_soy_datasets(force=args.force)
         print(summary)

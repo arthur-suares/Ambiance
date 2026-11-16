@@ -35,6 +35,17 @@ SOY_DATA_ROOT = resolve_project_path(
     os.getenv("SOY_DATA_ROOT", "data")
 )
 
+# --- Medalhão da soja (bronze -> silver -> gold; python -m src.cli build-medallion) ---
+# Fluxo: fonte (parquet) -> data/lake/{bronze,silver,gold} -> banco do agente (SOY_GOLD_DUCKDB_PATH).
+MEDALLION_DIR = resolve_project_path(os.getenv("MEDALLION_DIR", "data/lake"))
+SOY_RAW_PARQUET = resolve_project_path(os.getenv("SOY_RAW_PARQUET", "data/raw/soy/brazil_soy_v2_6_1_composite.parquet"))
+INPE_RAW_DIR = resolve_project_path(os.getenv("INPE_RAW_DIR", "data/raw/inpe"))
+SOY_GOLD_DUCKDB_PATH = resolve_project_path(
+    os.getenv("SOY_GOLD_DUCKDB_PATH", "data/processed/soy/soy_gold.duckdb")
+)
+# Quando ligado (e o banco gold existe), o agente consulta SÓ o banco gold: sem a tabela bruta da cadeia.
+SOY_USE_GOLD = os.getenv("SOY_USE_GOLD", "0").strip().lower() in ("1", "true", "yes", "on")
+
 # --- Camada documental (PostgreSQL + pgvector) ---
 PG_HOST = os.getenv("PG_HOST", "localhost")
 PG_PORT = int(os.getenv("PG_PORT", "5433"))

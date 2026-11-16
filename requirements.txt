@@ -11,3 +11,4 @@ sentence-transformers>=3.0.0
 anthropic>=2.0.0
 pytest>=8.0.0
 sacrebleu>=2.4.0
+scikit-learn>=1.4.0   # anomalias do medalhão da soja (opcional: sem ele, is_anomaly fica falso)
