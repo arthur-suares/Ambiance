@@ -85,6 +85,9 @@ def write_question_trail(rec: dict, path: Path) -> None:
     if r is None:
         L += ["Sem artigo de lei no gabarito: a etapa não se aplica a esta pergunta.", ""]
     else:
+        if r.get("subconsultas_juridicas"):
+            L += ["**Sub-buscas jurídicas fundidas (Multi-Query RRF):**", ""]
+            L += [f"- `{sq}`" for sq in r["subconsultas_juridicas"]] + [""]
         L += table(["Pos.", "Lei", "Art.", "Parte", "Score RRF", "Rank semântico", "Rank palavras-chave", "Relevância", "Trecho"],
                    [[c["posicao"], c["lei"], c["artigo"], f"{c['parte']}/{c['partes']}" if (c.get("partes") or 1) > 1 else "—",
                      fmt(c["score_rrf"], 4), c["rank_semantico"] or "—", c["rank_palavras_chave"] or "—",
@@ -105,6 +108,13 @@ def write_question_trail(rec: dict, path: Path) -> None:
         L += ["O agente não rodou (ver erros acima).", ""]
     else:
         L += [f"Domínio roteado: `{a['dominio']}` · {len(a['chamadas'])} chamada(s) de ferramenta", ""]
+        if a.get("subconsultas"):
+            L += ["### Plano do Agente Decompositor", ""]
+            L += table(
+                ["ID", "Domínio", "Subpergunta", "Depende de"],
+                [[sq.get("id"), sq.get("domain"), sq.get("question"), ", ".join(sq.get("depends_on") or []) or "—"]
+                 for sq in a["subconsultas"]],
+            )
         for n, c in enumerate(a["chamadas"], start=1):
             L += [f"### Chamada {n}: `{c['ferramenta']}` → {c['rotulo'] or '—'}", "",
                   f"ok: {fmt(c['ok'])} · linhas: {c['linhas'] if c['linhas'] is not None else '—'} · {fmt(c['segundos'])} s", "",

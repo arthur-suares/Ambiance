@@ -14,6 +14,7 @@ import anthropic
 from src import vector_store
 from src.config import LLM_BASE_URL, LLM_MODEL, OPENROUTER_API_KEY
 from src.embeddings import embed_query
+from src.fts_query import clean_legal_query, extract_legal_subqueries
 from src.soy.routing import route_question
 
 LAW_SYSTEM_PROMPT = """\
@@ -116,8 +117,70 @@ def resolve_domain(question: str, domain: str | None = None) -> str:
     return route["domain"]
 
 
-def retrieve(question: str, k: int = 6, doc_type: str | None = None) -> list[dict]:
-    return vector_store.hybrid_search(question, embed_query(question), limit=k, doc_type=doc_type)
+def retrieve_multi(
+    queries: list[str],
+    k: int = 6,
+    doc_type: str | None = None,
+    candidates: int = 40,
+    max_per_article: int | None = 2,
+) -> list[dict]:
+    """Executa busca híbrida para múltiplas sub-consultas e funde os resultados com Multi-Query RRF."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for q in queries:
+        cq = (q or "").strip()
+        key = cq.lower()
+        if cq and key not in seen:
+            seen.add(key)
+            cleaned.append(cq)
+
+    if not cleaned:
+        return []
+
+    per_query_limit = max(k * 2, 12)
+    chunk_lists: list[list[dict]] = []
+    for q in cleaned:
+        rows = vector_store.hybrid_search(
+            q,
+            embed_query(q),
+            limit=per_query_limit,
+            candidates=candidates,
+            doc_type=doc_type,
+        )
+        if rows:
+            chunk_lists.append(rows)
+
+    if len(chunk_lists) == 1 and max_per_article is None:
+        return chunk_lists[0][:k]
+
+    return vector_store.fuse_chunk_lists(
+        chunk_lists,
+        limit=k,
+        max_per_article=max_per_article,
+    )
+
+
+def retrieve(
+    question: str,
+    k: int = 6,
+    doc_type: str | None = None,
+    *,
+    decompose: bool = True,
+    extra_regions: list[str] | None = None,
+    max_per_article: int | None = 2,
+) -> list[dict]:
+    """Recupera os chunks de lei mais relevantes para `question`.
+
+    Quando `decompose=True` (padrão), perguntas mistas têm a parte de dados separada da parte
+    jurídica antes de gerar os embeddings e os pesos IDF, e sub-consultas complementares são
+    fundidas por Reciprocal Rank Fusion (`retrieve_multi`).
+    """
+    if not decompose:
+        q = clean_legal_query(question)
+        return vector_store.hybrid_search(q, embed_query(q), limit=k, doc_type=doc_type)
+
+    subqueries = extract_legal_subqueries(question, extra_regions=extra_regions)
+    return retrieve_multi(subqueries, k=k, doc_type=doc_type, max_per_article=max_per_article)
 
 
 def build_context(chunks: list[dict]) -> str:
