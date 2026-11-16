@@ -8,10 +8,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2012/lei/l12651.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "1d9c02e6d453186d71083a6af0595a0e0edf2fdb525c9d924e3bc30c0564a6af",
+    "sha256": "a491b3d6e78cb10b08801f136390f5304f565dcfdbc9e04f8a4375c97eace18d",
     "original_file": "docs/leis/original/lei_12651_2012_codigo_florestal.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "85b8252084ab2e5bb783b978c0fb8be3f8b6a8ba89f7c2ad642093ab103d50e4",
+    "original_sha256": "c86db5f0aef8bb0541dc1e3c3dab6854652969a358f6c676813f29972833fae4",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   },
   {
@@ -23,10 +23,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/leis/l9605.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "1823621e3eed92939643971a1f5840c56bb71a1d1ed52b49d749949fbf5b9ef6",
+    "sha256": "cae701a0b83cb76ff238295c9d48c4b6443cab1b90e63ebf48f258d498ee6150",
     "original_file": "docs/leis/original/lei_9605_1998_crimes_ambientais.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "01b45ec9af4e9a7a3cf56d21ee4b6fc09442c2f4cbab1b4715a40eb16922c857",
+    "original_sha256": "f9f71cf2de96b49b75b4221744d94e36f8cd7ecfde0e15c5739cb292f765de68",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   },
   {
@@ -38,10 +38,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2008/decreto/d6514.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "33827ac23ffa04649948c308151144cb38d6fabeecbc4cc246a7939c4979e4cf",
+    "sha256": "9f809739df22536d0d29543d43178e3616597f1700ba33cec5e1eff0c821b61d",
     "original_file": "docs/leis/original/decreto_6514_2008_infracoes_ambientais.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "8da40300a7600a1a871df73bea86691bb28982fd694fd483d987079607c4b9fa",
+    "original_sha256": "c34a942388f4d4abfd286bca6af9a405733c47b8a356837d7eb2a62908b8f74a",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   },
   {
@@ -53,10 +53,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/_ato2004-2006/2006/lei/l11428.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "edcd029048a0c555324204fc8182af0735d2e66ba3f606193a2c4d0473d647f4",
+    "sha256": "9cd731c91e59a24723659626adc520490407909ed06bffc6e4afc78bcc2f347c",
     "original_file": "docs/leis/original/lei_11428_2006_mata_atlantica.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "3fe79266880f3f9c46a19af14afe6c8599e3effa9ad53373fa2f91a84d9eaa68",
+    "original_sha256": "8f7740c6273a105bd5ca4931bb2ac735022a1ac862c492827906f9c0547dcebb",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   },
   {
@@ -68,10 +68,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/leis/l6938.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "fe1718035f59486a6d320907b5039bb0b1c34931488a38ca3821aeca57738c92",
+    "sha256": "aafa586cd570a8970e5c2307a0ebc64265fa41826abc944f8bdc4d14d7e3a2c1",
     "original_file": "docs/leis/original/lei_6938_1981_politica_nacional_meio_ambiente.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "49a61bab3489d5b150339d9e2c915a4bb5aaf69b4624a789155979cbc659e1fa",
+    "original_sha256": "5cbdc3628f2958c34386a6170ff776ba844b3c111db0352be18eb967dd572926",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   },
   {
@@ -83,10 +83,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2009/lei/l12187.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "360e93769d1e8d03eda19ee637740f72b3a011153c681b762ea732f12fc0cb11",
+    "sha256": "26d81630d798d75f9db7680e504a0401614a55426f3bad3b2e54f704e299fe49",
     "original_file": "docs/leis/original/lei_12187_2009_politica_nacional_mudanca_clima.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "bb7a2e9842cd999af4216c3627fb7e629004cc6199f2e58022ccbad25953946a",
+    "original_sha256": "83ffa6758f261b36fdb1975217a2c9d631f3341ec9f2f7c491abb47d63093e65",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   },
   {
@@ -98,10 +98,10 @@
     "url": "https://www.planalto.gov.br/ccivil_03/leis/l9985.htm",
     "retrieved_at": "2026-11-06",
     "encoding": "utf-8",
-    "sha256": "7055d7584666517b349a2ebb0d521229a1e96478da29346481eabe38afb11a36",
+    "sha256": "ed9f07e54abee6d0d75e9dc62fc0ffc90f2ccad916539478d762720997b993e7",
     "original_file": "docs/leis/original/lei_9985_2000_snuc.htm",
     "original_encoding": "cp1252",
-    "original_sha256": "65fb25111bbefbe3d182fef24a9f3609a53b42198ca1df621f228aa39832e438",
+    "original_sha256": "d1431940948908b60790acc2d4ca7f7a2bdf1c504bbc5c265b8956ad16522fc5",
     "processing": "trechos revogados (<strike> e line-through) removidos por scripts/remove_revoked.py"
   }
 ]

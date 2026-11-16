@@ -1,7 +1,7 @@
 """Remove trechos revogados (texto riscado) das leis baixadas do Planalto.
 
-Entrada:  docs/leis/original/*.htm  (HTML original, Windows-1252, não modificado)
-Saída:    docs/leis/*.htm           (HTML limpo, UTF-8)
+Entrada:  docs/leis/original/*.{htm,html}  (HTML original, Windows-1252, não modificado)
+Saída:    docs/leis/*.{htm,html}           (HTML limpo, UTF-8)
 
 Regras:
 - remove todo conteúdo riscado (redação revogada ou alterada). O Planalto
@@ -27,6 +27,7 @@ LAWS_DIR = Path(__file__).resolve().parents[1] / "docs" / "leis"
 ORIGINAL_DIR = LAWS_DIR / "original"
 MANIFEST = LAWS_DIR / "manifest.json"
 SOURCE_ENCODING = "cp1252"
+HTML_EXTENSIONS = {".htm", ".html"}
 
 BLOCK_TAGS = ["p", "td", "li", "blockquote"]
 STRUCK_TAGS = ["strike", "s", "del"]
@@ -89,10 +90,17 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def law_files(directory: Path):
+    return sorted(
+        path for path in directory.iterdir()
+        if path.is_file() and path.suffix.lower() in HTML_EXTENSIONS
+    )
+
+
 def main() -> None:
     ORIGINAL_DIR.mkdir(exist_ok=True)
     # Primeira execução: move os originais para original/.
-    for f in LAWS_DIR.glob("*.htm"):
+    for f in law_files(LAWS_DIR):
         target = ORIGINAL_DIR / f.name
         if not target.exists():
             shutil.move(str(f), target)
@@ -100,7 +108,7 @@ def main() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8"))
     by_name = {Path(e["file"]).name: e for e in manifest}
 
-    for src in sorted(ORIGINAL_DIR.glob("*.htm")):
+    for src in law_files(ORIGINAL_DIR):
         html = src.read_text(encoding=SOURCE_ENCODING)
         cleaned, n_strikes, n_dropped = clean(html)
         out = LAWS_DIR / src.name
