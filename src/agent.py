@@ -149,6 +149,19 @@ soy_deforestation e soy_gross_emissions, que só têm municípios. Métricas em 
 - soy_facilities: instalações de armazenagem/processamento; capacidade de armazenagem em t, de processamento em t/dia.
 - Exposição não prova ilegalidade nem responsabilidade direta de empresa ou município."""
 
+SOY_RULES_GOLD = """\
+## Regras de interpretação da soja (banco gold)
+- As tabelas soy_* e inpe_* já são tipadas e conferidas: use as colunas direto, sem TRY_CAST. Os rankings usam só a base analítica \
+(origem conhecida, destino fora do Brasil, 2013 em diante); o volume doméstico e o de origem desconhecida estão em soy_national_year: \
+diga isso quando a diferença importar. exporter_group = UNKNOWN significa exportador não identificado, não uma empresa.
+- A exposição ao desmatamento é de janela de 5 anos: nunca some entre anos (nem calcule totais de vários anos); compare anos lado a lado. \
+Somar UFs, municípios ou empresas dentro do MESMO ano é válido.
+- Antes de filtrar por nome (município, empresa, país), confirme a grafia em dim_entity (name_normalized).
+- Município: use municipality_id (IBGE, 7 dígitos) para ligar tabelas. O cruzamento com o INPE está em soy_inpe_crosswalk.
+- soy_spatial_metrics (ferramenta soy_territorial_metric) traz indicadores da região inteira, não fluxos da cadeia. \
+soy_facilities: instalações de armazenagem/processamento.
+- Exposição não prova ilegalidade nem responsabilidade direta de empresa ou município."""
+
 _YEAR = {"type": "integer", "description": "Ano (2011-2023, sem 2018). Omita para o mais recente."}
 _LIMIT = {"type": "integer", "description": "Número de linhas (padrão 10).", "minimum": 1, "maximum": 100}
 
@@ -285,7 +298,11 @@ SOY_TOOLS = [
     {
         "name": "soy_top_exporters",
         "description": "Soja: ranking de exportadores num ano por exposição ao desmatamento (ha), com volume (t).",
-        "input_schema": {"type": "object", "properties": {"year": _SOY_YEAR, "limit": _LIMIT}},
+        "input_schema": {"type": "object", "properties": {
+            "year": _SOY_YEAR, "limit": _LIMIT,
+            "level": {"type": "string", "enum": ["company", "group"],
+                      "description": "company (padrão) = empresa; group = grupo econômico. Só vale no banco gold."},
+        }},
     },
     {
         "name": "soy_top_destinations",
@@ -356,8 +373,8 @@ def _soy_year(year):
 SOY_QUERY_FUNCS = {
     "soy_top_municipalities": lambda limit=10, year=None, state=None, biome=None:
         soy_queries.top_municipalities(limit=limit, year=_soy_year(year), state=state, biome=biome),
-    "soy_top_exporters": lambda limit=10, year=None:
-        soy_queries.top_exporters(limit=limit, year=_soy_year(year)),
+    "soy_top_exporters": lambda limit=10, year=None, level=None:
+        soy_queries.top_exporters(limit=limit, year=_soy_year(year), level=level),
     "soy_top_destinations": lambda limit=10, year=None, state=None:
         soy_queries.top_destinations(limit=limit, year=_soy_year(year), state=state),
     "soy_yearly_trend": lambda: soy_queries.yearly_trend(),
@@ -891,7 +908,7 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
             latest_year=queries.latest_year(),
             soy_latest_year=(soy_queries.latest_year() if soy_ok else "indisponível"),
             dictionary=render_prompt(),
-            soy=(soy_queries.schema_prompt() + "\n" + SOY_RULES) if soy_ok else SOY_UNAVAILABLE,
+            soy=(soy_queries.schema_prompt() + "\n" + (SOY_RULES_GOLD if soy_queries.using_gold() else SOY_RULES)) if soy_ok else SOY_UNAVAILABLE,
         ),
         "cache_control": {"type": "ephemeral"},
     }]

@@ -5,6 +5,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd
 
+from src import config
 from src.soy.ingest import DEFAULT_DUCKDB_PATH
 
 
@@ -36,15 +37,36 @@ def _attach_metadata(df: pd.DataFrame, *, source: str, unit: str, period: str, f
     return df
 
 
+GOLD_TABLE = "soy_municipality_year"       # tabela-sentinela: se existe, o banco gold está completo
+GOLD_SUPPORT = {"gold_catalog", "meta_runs"}
+
+
+def using_gold() -> bool:
+    """True quando SOY_USE_GOLD está ligado E o banco gold existe. Nesse modo o agente só enxerga o banco gold
+    (sem a tabela bruta da cadeia): as regras da gold não podem ser puladas por SQL livre."""
+    return bool(config.SOY_USE_GOLD) and config.SOY_GOLD_DUCKDB_PATH.exists()
+
+
+def _gold_latest_year(con) -> int | None:
+    row = con.execute("SELECT MAX(year) FROM soy_national_year WHERE exposure_ha > 0").fetchone()
+    return int(row[0]) if row and row[0] is not None else None
+
+
 def _connect(db_path: str | Path | None = None):
     """Conexão somente leitura e sem acesso a arquivos (mesma sandbox do banco da carne bovina).
 
     Todas as consultas usam a mesma configuração: o DuckDB não abre o mesmo arquivo com
     configurações diferentes no mesmo processo (ex.: servidor web atendendo várias perguntas).
     """
-    target = Path(db_path) if db_path is not None else DEFAULT_DUCKDB_PATH
+    if db_path is not None:
+        target = Path(db_path)
+    elif using_gold():
+        target = config.SOY_GOLD_DUCKDB_PATH
+    else:
+        target = DEFAULT_DUCKDB_PATH
     if not target.exists():
-        raise FileNotFoundError(f"Banco DuckDB da soja não encontrado: {target}. Rode: python -m src.cli ingest-soy")
+        raise FileNotFoundError(f"Banco DuckDB da soja não encontrado: {target}. Rode: python -m src.cli "
+                                + ("build-medallion" if using_gold() else "ingest-soy"))
     con = duckdb.connect(str(target), read_only=True, config={"enable_external_access": False})
     con.execute("SET enable_progress_bar = false")
     con.execute("SET lock_configuration = true")
@@ -58,6 +80,12 @@ def connect_readonly():
 
 def is_available() -> bool:
     """True se o banco da soja existe e tem a tabela da cadeia (ingest-soy já rodou)."""
+    if using_gold():
+        con = _connect()
+        try:
+            return _table_exists(con, GOLD_TABLE)
+        finally:
+            con.close()
     if not DEFAULT_DUCKDB_PATH.exists():
         return False
     con = _connect()
@@ -71,6 +99,8 @@ def latest_year() -> int | None:
     """Ano mais recente da cadeia da soja com exposição ao desmatamento."""
     con = _connect()
     try:
+        if using_gold():
+            return _gold_latest_year(con)
         table = _choose_supply_table(con)
         if table is None:
             return None
@@ -105,6 +135,15 @@ def schema_prompt() -> str:
             "AND table_name <> 'soy_dataset_metadata' ORDER BY table_name"
         ).fetchall()]
         out = ["# Banco DuckDB da soja (somente leitura; consulte com run_soy_sql)\n"]
+        if using_gold():
+            # Dicionário vem da tabela gold_catalog do próprio banco (fonte única: src/medallion/catalog.py).
+            from src.medallion import catalog as gold_catalog
+            from src.medallion.registry import _latest, prompt_line
+            cat = con.execute("SELECT * FROM gold_catalog").fetchdf()
+            out = [gold_catalog.render_prompt(cat), prompt_line(_latest(con)), ""]
+            tables = [t for t in tables if t not in set(cat.table_name) | GOLD_SUPPORT]
+            if tables:
+                out.append("# Outras tabelas da soja\n")
         for t in tables:
             info = descriptions.get(t, {})
             period = info.get("period") or {}
@@ -152,7 +191,66 @@ def _pick_columns(con, table_name: str, candidates: list[str]) -> str | None:
     return None
 
 
+def _gold_query(sql: str, params: list, *, source: str, unit: str, period: str, filters: dict) -> pd.DataFrame:
+    conn = _connect()
+    try:
+        return _attach_metadata(conn.execute(sql, params).fetchdf(), source=source, unit=unit, period=period, filters=filters)
+    finally:
+        conn.close()
+
+
+def _gold_year(year: int | None) -> int | None:
+    if year is not None:
+        return int(year)
+    conn = _connect()
+    try:
+        return _gold_latest_year(conn)
+    finally:
+        conn.close()
+
+
+def _gold_top_municipalities(limit, year, state, biome) -> pd.DataFrame:
+    year = _gold_year(year)
+    where, params = ["year = ?"], [year]
+    for col, val in (("state", state), ("biome", biome)):
+        if val is not None:
+            where.append(f"LOWER({col}) = LOWER(?)")
+            params.append(val)
+    return _gold_query(
+        f"SELECT municipality, state, biome, volume_tonnes, exposure_ha FROM soy_municipality_year WHERE {' AND '.join(where)} "
+        "ORDER BY exposure_ha DESC NULLS LAST LIMIT ?", params + [int(limit)], source="soy_municipality_year",
+        unit="tonnes / hectares", period=str(year), filters={"year": year, "state": state, "biome": biome})
+
+
+def _gold_top_exporters(limit, year, level) -> pd.DataFrame:
+    year = _gold_year(year)
+    if (level or "company") == "group":
+        sql = ("SELECT exporter_group AS exporter, volume_tonnes, exposure_ha FROM soy_exporter_group_year "
+               "WHERE year = ? ORDER BY exposure_ha DESC NULLS LAST LIMIT ?")
+        source = "soy_exporter_group_year"
+    else:
+        sql = ("SELECT exporter, exporter_group, volume_tonnes, exposure_ha FROM soy_exporter_company_year "
+               "WHERE year = ? ORDER BY exposure_ha DESC NULLS LAST LIMIT ?")
+        source = "soy_exporter_company_year"
+    return _gold_query(sql, [year, int(limit)], source=source, unit="tonnes / hectares", period=str(year),
+                       filters={"year": year, "level": level or "company"})
+
+
+def _gold_top_destinations(limit, year, state) -> pd.DataFrame:
+    year = _gold_year(year)
+    if state is not None:
+        sql = ("SELECT destination, SUM(volume_tonnes) AS volume_tonnes FROM soy_destination_state_year "
+               "WHERE year = ? AND LOWER(state) = LOWER(?) GROUP BY destination ORDER BY volume_tonnes DESC NULLS LAST LIMIT ?")
+        params, source = [year, state, int(limit)], "soy_destination_state_year"
+    else:
+        sql = "SELECT destination, volume_tonnes FROM soy_destination_year WHERE year = ? ORDER BY volume_tonnes DESC NULLS LAST LIMIT ?"
+        params, source = [year, int(limit)], "soy_destination_year"
+    return _gold_query(sql, params, source=source, unit="tonnes", period=str(year), filters={"year": year, "state": state})
+
+
 def top_municipalities(limit: int = 10, year: int | None = None, state: str | None = None, biome: str | None = None) -> pd.DataFrame:
+    if using_gold():
+        return _gold_top_municipalities(limit, year, state, biome)
     conn = None
     try:
         conn = _connect()
@@ -194,7 +292,10 @@ def top_municipalities(limit: int = 10, year: int | None = None, state: str | No
             conn.close()
 
 
-def top_exporters(limit: int = 10, year: int | None = None) -> pd.DataFrame:
+def top_exporters(limit: int = 10, year: int | None = None, level: str | None = None) -> pd.DataFrame:
+    """level (só no banco gold): "company" (padrão) ou "group"."""
+    if using_gold():
+        return _gold_top_exporters(limit, year, level)
     conn = None
     try:
         conn = _connect()
@@ -229,6 +330,8 @@ def top_exporters(limit: int = 10, year: int | None = None) -> pd.DataFrame:
 
 
 def top_destinations(limit: int = 10, year: int | None = None, state: str | None = None) -> pd.DataFrame:
+    if using_gold():
+        return _gold_top_destinations(limit, year, state)
     conn = None
     try:
         conn = _connect()
@@ -265,6 +368,11 @@ def top_destinations(limit: int = 10, year: int | None = None, state: str | None
 
 
 def yearly_trend() -> pd.DataFrame:
+    if using_gold():
+        return _gold_query(
+            "SELECT year, volume_total_tonnes AS volume_tonnes, exposure_ha, co2_gross_tonnes AS gross_emissions_tco2e "
+            "FROM soy_national_year ORDER BY year", [], source="soy_national_year", unit="tonnes / hectares / tCO2e",
+            period="2004-2022", filters={})
     conn = None
     try:
         conn = _connect()
@@ -296,6 +404,10 @@ def exposure_by_municipality(limit: int = 10, year: int | None = None) -> pd.Dat
 
 
 def deforestation_by_biome(year: int | None = None) -> pd.DataFrame:
+    if using_gold():
+        y = _gold_year(year)
+        return _gold_query("SELECT biome, exposure_ha FROM soy_biome_year WHERE year = ? ORDER BY exposure_ha DESC NULLS LAST",
+                           [y], source="soy_biome_year", unit="hectares", period=str(y), filters={"year": y})
     conn = None
     try:
         conn = _connect()
