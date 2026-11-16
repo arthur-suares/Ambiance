@@ -140,6 +140,17 @@ Se o banco da soja não existir, o resto do sistema continua funcionando: o agen
 
 ---
 
+### 2.3 Soja: medalhão (bronze → silver → gold)
+
+A cadeia da soja (Trase v2.6.1) e os alertas do INPE passam por três camadas, com portões de qualidade entre elas, e geram um banco só da camada gold para o agente (`soy_gold.duckdb`, sem a tabela bruta).
+
+```bash
+python -m src.cli build-medallion        # bronze -> silver -> gold -> banco do agente (~20 s)
+SOY_USE_GOLD=1 python -m src.cli soy-top-exporters --year 2022   # consulta a gold
+```
+
+Fluxo, regras, variáveis e limites: [docs/arquitetura_soja.md](docs/arquitetura_soja.md). Dicionário das tabelas: [docs/dicionario_gold.md](docs/dicionario_gold.md).
+
 ## 3. Etapa 2: Ingestão das leis (RAG documental)
 
 Esta é a parte de RAG "clássico": documentos de texto → chunks → embeddings → banco vetorial.
