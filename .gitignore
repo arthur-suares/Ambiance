@@ -9,3 +9,7 @@ data/processed/*
 !data/processed/.gitkeep
 .ipynb_checkpoints/
 outputs/
+eval/resultados/**/*.npy
+eval/resultados/rag_juridico/auditoria/frozen_from_db.json
+eval/resultados/rag_juridico/rodadas/*/details.jsonl
+!eval/resultados/rag_juridico/rodadas/juridico_bge_m3_29leis_gen/details.jsonl

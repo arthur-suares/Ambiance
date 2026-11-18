@@ -28,6 +28,8 @@ from src.fts_query import build_relaxed_fts_query, extract_terms, weight_terms
 
 SCHEMA_PATH = PROJECT_ROOT / "sql" / "schema.sql"
 RRF_K = 60  # constante padrão do Reciprocal Rank Fusion
+# Peso lexical fino no RRF: atua como desempate sem rebaixar o topo semântico do bge-m3.
+LEXICAL_RRF_WEIGHT = 0.02
 
 
 @dataclass
@@ -90,11 +92,17 @@ def _check_embedding_dim(con: psycopg.Connection) -> None:
 
 def get_document_hash(source_path: str) -> str | None:
     """Retorna o sha256 já indexado, para pular arquivos que não mudaram."""
+    info = get_document_index_info(source_path)
+    return info["sha256"] if info else None
+
+
+def get_document_index_info(source_path: str) -> dict | None:
+    """Retorna sha256, embedding_model e metadata já indexados para o documento."""
     with get_connection() as con:
-        row = con.execute(
-            "SELECT sha256 FROM documents WHERE source_path = %s", [source_path]
+        return con.execute(
+            "SELECT sha256, embedding_model, metadata FROM documents WHERE source_path = %s",
+            [source_path],
         ).fetchone()
-    return row["sha256"] if row else None
 
 
 def upsert_document(
@@ -216,12 +224,13 @@ def hybrid_search(
     candidates: int = 40,
     doc_type: str | None = None,
     lexical_mode: str = "idf",
+    lexical_weight: float = LEXICAL_RRF_WEIGHT,
 ) -> list[dict]:
     """Combina busca vetorial e full-text com Reciprocal Rank Fusion.
 
     Cada busca devolve até `candidates` resultados; a posição de cada chunk em
-    cada lista vira score 1/(RRF_K + posição) e os scores são somados. Os scores do
-    canal lexical só ordenam esse canal: o RRF recebe posições.
+    cada lista entra no RRF como 1/(RRF_K + posição_semântica) + lexical_weight/(RRF_K + posição_lexical).
+    Os scores do canal lexical só ordenam esse canal: o RRF recebe posições.
 
     `lexical_mode` escolhe a consulta do canal lexical (src/fts_query.py):
     - "strict": a pergunta inteira no `websearch_to_tsquery` (todas as palavras, AND). Modo antigo, só para comparar.
@@ -283,7 +292,7 @@ def hybrid_search(
             fused AS (
                 SELECT COALESCE(s.id, k.id) AS id,
                        COALESCE(1.0 / ({RRF_K} + s.rank), 0)
-                     + COALESCE(1.0 / ({RRF_K} + k.rank), 0) AS score,
+                     + COALESCE(%(lexical_weight)s::float8 / ({RRF_K} + k.rank), 0) AS score,
                        s.rank AS semantic_rank,
                        k.rank AS keyword_rank
                 FROM semantic s FULL OUTER JOIN keyword k ON s.id = k.id
@@ -293,12 +302,29 @@ def hybrid_search(
             FROM fused f
             JOIN chunks c ON c.id = f.id
             JOIN documents d ON d.id = c.document_id
-            ORDER BY f.score DESC
+            ORDER BY f.score DESC, f.semantic_rank ASC NULLS LAST, f.keyword_rank ASC NULLS LAST
             LIMIT %(limit)s
             """,
             {"emb": np.asarray(query_embedding, dtype=np.float32),
              "query": fts_text, "doc_type": doc_type, "terms": terms, "weights": weights,
-             "candidates": candidates, "limit": limit},
+             "candidates": candidates, "limit": limit, "lexical_weight": float(lexical_weight)},
+        ).fetchall()
+
+
+def get_article_siblings(source_path: str, artigo: str) -> list[dict]:
+    """Retorna todas as partes de um mesmo artigo de um documento, ordenadas por parte."""
+    with get_connection(register=False) as con:
+        return con.execute(
+            _SELECT_RESULT
+            + """
+                 , NULL::float8 AS score, NULL::bigint AS semantic_rank, NULL::bigint AS keyword_rank
+            FROM chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE d.source_path = %(source_path)s
+              AND c.metadata->>'artigo' = %(artigo)s
+            ORDER BY COALESCE((c.metadata->>'parte')::int, 1), c.chunk_index
+            """,
+            {"source_path": source_path, "artigo": str(artigo)},
         ).fetchall()
 
 
