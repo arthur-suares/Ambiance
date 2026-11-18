@@ -65,6 +65,12 @@
     <h2>Resposta</h2>
     <div id="answer"></div>
 
+    <section id="dashboard-section" hidden>
+      <h2>Painel interativo</h2>
+      <p><a id="dashboard-link" href="#" target="_blank" rel="noopener">Abrir painel</a></p>
+      <iframe id="dashboard-frame" title="Painel interativo" style="width:100%; height:620px; border:1px solid var(--border); border-radius:6px; background:#fff;"></iframe>
+    </section>
+
     <section id="calls-section" hidden>
       <h2>Consultas aos dados</h2>
       <div id="calls"></div>
@@ -85,6 +91,16 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+
+function getSessionId() {
+  let sid = sessionStorage.getItem("trase_session_id");
+  if (!sid || !/^[A-Za-z0-9_-]{8,64}$/.test(sid)) {
+    const rand = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, "") : Math.random().toString(36).slice(2) + Date.now().toString(36));
+    sid = "sess_" + rand.slice(0, 24);
+    sessionStorage.setItem("trase_session_id", sid);
+  }
+  return sid;
+}
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>\"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -132,16 +148,31 @@ $("form").addEventListener("submit", async (e) => {
   $("status").classList.remove("error");
 
   try {
-    const res = await fetch("/api/ask", {
+    const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question, k: Number($("k").value) || 6, mode: $("mode").value, domain: $("domain").value }),
+      body: JSON.stringify({
+        session_id: getSessionId(),
+        message: question,
+        k: Number($("k").value) || 6,
+        mode: $("mode").value,
+        domain: $("domain").value,
+      }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
     $("answer").innerHTML = renderAnswer(data.answer);
-    $("sources").innerHTML = data.sources.map((s) => {
+    const dashboards = data.dashboards || [];
+    if (dashboards.length > 0) {
+      $("dashboard-link").href = dashboards[0];
+      $("dashboard-frame").src = dashboards[0];
+      $("dashboard-section").hidden = false;
+    } else {
+      $("dashboard-frame").removeAttribute("src");
+      $("dashboard-section").hidden = true;
+    }
+    $("sources").innerHTML = (data.sources || []).map((s) => {
       const parte = s.partes > 1 ? ` (parte ${s.parte}/${s.partes})` : "";
       const ranks = `semântica #${s.semantic_rank ?? "–"}, palavra-chave #${s.keyword_rank ?? "–"}`;
       const label = s.label ? `[${escapeHtml(s.label)}] ` : "";
@@ -150,7 +181,8 @@ $("form").addEventListener("submit", async (e) => {
              `<span class="meta">(score ${s.score.toFixed(4)}; ${ranks})</span></li>`;
     }).join("");
     $("usage").textContent =
-      `${data.domain || "auto"} · ${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
+      `${data.intent || "question"} · ${data.domain || "auto"} · ${data.input_tokens ?? 0} tokens de entrada, ${data.output_tokens ?? 0} de saída · ${data.seconds}s` +
+      (data.trace_id ? ` · trace: ${data.trace_id}` : "");
     const calls = data.tool_calls || [];
     $("calls").innerHTML = calls.map((c) =>
       `<details class="call"><summary>[${escapeHtml(c.label)}] <code>${escapeHtml(c.summary)}</code> ` +
