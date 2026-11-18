@@ -351,6 +351,7 @@ class AgentAnswer:
     stop_reason: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
+    datasets: list = field(default_factory=list)
 
 
 def _round(v):
@@ -368,17 +369,63 @@ def df_to_text(df: pd.DataFrame, truncated: bool = False) -> str:
     return text + (f"\n(... mostrando {len(shown)} linhas; há mais)" if extra else f"\n({len(df)} linhas)")
 
 
+def _dataset_source_meta(tool_name: str) -> tuple[str, str]:
+    if tool_name == "run_soy_sql" or tool_name.startswith("soy_"):
+        return "soy.duckdb", "Trase — Cadeia da soja (soy.duckdb)"
+    return "trase.duckdb", "Trase — Cadeia da carne bovina (trase.duckdb)"
+
+
 class _Session:
-    def __init__(self, k_laws: int):
+    def __init__(self, k_laws: int, session_id: str | None = None, result_store=None):
         self.k_laws = k_laws
-        self.data_n = 0
+        self.session_id = session_id
+        self.result_store = result_store if (result_store is not None and session_id) else None
+        self.data_n = self.result_store.last_index(session_id) if self.result_store is not None else 0
         self.law_sources: list[dict] = []
         self.calls: list[ToolCall] = []
+        self.datasets: list = []
         self.laws_down = False
+
+    def _next_label(self) -> str:
+        if self.result_store is not None and self.session_id:
+            label = self.result_store.allocate_label(self.session_id)
+            self.data_n = self.result_store.last_index(self.session_id)
+            return label
+        self.data_n += 1
+        return f"D{self.data_n}"
+
+    def _save_dataset(self, label: str, name: str, args: dict, df: pd.DataFrame,
+                      truncated: bool, seconds: float) -> None:
+        if self.result_store is None or not self.session_id:
+            return
+        from src.dashboard.schemas import DatasetResult
+
+        db_name, src_label = _dataset_source_meta(name)
+        if name in ("run_sql", "run_soy_sql"):
+            summary = str(args.get("sql") or "").strip()
+            purpose = str(args.get("purpose") or "").strip()
+        else:
+            summary = f"{name}({json.dumps(args, ensure_ascii=False)})"
+            purpose = f"Consulta pronta {name}"
+        ds = DatasetResult(
+            dataset_id=label,
+            database=db_name,
+            source_label=src_label,
+            tool_name=name,
+            query_summary=summary,
+            df=df.copy(),
+            purpose=purpose,
+            truncated=truncated,
+            seconds=seconds,
+        )
+        stored = self.result_store.put(self.session_id, ds)
+        self.datasets.append(stored)
 
     def run(self, name: str, args: dict) -> tuple[str, bool]:
         start = time.perf_counter()
         label, rows = "", None
+        df_captured: pd.DataFrame | None = None
+        truncated = False
         try:
             if name == "search_laws" and self.laws_down:
                 raise RuntimeError("base de leis indisponível")
@@ -386,18 +433,17 @@ class _Session:
                 text, label = self._search_laws(args)
             elif name in ("run_sql", "run_soy_sql"):
                 connect = soy_queries.connect_readonly if name == "run_soy_sql" else None
-                df, truncated = run_readonly_sql(args["sql"], connect=connect)
-                self.data_n += 1
-                label, rows = f"D{self.data_n}", len(df)
-                text = df_to_text(df, truncated)
+                df_captured, truncated = run_readonly_sql(args["sql"], connect=connect)
+                label, rows = self._next_label(), len(df_captured)
+                text = df_to_text(df_captured, truncated)
             elif name in QUERY_FUNCS:
                 df = QUERY_FUNCS[name](**args)
                 rows = len(df)
                 if name == "find_entity":
                     text = df_to_text(df)
                 else:
-                    self.data_n += 1
-                    label = f"D{self.data_n}"
+                    df_captured = df
+                    label = self._next_label()
                     text = df_to_text(df)
             else:
                 raise ValueError(f"Ferramenta desconhecida: {name}")
@@ -411,8 +457,11 @@ class _Session:
                 text = ("Erro: a base de leis está indisponível (sem conexão com o Postgres). "
                         "Não tente de novo; responda sem os trechos de lei e avise o usuário.")
 
-        self.calls.append(ToolCall(label or name, name, args, ok, text, rows,
-                                   round(time.perf_counter() - start, 2)))
+        elapsed = round(time.perf_counter() - start, 2)
+        if ok and label and df_captured is not None:
+            self._save_dataset(label, name, args, df_captured, truncated, elapsed)
+
+        self.calls.append(ToolCall(label or name, name, args, ok, text, rows, elapsed))
         if label and ok:
             text = f"Resultado [{label}]\n{text}"
         return text, ok
@@ -443,7 +492,8 @@ DOMAIN_HINTS = {
 
 
 def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
-        domain: str | None = None) -> AgentAnswer:
+        domain: str | None = None, session_id: str | None = None,
+        result_store=None) -> AgentAnswer:
     soy_ok = soy_queries.is_available()
     system = [{
         "type": "text",
@@ -459,7 +509,7 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
         system.append({"type": "text", "text": f"Roteamento: {DOMAIN_HINTS[domain]}"})
     tools = TOOLS + SOY_TOOLS if soy_ok else TOOLS
     messages = list(history or []) + [{"role": "user", "content": question}]
-    session = _Session(k_laws)
+    session = _Session(k_laws, session_id=session_id, result_store=result_store)
     result = AgentAnswer(question, "")
 
     for _ in range(MAX_TURNS):
@@ -492,6 +542,7 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
 
     result.tool_calls = session.calls
     result.law_sources = session.law_sources
+    result.datasets = session.datasets
     return result
 
 
