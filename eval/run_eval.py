@@ -5,6 +5,8 @@ Uso:
     python -m eval.run_eval --ids L01,M01       # só algumas
     python -m eval.run_eval --limit 2           # as 2 primeiras
     python -m eval.run_eval --sem-juiz          # pula o LLM-as-a-judge (mais rápido/barato)
+    python -m eval.run_eval --refazer-checagem eval/resultados/<rodada> --saida <pasta>
+                                                # refaz só a checagem dos valores de uma rodada pronta
 
 Cada pergunta passa por: (1) busca direta nas leis -> Hit/Recall/MRR; (2) agente completo ->
 resposta + contexto; (3) checagem dos valores; (4) juiz -> Faithfulness, Context Precision,
@@ -24,10 +26,12 @@ from importlib import metadata
 from pathlib import Path
 
 from eval import judge
-from eval.metrics import KS, chunk_key, find_value, first_positions, gold_sets, mean, ranking_scores
+from eval.metrics import (KS, chunk_key, find_in_table, find_value, find_value_with_unit, first_positions, gold_sets,
+                          mean, ranking_scores)
 from eval.report import write_question_trail, write_report
 from eval.text_metrics import SIMILARITY_MODEL, SIMILARITY_PREFIX, SIMILARITY_REVISION, bleu_sentence, clean_text, cosine, normalize, rouge_l
-from src.config import EMBEDDING_MODEL, LLM_MODEL, PROJECT_ROOT
+from src.config import EMBEDDING_MODEL, JUDGE_MODEL, JUDGE_THINKING, LLM_MAX_TOKENS, LLM_MODEL, LLM_THINKING, PROJECT_ROOT
+from src.result_meta import strip_meta
 
 EVAL_DIR = PROJECT_ROOT / "eval"
 RETRIEVAL_K = 10   # top-10 da busca direta (Hit/Recall@1,3,5,10 e MRR)
@@ -106,7 +110,8 @@ def context_items(answer, essenciais: set, todos: set) -> list[dict]:
         cadeia = "soja" if call.name.startswith("soy_") or call.name == "run_soy_sql" else "carne bovina"
         items.append({"id": cid, "tipo": "dados" if call.label.startswith("D") else "outro",
                       "descricao": f"dados da cadeia da {cadeia} – {call.name}: {tool_call_summary(call)}"[:400],
-                      "texto": call.output, "chamada": tool_call_summary(call), "ok": call.ok})
+                      "texto": call.output, "chamada": tool_call_summary(call), "ok": call.ok,
+                      "ferramenta": call.name, "cadeia": "soja" if cadeia == "soja" else "carne"})
     return items
 
 
@@ -122,6 +127,7 @@ def run_agent(item: dict) -> tuple[dict, list[dict]]:
               "segundos": c.seconds, "saida": c.output} for c in answer.tool_calls]
     agent = {"dominio": domain, "resposta": answer.text, "stop_reason": answer.stop_reason,
              "tokens_entrada": answer.input_tokens, "tokens_saida": answer.output_tokens,
+             "tokens_entrada_cache": answer.cached_input_tokens,
              "segundos": seconds, "chamadas": calls}
     return agent, context_items(answer, essenciais, todos)
 
@@ -129,16 +135,38 @@ def run_agent(item: dict) -> tuple[dict, list[dict]]:
 # ----------------------------------------------------------------------------- etapa 3
 
 def check_values(item: dict, resposta: str, itens: list[dict]) -> dict:
+    """Confere cada número do gabarito no contexto e na resposta, por dois critérios.
+
+    Estruturado (o que vale): no contexto, o número tem de estar no lugar certo. Valor de dados: resultado da mesma
+    cadeia e escopo, coluna da métrica, linha/filtro da entidade e ano (find_in_table). Valor de lei: trecho de
+    lei, com a unidade ao lado. Na resposta, o número tem de vir com a unidade.
+    Solto (critério das rodadas antigas, mantido para comparação): número próximo em qualquer lugar do texto.
+    """
     rows = []
     for v in item["valores"]:
-        where = [it["id"] for it in itens if find_value(v["valor"], v["tolerancia_rel"], it["texto"], csv=True)]
-        in_answer = find_value(v["valor"], v["tolerancia_rel"], resposta)
-        rows.append({**v, "no_contexto": where, "na_resposta": in_answer})
+        valor, tol = v["valor"], v["tolerancia_rel"]
+        loose_ctx = [it["id"] for it in itens if find_value(valor, tol, strip_meta(it["texto"]), csv=True)]
+        loose_answer = find_value(valor, tol, resposta)
+        where, rejected = [], []
+        if v.get("cadeia") == "lei":
+            where = [it["id"] for it in itens if it.get("tipo") == "lei"
+                     and find_value_with_unit(valor, tol, it["texto"], v["unidade"])]
+        elif v.get("cadeia"):
+            for it in itens:
+                found, why = find_in_table(v, it)
+                where += [it["id"]] if found else []
+                rejected += why
+        else:  # gabarito sem a anotação de lugar: só há o critério solto
+            where = loose_ctx
+        in_answer = find_value_with_unit(valor, tol, resposta, v["unidade"], loose=True)
+        rows.append({**v, "no_contexto": where, "na_resposta": in_answer, "rejeitados_no_contexto": rejected,
+                     "no_contexto_solto": loose_ctx, "na_resposta_solto": loose_answer})
     n = len(rows)
+    share = lambda key: sum(bool(r[key]) for r in rows) / n if n else None
     return {
         "valores": rows,
-        "valor_recuperado": sum(bool(r["no_contexto"]) for r in rows) / n if n else None,
-        "acerto_valores": sum(r["na_resposta"] is not None for r in rows) / n if n else None,
+        "valor_recuperado": share("no_contexto"), "acerto_valores": share("na_resposta"),
+        "valor_recuperado_solto": share("no_contexto_solto"), "acerto_valores_solto": share("na_resposta_solto"),
     }
 
 
@@ -163,8 +191,8 @@ def flat_metrics(rec: dict) -> dict:
         m.update(rec["retrieval"]["metricas"])
     for key in ("faithfulness", "context_precision", "context_recall"):
         m[key] = (rec["juiz"] or {}).get(key, {}).get("score")
-    m["valor_recuperado"] = rec["checagem"]["valor_recuperado"] if rec["checagem"] else None
-    m["acerto_valores"] = rec["checagem"]["acerto_valores"] if rec["checagem"] else None
+    for key in ("valor_recuperado", "acerto_valores", "valor_recuperado_solto", "acerto_valores_solto"):
+        m[key] = (rec["checagem"] or {}).get(key)
     if rec["texto"]:
         for ref in ("curta", "longa"):
             r = rec["texto"][ref]
@@ -178,6 +206,7 @@ def flat_metrics(rec: dict) -> dict:
         m["tokens_entrada"] = rec["agente"]["tokens_entrada"]
         m["tokens_saida"] = rec["agente"]["tokens_saida"]
         m["tokens"] = m["tokens_entrada"] + m["tokens_saida"]
+        m["tokens_entrada_cache"] = rec["agente"].get("tokens_entrada_cache")  # ausente em rodadas antigas
     return m
 
 
@@ -221,9 +250,18 @@ def run_config(items: list[dict], use_judge: bool) -> dict:
         "data": datetime.now().isoformat(timespec="seconds"),
         "perguntas": [i["id"] for i in items],
         "modelo_agente": LLM_MODEL,
-        "modelo_juiz": LLM_MODEL if use_judge else None,
-        "temperatura": "padrão da API (o Claude Haiku 5.5 não aceita temperatura 0)",
+        "modelo_juiz": JUDGE_MODEL if use_judge else None,
+        "temperatura": "padrão da API (o código não envia temperatura)",
+        "thinking": LLM_THINKING or "padrão do modelo",
+        "max_tokens_agente": LLM_MAX_TOKENS,
+        "thinking_juiz": (JUDGE_THINKING or "padrão do modelo") if use_judge else None,
         "modelo_embeddings": EMBEDDING_MODEL,
+        "checagem_valores": {
+            "estruturada": "valor_recuperado / acerto_valores: no contexto, o número precisa estar na cadeia, no escopo, "
+                           "na coluna da métrica, na linha/filtro da entidade e no ano do gabarito (lei: em trecho de "
+                           "lei, com a unidade); na resposta, precisa vir com a unidade",
+            "solta": "valor_recuperado_solto / acerto_valores_solto: número próximo em qualquer lugar do texto (é o "
+                     "critério das rodadas anteriores, em que aparecia como valor_recuperado / acerto_valores)"},
         "busca": {"tipo": "híbrida (pgvector + full-text) com RRF", "rrf_k": RRF_K, "k_busca_direta": RETRIEVAL_K,
                   "ks_avaliados": list(KS), "k_leis_agente": K_LAWS, "max_turnos_agente": MAX_TURNS},
         "juiz": {"max_caracteres_por_item": judge.MAX_ITEM_CHARS, "prompts": judge.PROMPTS} if use_judge else None,
@@ -239,30 +277,45 @@ def run_config(items: list[dict], use_judge: bool) -> dict:
     }
 
 
-def rescore_text(old_dir: Path, out: Path) -> None:
-    """Refaz só as métricas de texto (ROUGE-L, BLEU, cosseno) de uma rodada já feita, com o gabarito atual.
+def rescore(old_dir: Path, out: Path, text: bool = False, values: bool = False) -> None:
+    """Refaz métricas sem LLM de uma rodada já feita, com o gabarito atual: as de texto (ROUGE-L, BLEU, cosseno)
+    e/ou a checagem dos valores.
 
     Reaproveita as respostas do agente, o contexto, a busca direta e as notas do juiz da rodada antiga: não chama
-    o agente, o juiz nem o Postgres. Vale enquanto a `resposta_esperada` (usada pelo juiz no Context Recall)
-    não mudar; o que muda é a `resposta_referencia`.
+    o agente, o juiz nem o Postgres. As notas do juiz valem enquanto a `resposta_esperada` (usada no Context
+    Recall) não mudar.
     """
+    done = [name for name, on in (("ROUGE-L, BLEU e cosseno, com as referências atuais do gabarito", text),
+                                  ("checagem dos valores, com o critério estruturado e o gabarito atuais", values)) if on]
     items = {i["id"]: i for i in load_tests()}
     old = [json.loads(line) for line in open(old_dir / "detalhes.jsonl", encoding="utf-8")]
     config = json.loads((old_dir / "config.json").read_text(encoding="utf-8"))
     new_cfg = run_config([items[r["id"]] for r in old], use_judge=bool(config.get("modelo_juiz")))
-    for key in ("data", "modelo_agente", "modelo_juiz", "temperatura", "juiz"):  # o que veio da rodada antiga
+    for key in ("data", "modelo_agente", "modelo_juiz", "thinking", "thinking_juiz", "juiz"):  # o que veio da rodada antiga
         new_cfg[key] = config.get(key)
-    new_cfg["reaproveitado_de"] = {"pasta": old_dir.name, "data_original": config["data"],
-                                   "o_que_foi_refeito": "ROUGE-L, BLEU e cosseno, com as referências atuais do gabarito"}
+    previous = config.get("reaproveitado_de")  # a rodada antiga pode já ser um reaproveitamento
+    same_dir = old_dir.resolve() == out.resolve()
+    new_cfg["reaproveitado_de"] = {
+        "pasta": "(a própria pasta, sobrescrita)" if same_dir else old_dir.name,
+        "data_original": config["data"],
+        "data_refeito": datetime.now().isoformat(timespec="seconds"),
+        "o_que_foi_refeito": "; ".join(done),
+        **({"anterior": previous} if previous else {}),
+    }
     (out / "perguntas").mkdir(parents=True, exist_ok=True)
     (out / "config.json").write_text(json.dumps(new_cfg, ensure_ascii=False, indent=2), encoding="utf-8")
     records = []
     with open(out / "detalhes.jsonl", "w", encoding="utf-8") as f:
         for rec in old:
             item = items[rec["id"]]
-            rec["gabarito"].update({k: item.get(k) for k in ("resposta_esperada", "resposta_referencia")})
-            if rec["agente"]:
+            if text:
+                rec["gabarito"].update({k: item.get(k) for k in ("resposta_esperada", "resposta_referencia")})
+            if values:
+                rec["gabarito"]["valores"] = item["valores"]
+            if rec["agente"] and text:
                 rec["texto"] = text_scores(item, rec["agente"]["resposta"])
+            if rec["agente"] and values:
+                rec["checagem"] = check_values(item, rec["agente"]["resposta"], rec["contexto"])
             rec["metricas"] = flat_metrics(rec)
             records.append(rec)
             f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
@@ -279,11 +332,14 @@ def main() -> None:
     ap.add_argument("--saida", help="pasta de saída (padrão: eval/resultados/<data-hora>)")
     ap.add_argument("--refazer-texto", metavar="PASTA",
                     help="reaproveita uma rodada pronta e refaz só ROUGE-L, BLEU e cosseno (não chama agente, juiz nem banco)")
+    ap.add_argument("--refazer-checagem", metavar="PASTA",
+                    help="reaproveita uma rodada pronta e refaz só a checagem dos valores, com o critério atual")
     args = ap.parse_args()
 
-    if args.refazer_texto:
+    if args.refazer_texto or args.refazer_checagem:
         out = Path(args.saida) if args.saida else EVAL_DIR / "resultados" / datetime.now().strftime("%Y-%m-%d_%H%M")
-        rescore_text(Path(args.refazer_texto), out)
+        rescore(Path(args.refazer_texto or args.refazer_checagem), out,
+                text=bool(args.refazer_texto), values=bool(args.refazer_checagem))
         return
 
     from src.database import ensure_database
