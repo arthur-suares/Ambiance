@@ -1,0 +1,32 @@
+{
+  "timestamp_utc": "2026-11-18T12:19:26.040708+00:00",
+  "model": "BAAI/bge-m3",
+  "model_revision": "5617a9f61b028005a4858fdac845db406aefb181",
+  "dimension": 1024,
+  "corpus_sha256": "d23e5b34e43c2baa759cff03df7d064d1174c96f14c2c91e282a21bfde7ebecd",
+  "corpus_origin": "rebuilt_not_verified_against_database",
+  "questions_sha256": "b919188e94290f389bdb2372c7dc328d9ebcb6fa418a16e04ed2db3a9cf1d64b",
+  "similarity_model": "intfloat/multilingual-e5-small",
+  "similarity_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "context_tokenizer": "intfloat/multilingual-e5-small",
+  "passage_prefix": "",
+  "query_prefix": "",
+  "retrieval": "exact_dense_cosine",
+  "decompose": true,
+  "candidates": 40,
+  "reranker": null,
+  "reranker_max_length": null,
+  "reranker_revision": null,
+  "reused_embeddings": "eval/resultados/juridico_bge_m3/embeddings.npy",
+  "context_mode": "ranked",
+  "context_k": 6,
+  "context_budget": 2400,
+  "index_seconds": 0.0,
+  "generation": false,
+  "python": "3.14.6",
+  "versions": {
+    "sentence-transformers": "6.1.0",
+    "transformers": "5.19.0",
+    "numpy": "2.5.3"
+  }
+}
