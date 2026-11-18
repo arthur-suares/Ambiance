@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pandas as pd
 
-ALLOWED_WIDGET_KINDS = ("kpi", "bar", "line", "table")
+ALLOWED_WIDGET_KINDS = ("kpi", "bar", "line", "area", "progress", "table")
+# Tipos novos herdam as regras de um tipo existente (colunas e metodologia).
+BASE_KIND = {"area": "line", "progress": "bar"}
 ALLOWED_KPI_AGGS = ("first", "sum", "mean", "max", "min", "count")
 MAX_REVISIONS = 2
 MAX_ROWS_TO_LLM = 60
@@ -71,7 +73,7 @@ class DataAgentResult:
 @dataclass
 class WidgetSpec:
     id: str
-    kind: str                # "kpi" | "bar" | "line" | "table"
+    kind: str                # "kpi" | "bar" | "line" | "area" | "progress" | "table"
     title: str
     dataset_id: str
     unit: str
@@ -89,6 +91,10 @@ class WidgetSpec:
     orientation: str = "v"   # "v" | "h" (bar)
     barmode: str = "group"   # "group" | "stack" (bar)
     markers: bool = True     # (line)
+    stacked: bool = False    # (area) empilha as séries
+    # KPI: série e variação calculadas em código a partir de colunas do mesmo dataset
+    trend_x: str | None = None
+    trend_y: str | None = None
     # Campos de tabela e ordenação/recorte
     columns: list[str] = field(default_factory=list)
     column_labels: dict[str, str] = field(default_factory=dict)
@@ -111,13 +117,16 @@ class WidgetSpec:
             "span": self.span,
         }
         if self.kind == "kpi":
-            out.update({"column": self.column, "agg": self.agg, "value": self.value})
-        elif self.kind in ("bar", "line"):
+            out.update({"column": self.column, "agg": self.agg, "value": self.value,
+                        "trend_x": self.trend_x, "trend_y": self.trend_y})
+        elif self.kind in ("bar", "line", "area", "progress"):
             out.update({"x": self.x, "y": self.y, "color": self.color,
                         "sort_by": self.sort_by, "ascending": self.ascending, "top_n": self.top_n})
             if self.kind == "bar":
                 out.update({"orientation": self.orientation, "barmode": self.barmode})
-            else:
+            elif self.kind == "area":
+                out["stacked"] = self.stacked
+            elif self.kind == "line":
                 out["markers"] = self.markers
         elif self.kind == "table":
             out.update({"columns": self.columns, "column_labels": self.column_labels,
@@ -343,6 +352,9 @@ def parse_widget_spec(raw: object, index: int) -> WidgetSpec:
         orientation=orientation,
         barmode=barmode,
         markers=bool(raw.get("markers", True)),
+        stacked=bool(raw.get("stacked", False)),
+        trend_x=str(raw["trend_x"]).strip() if raw.get("trend_x") else None,
+        trend_y=str(raw["trend_y"]).strip() if raw.get("trend_y") else None,
         columns=_as_str_list(raw.get("columns")),
         column_labels=col_labels,
         sort_by=str(raw["sort_by"]).strip() if raw.get("sort_by") else None,

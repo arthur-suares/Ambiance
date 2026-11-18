@@ -20,7 +20,10 @@ import math
 
 import pandas as pd
 
+from dataclasses import replace as _replace
+
 from src.dashboard._llm import call_structured_llm
+from src.dashboard.schemas import BASE_KIND
 from src.dashboard.schemas import (
     ALLOWED_KPI_AGGS,
     ALLOWED_WIDGET_KINDS,
@@ -32,6 +35,10 @@ from src.dashboard.schemas import (
     WidgetSpec,
     compute_kpi_value,
     format_dataset_for_llm,
+)
+from src.dashboard.validator import (
+    validate_spec_methodological,
+    validate_widget_methodological,
 )
 
 KPI_REL_TOL = 0.01
@@ -97,6 +104,19 @@ def validate_widget_deterministic(
     """Valida um único componente deterministicamente contra os DataFrames do SQL."""
     issues: list[WidgetIssue] = []
 
+    # `area` e `progress` herdam todas as checagens (colunas e metodologia) de `line` e `bar`.
+    if w.kind in BASE_KIND:
+        w = _replace(w, kind=BASE_KIND[w.kind])
+    if w.kind == "kpi" and (w.trend_x or w.trend_y) and w.dataset_id in datasets_by_id:
+        cols = set(datasets_by_id[w.dataset_id].df.columns)
+        for campo, col in (("trend_x", w.trend_x), ("trend_y", w.trend_y)):
+            if not col:
+                issues.append(WidgetIssue(w.id, "deterministic", f"KPI com tendência deve informar '{campo}'."))
+            elif col not in cols:
+                issues.append(WidgetIssue(
+                    w.id, "deterministic", f"Coluna {campo}='{col}' não existe em {w.dataset_id}.",
+                ))
+
     if not w.valid and w.validation_error:
         issues.append(WidgetIssue(w.id, "deterministic", w.validation_error))
         return issues
@@ -134,11 +154,14 @@ def validate_widget_deterministic(
             w.id, "deterministic",
             f"Dataset '{w.dataset_id}' não existe (disponíveis: {avail}).",
         ))
+        issues.extend(validate_widget_methodological(w, None))
         return issues
 
-    df = datasets_by_id[w.dataset_id].df
+    ds = datasets_by_id[w.dataset_id]
+    df = ds.df
     if df.empty:
         issues.append(WidgetIssue(w.id, "deterministic", f"Dataset '{w.dataset_id}' não possui linhas."))
+        issues.extend(validate_widget_methodological(w, None))
         return issues
 
     cols = set(df.columns)
@@ -235,6 +258,7 @@ def validate_widget_deterministic(
                 f"Coluna sort_by='{w.sort_by}' não existe em {w.dataset_id}.",
             ))
 
+    issues.extend(validate_widget_methodological(w, ds))
     return issues
 
 
@@ -242,12 +266,13 @@ def check_deterministic(
     spec: DashboardSpec,
     datasets: list[DatasetResult] | dict[str, DatasetResult],
 ) -> list[WidgetIssue]:
-    """Executa todas as verificações determinísticas em Python puro."""
+    """Executa todas as verificações determinísticas e metodológicas em Python puro."""
     by_id = datasets if isinstance(datasets, dict) else {d.dataset_id: d for d in datasets}
     issues: list[WidgetIssue] = []
 
     if not spec.title.strip():
         issues.append(WidgetIssue(None, "deterministic", "O dashboard precisa de um título principal ('title')."))
+    issues.extend(validate_spec_methodological(spec, by_id))
     if not spec.widgets:
         issues.append(WidgetIssue(None, "deterministic", "O dashboard não contém nenhum componente em 'widgets'."))
         return issues

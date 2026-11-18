@@ -29,7 +29,7 @@ Você é o Agente de Dashboard dedicado do sistema Trase RAG.
 Você recebe DataFrames já extraídos do DuckDB ([D1], [D2]...) e projeta um dashboard analítico \
 interativo em português por meio de uma especificação JSON declarativa.
 
-Tipos de componentes permitidos (`kind`): APENAS `kpi`, `bar`, `line` e `table`.
+Tipos de componentes permitidos (`kind`): APENAS `kpi`, `bar`, `line`, `area`, `progress` e `table`.
 (Mapas e gráficos de pizza NÃO são permitidos.)
 
 Quando usar cada tipo:
@@ -38,7 +38,14 @@ first/sum/mean/max/min/count e `value` numérico exato calculado a partir do dat
 - `line`: evolução temporal por ano (`x="year"`, `y=["coluna_numerica"]`, opcional `color`).
 - `bar`: rankings e comparações entre categorias (`x="coluna_categoria"`, `y=["coluna_numerica"]`, \
 use `orientation="h"` quando os nomes de municípios/empresas forem longos).
+- `area`: como `line`, com preenchimento; use `stacked=true` só para somar regiões/categorias \
+aditivas DENTRO de cada ano (nunca percentuais ou intensidades).
+- `progress`: lista de participações (ex.: % do volume por destino), com `x` = categoria e \
+`y` = [coluna]; até 10 linhas. Se a coluna já for percentual ou fração, ela é usada como está; \
+senão o percentual é calculado sobre o total do dataset.
 - `table`: tabela detalhada com as colunas relevantes e rótulos amigáveis em `column_labels`.
+- Em `kpi`, opcionalmente informe `trend_x` (ex.: "year") e `trend_y` (coluna numérica) de um \
+dataset com vários anos: a variação e a mini-série são calculadas em código. Não informe valores.
 
 Regras obrigatórias de qualidade e citação:
 1. Todo componente DEVE ter `title` claro (com recorte e ano/período), `unit` explícita \
@@ -52,6 +59,15 @@ dataset de origem (ex.: "Trase — Carne bovina v2.2.2 [D1]" ou "Trase — Soja 
 6. Em rankings municipais da `supply_chain`, indique no `subtitle` que se trata da origem rastreada \
 (excluindo 'UNKNOWN'). Nunca afirme ilegalidade a partir de exposição ao desmatamento.
 7. Não combine várias colunas em `y` com `color` ao mesmo tempo no mesmo gráfico.
+8. Escreva sempre "Brasil" (nunca "Brazil") em títulos, subtítulos e rótulos.
+9. Em destinos da soja, o valor BRAZIL de `country_of_first_import` é soja processada no próprio \
+Brasil (consumo doméstico), não é exportação. Se um gráfico ou tabela de destinos o incluir, diga no \
+`subtitle` que "Brasil = processamento doméstico". KPIs que contam países de destino devem excluir BRAZIL, \
+e o título deve dizer "(exceto Brasil)".
+10. `importer` e `importer_group` são os compradores: chame de "importadores" ou "grupos importadores", \
+nunca de "tradings". "Exportadoras" e "tradings" valem só para `exporter` e `exporter_group`.
+11. Não repita a unidade no rótulo do eixo: se `unit` já traz a unidade, o rótulo em `column_labels` \
+não deve conter "(t)", "(ha)" etc.
 """
 
 WIDGET_ITEM_SCHEMA = {
@@ -69,16 +85,19 @@ WIDGET_ITEM_SCHEMA = {
         "column": {"type": "string", "description": "Apenas para kpi: coluna numérica no dataset."},
         "agg": {"type": "string", "enum": list(ALLOWED_KPI_AGGS), "description": "Apenas para kpi."},
         "value": {"type": "number", "description": "Apenas para kpi: valor numérico exato esperado do SQL."},
-        "x": {"type": "string", "description": "Para bar/line: coluna do eixo de categoria ou tempo."},
+        "x": {"type": "string", "description": "Para bar/line/area/progress: coluna de categoria ou tempo."},
         "y": {
             "type": "array",
             "items": {"type": "string"},
-            "description": "Para bar/line: uma ou mais colunas numéricas.",
+            "description": "Para bar/line/area/progress: uma ou mais colunas numéricas.",
         },
         "color": {"type": "string", "description": "Opcional para bar/line com uma única coluna em y."},
         "orientation": {"type": "string", "enum": ["v", "h"], "description": "Para bar: v ou h."},
         "barmode": {"type": "string", "enum": ["group", "stack"]},
         "markers": {"type": "boolean"},
+        "stacked": {"type": "boolean", "description": "Para area: empilha as séries (só métricas aditivas)."},
+        "trend_x": {"type": "string", "description": "Opcional para kpi: coluna de tempo da mini-série."},
+        "trend_y": {"type": "string", "description": "Opcional para kpi: coluna numérica da mini-série."},
         "columns": {"type": "array", "items": {"type": "string"}, "description": "Para table: colunas exibidas."},
         "column_labels": {"type": "object", "description": "Mapeamento opcional coluna -> rótulo legível."},
         "sort_by": {"type": "string"},
@@ -161,6 +180,41 @@ def revise_dashboard_spec(
         user_content=user_msg,
         tool_name="emit_dashboard_spec",
         tool_description="Devolve a especificação JSON corrigida do dashboard.",
+        input_schema=DASHBOARD_SPEC_SCHEMA,
+        max_tokens=4096,
+    )
+    return parse_dashboard_spec(payload), in_tok, out_tok
+
+
+def edit_dashboard_spec(
+    request: str,
+    current_spec: DashboardSpec,
+    datasets: list[DatasetResult],
+    plan_or_goal: OrchestratorPlan | str | None = None,
+) -> tuple[DashboardSpec, int, int]:
+    """Altera incrementalmente a especificação atual do painel em 1 chamada estruturada (R4)."""
+    if isinstance(plan_or_goal, OrchestratorPlan):
+        goal = plan_or_goal.dashboard_goal
+    elif isinstance(plan_or_goal, str) and plan_or_goal.strip():
+        goal = plan_or_goal.strip()
+    else:
+        goal = current_spec.title or request
+
+    current_json = json.dumps(current_spec.to_dict(), ensure_ascii=False, indent=2)
+    user_msg = (
+        f"Pedido de edição do usuário: {request}\n"
+        f"Contexto/objetivo do painel: {goal}\n\n"
+        f"Especificação JSON atual do painel (PRESERVE os `id` e configurações dos componentes "
+        f"que não foram alvo da alteração):\n{current_json}\n\n"
+        f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
+        f"{_datasets_context(datasets)}\n"
+        "Aplique exatamente a alteração solicitada mantendo intactos os demais componentes válidos."
+    )
+    payload, in_tok, out_tok = call_structured_llm(
+        system=DASHBOARD_SYSTEM_PROMPT,
+        user_content=user_msg,
+        tool_name="emit_dashboard_spec",
+        tool_description="Devolve a especificação JSON atualizada do dashboard após aplicar a edição pedida.",
         input_schema=DASHBOARD_SPEC_SCHEMA,
         max_tokens=4096,
     )
