@@ -3,24 +3,56 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Trase RAG</title>
+<title>Trase RAG — Perguntas e Respostas</title>
 <style>
-  :root { --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --panel: #f6f8fa; --accent: #0969da; --error: #cf222e; }
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de;
+    --panel: #f6f8fa; --accent: #0969da; --accent-soft: #ddf4ff; --error: #cf222e;
+  }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --border: #30363d; --panel: #161b22; --accent: #4493f8; --error: #f85149; }
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #8d96a0; --border: #30363d;
+      --panel: #161b22; --accent: #4493f8; --accent-soft: #1f334d; --error: #f85149;
+    }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
-  h1 { font-size: 20px; margin: 0 0 16px; }
-  textarea { width: 100%; min-height: 80px; padding: 10px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; resize: vertical; }
-  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
-  button { padding: 8px 16px; font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0; border-radius: 6px; cursor: pointer; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 900px; margin: 0 auto; padding: 28px 16px 56px; }
+  header { margin-bottom: 18px; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .subtitle { margin: 0; color: var(--muted); font-size: 13.5px; }
+  textarea {
+    width: 100%; min-height: 88px; padding: 12px; font: inherit; color: var(--fg);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px; resize: vertical;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+  button {
+    padding: 8px 16px; font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 6px; cursor: pointer;
+  }
   button:disabled { opacity: .6; cursor: wait; }
+  button.secondary {
+    background: var(--panel); color: var(--fg); border: 1px solid var(--border); font-weight: 500;
+  }
+  .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .chip {
+    padding: 5px 10px; font-size: 12.5px; font-weight: 500; color: var(--fg);
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
+  }
+  .chip:hover { border-color: var(--accent); background: var(--accent-soft); }
   label { color: var(--muted); font-size: 14px; }
-  input[type=number] { width: 56px; padding: 4px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
-  h2 { font-size: 15px; margin: 24px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
-  #answer { white-space: pre-wrap; padding: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+  input[type=number] { width: 58px; padding: 4px 6px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+  select { padding: 4px 6px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+  h2 { font-size: 14px; margin: 24px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+  #answer { padding: 16px 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  #answer p { margin: 0 0 10px; }
+  #answer p:last-child { margin-bottom: 0; }
+  #answer h3, #answer h4 { margin: 14px 0 6px; font-size: 16px; }
+  #answer h3:first-child, #answer h4:first-child { margin-top: 0; }
+  #answer ul, #answer ol { margin: 6px 0 10px; padding-left: 22px; }
+  #answer li { margin-bottom: 4px; }
+  #answer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; padding: 1px 4px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); }
   ol { padding-left: 24px; margin: 0; }
   li { margin-bottom: 4px; }
   a { color: var(--accent); }
@@ -31,22 +63,32 @@
   .error { color: var(--error); }
   .call { margin-bottom: 10px; }
   .call code { font-size: 12.5px; word-break: break-word; }
-  select { padding: 4px; font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
-  .table-wrap { overflow-x: auto; }
-  table { border-collapse: collapse; margin: 8px 0; font-size: 14px; white-space: normal; }
-  th, td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+  .table-wrap { overflow-x: auto; margin: 8px 0; }
+  table { border-collapse: collapse; margin: 4px 0; font-size: 14px; white-space: normal; }
+  th, td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; }
+  .history-item { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; cursor: pointer; background: var(--bg); }
+  .history-item:hover { border-color: var(--accent); }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Trase RAG — carne bovina, soja e leis ambientais</h1>
+  <header>
+    <h1>Trase RAG — Carne Bovina, Soja e Leis Ambientais</h1>
+    <p class="subtitle">Busca jurídica híbrida com <strong>BAAI/bge-m3</strong> em <strong>29 leis federais</strong> (1.893 trechos) + dados analíticos da cadeia agroindustrial. Atalho: <code>Cmd/Ctrl + Enter</code>.</p>
+  </header>
 
   <form id="form">
-    <textarea id="question" placeholder="Ex.: Quais grupos exportadores tiveram maior exposição ao desmatamento em 2023? / Quais municípios apresentam maior exposição ao desmatamento da soja? / Qual a multa para quem desmata sem autorização?" required></textarea>
+    <textarea id="question" placeholder="Digite sua pergunta sobre legislação agroambiental ou dados da soja/carne bovina..." required></textarea>
     <div class="row">
       <button id="send" type="submit">Perguntar</button>
-      <label>Modo: <select id="mode"><option value="agent">Dados + leis</option><option value="laws">Só leis</option></select></label>
+      <button id="clear" type="button" class="secondary">Limpar</button>
+      <label>Modo:
+        <select id="mode">
+          <option value="agent">Dados + leis</option>
+          <option value="laws">Só leis</option>
+        </select>
+      </label>
       <label>Domínio:
         <select id="domain">
           <option value="auto">Automático</option>
@@ -58,6 +100,13 @@
       </label>
       <label>Trechos de lei (k): <input id="k" type="number" min="1" max="20" value="6"></label>
       <span id="status" class="meta"></span>
+    </div>
+
+    <div class="examples" aria-label="Exemplos de perguntas">
+      <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="Qual a diferença entre licenciamento ambiental geral na PNMA (Lei 6.938/1981) e a supressão de vegetação no Código Florestal?">Licenciamento PNMA vs Código Florestal</button>
+      <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="Como o Decreto 7.830/2012 define o CAR e o PRA para regularização de imóveis rurais?">CAR e PRA (Decreto 7.830/2012)</button>
+      <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="O que a Lei 14.595/2023 alterou nos prazos de adesão ao PRA no Código Florestal?">Prazos do PRA (Lei 14.595/2023)</button>
+      <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="Quais regras a Lei 15.042/2024 traz para o Sistema Brasileiro de Comércio de Emissões e a agropecuária?">Mercado de carbono (Lei 15.042/2024)</button>
     </div>
   </form>
 
@@ -81,42 +130,158 @@
       <pre id="context"></pre>
     </details>
   </section>
+
+  <section id="history-section" hidden>
+    <h2>Histórico desta sessão</h2>
+    <div id="history"></div>
+  </section>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
+const sessionHistory = [];
 
 function escapeHtml(s) {
-  return String(s ?? "").replace(/[&<>\"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-// Markdown mínimo: negrito e tabelas; o resto fica como texto (igual ao terminal).
 function renderInline(s) {
-  return escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  return escapeHtml(s)
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
 function renderAnswer(text) {
-  const lines = text.split("\n");
+  const lines = String(text ?? "").split("\n");
   const isRow = (l) => /^\s*\|.*\|\s*$/.test(l);
   const isSep = (l) => /^\s*\|[\s:|-]+\|\s*$/.test(l);
   const cells = (l) => l.trim().slice(1, -1).split("|").map((c) => renderInline(c.trim()));
   const out = [];
+
   for (let i = 0; i < lines.length; i++) {
-    if (isRow(lines[i]) && isSep(lines[i + 1] || "")) {
+    const line = lines[i];
+
+    if (isRow(line) && isSep(lines[i + 1] || "")) {
       let html = "<div class='table-wrap'><table><thead><tr>" +
-        cells(lines[i]).map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
+        cells(line).map((c) => `<th>${c}</th>`).join("") + "</tr></thead><tbody>";
       i += 2;
       for (; i < lines.length && isRow(lines[i]); i++) {
         html += "<tr>" + cells(lines[i]).map((c) => `<td>${c}</td>`).join("") + "</tr>";
       }
       i--;
       out.push(html + "</tbody></table></div>");
-    } else {
-      out.push(renderInline(lines[i]) + "\n");
+      continue;
     }
+
+    const heading = line.match(/^\s{0,3}(#{1,4})\s+(.+)$/);
+    if (heading) {
+      const tag = heading[1].length <= 2 ? "h3" : "h4";
+      out.push(`<${tag}>${renderInline(heading[2])}</${tag}>`);
+      continue;
+    }
+
+    if (/^\s*[-*•]\s+/.test(line)) {
+      let html = "<ul>";
+      for (; i < lines.length && /^\s*[-*•]\s+/.test(lines[i]); i++) {
+        html += `<li>${renderInline(lines[i].replace(/^\s*[-*•]\s+/, ""))}</li>`;
+      }
+      i--;
+      out.push(html + "</ul>");
+      continue;
+    }
+
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      let html = "<ol>";
+      for (; i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i]); i++) {
+        html += `<li>${renderInline(lines[i].replace(/^\s*\d+[.)]\s+/, ""))}</li>`;
+      }
+      i--;
+      out.push(html + "</ol>");
+      continue;
+    }
+
+    if (line.trim() === "") continue;
+    out.push(`<p>${renderInline(line)}</p>`);
   }
   return out.join("");
 }
+
+function showResult(question, data) {
+  $("answer").innerHTML = renderAnswer(data.answer);
+  const sources = data.sources || [];
+  $("sources").innerHTML = sources.map((s) => {
+    const parte = s.partes > 1 ? ` (parte ${s.parte}/${s.partes})` : "";
+    const ranks = `semântica #${s.semantic_rank ?? "–"}, palavra-chave #${s.keyword_rank ?? "–"}`;
+    const label = s.label ? `[${escapeHtml(s.label)}] ` : "";
+    return `<li>${label}${escapeHtml(s.title)}, art. ${escapeHtml(String(s.artigo))}${parte} — ` +
+           `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">fonte</a> ` +
+           `<span class="meta">(score ${Number(s.score).toFixed(4)}; ${ranks})</span></li>`;
+  }).join("");
+  $("usage").textContent =
+    `${data.domain || "auto"} · ${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
+  const calls = data.tool_calls || [];
+  $("calls").innerHTML = calls.map((c) =>
+    `<details class="call"><summary>[${escapeHtml(c.label)}] <code>${escapeHtml(c.summary)}</code> ` +
+    `<span class="meta">${c.ok ? (c.rows ?? "") + " linhas" : "<span class='error'>erro</span>"} · ${c.seconds}s</span></summary>` +
+    `<pre>${escapeHtml(c.output)}</pre></details>`
+  ).join("");
+  $("calls-section").hidden = calls.length === 0;
+  $("sources-section").hidden = sources.length === 0;
+  $("context").textContent = data.context || "";
+  $("context-details").hidden = !data.context;
+  $("result").hidden = false;
+}
+
+function renderHistory() {
+  $("history-section").hidden = sessionHistory.length === 0;
+  $("history").innerHTML = sessionHistory.map((item, idx) =>
+    `<div class="history-item" data-idx="${idx}">` +
+    `<div><strong>${escapeHtml(item.question)}</strong></div>` +
+    `<div class="meta">${escapeHtml(item.data.domain || "auto")} · ${item.data.seconds}s · ${(item.data.sources || []).length} fontes</div>` +
+    `</div>`
+  ).join("");
+}
+
+$("history").addEventListener("click", (e) => {
+  const card = e.target.closest(".history-item");
+  if (!card) return;
+  const item = sessionHistory[Number(card.dataset.idx)];
+  if (!item) return;
+  $("question").value = item.question;
+  showResult(item.question, item.data);
+});
+
+document.querySelectorAll(".chip").forEach((chip) => {
+  chip.addEventListener("click", () => {
+    $("question").value = chip.dataset.q;
+    if ($("mode").querySelector(`option[value="${chip.dataset.mode}"]`) && !$("mode").querySelector(`option[value="${chip.dataset.mode}"]`).disabled) {
+      $("mode").value = chip.dataset.mode;
+    } else {
+      $("mode").value = "laws";
+    }
+    $("domain").value = chip.dataset.domain;
+    $("form").requestSubmit();
+  });
+});
+
+fetch("/api/health").then((r) => r.json()).then((h) => {
+  if (!h.analytics_available) {
+    const agentOpt = $("mode").querySelector('option[value="agent"]');
+    if (agentOpt) {
+      agentOpt.disabled = true;
+      agentOpt.textContent = "Dados + leis (requer DuckDB)";
+    }
+    $("mode").value = "laws";
+    $("domain").value = "law";
+  }
+}).catch(() => {});
+
+$("clear").addEventListener("click", () => {
+  $("question").value = "";
+  $("status").textContent = "";
+  $("status").classList.remove("error");
+  $("question").focus();
+});
 
 $("question").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("form").requestSubmit();
@@ -128,7 +293,7 @@ $("form").addEventListener("submit", async (e) => {
   if (!question) return;
 
   $("send").disabled = true;
-  $("status").textContent = "Buscando e gerando resposta...";
+  $("status").textContent = "Buscando trechos e gerando resposta...";
   $("status").classList.remove("error");
 
   try {
@@ -140,28 +305,10 @@ $("form").addEventListener("submit", async (e) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
 
-    $("answer").innerHTML = renderAnswer(data.answer);
-    $("sources").innerHTML = data.sources.map((s) => {
-      const parte = s.partes > 1 ? ` (parte ${s.parte}/${s.partes})` : "";
-      const ranks = `semântica #${s.semantic_rank ?? "–"}, palavra-chave #${s.keyword_rank ?? "–"}`;
-      const label = s.label ? `[${escapeHtml(s.label)}] ` : "";
-      return `<li>${label}${escapeHtml(s.title)}, art. ${escapeHtml(String(s.artigo))}${parte} — ` +
-             `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener">fonte</a> ` +
-             `<span class="meta">(score ${s.score.toFixed(4)}; ${ranks})</span></li>`;
-    }).join("");
-    $("usage").textContent =
-      `${data.domain || "auto"} · ${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
-    const calls = data.tool_calls || [];
-    $("calls").innerHTML = calls.map((c) =>
-      `<details class="call"><summary>[${escapeHtml(c.label)}] <code>${escapeHtml(c.summary)}</code> ` +
-      `<span class="meta">${c.ok ? (c.rows ?? "") + " linhas" : "<span class='error'>erro</span>"} · ${c.seconds}s</span></summary>` +
-      `<pre>${escapeHtml(c.output)}</pre></details>`
-    ).join("");
-    $("calls-section").hidden = calls.length === 0;
-    $("sources-section").hidden = data.sources.length === 0;
-    $("context").textContent = data.context || "";
-    $("context-details").hidden = !data.context;
-    $("result").hidden = false;
+    showResult(question, data);
+    sessionHistory.unshift({ question, data });
+    if (sessionHistory.length > 20) sessionHistory.pop();
+    renderHistory();
     $("status").textContent = "";
   } catch (err) {
     $("status").textContent = "Erro: " + err.message;
