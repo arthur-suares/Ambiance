@@ -1,0 +1,27 @@
+{
+  "model": "intfloat/multilingual-e5-small",
+  "model_revision": null,
+  "dimension": 384,
+  "corpus_sha256": "8a993a71401db7dd9df59626a356bc64a80fa9ff1e512ebde26e46b9ad65eb68",
+  "corpus_origin": "rebuilt_not_verified_against_database",
+  "questions_sha256": "2b91cca562b8eedfce69e2edf3d12dd24db659bc44b4bfb0b43d03a7d6093e7a",
+  "similarity_model": "intfloat/multilingual-e5-small",
+  "context_tokenizer": "intfloat/multilingual-e5-small",
+  "passage_prefix": "passage: ",
+  "query_prefix": "query: ",
+  "retrieval": "exact_dense_cosine",
+  "candidates": 40,
+  "reranker": null,
+  "reranker_revision": null,
+  "context_mode": "ranked",
+  "context_k": 6,
+  "context_budget": 2400,
+  "index_seconds": 4.260319667000658,
+  "generation": false,
+  "python": "3.14.6",
+  "versions": {
+    "sentence-transformers": "6.1.0",
+    "transformers": "5.19.0",
+    "numpy": "2.5.3"
+  }
+}

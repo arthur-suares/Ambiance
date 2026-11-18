@@ -243,8 +243,13 @@ TOOLS = [
     },
     {
         "name": "search_laws",
-        "description": "Busca trechos de leis ambientais brasileiras (Código Florestal, Lei de Crimes Ambientais, "
-                       "Decreto 6.514/2008, Lei da Mata Atlântica, SNUC, PNMA, PNMC). Devolve artigos com lei e URL.",
+        "description": "Busca trechos nas 29 normas federais brasileiras indexadas de legislação agroambiental "
+                       "(Código Florestal, Crimes Ambientais, Decretos 6.514/2008, 7.830/2012, 8.235/2014 e 11.687/2023, "
+                       "Mata Atlântica, SNUC, PNMA, PNMC, LC 140/2011, PSA/14.119, Licenciamento/15.190, Água/9.433, "
+                       "Florestas Públicas/11.284, Regularização Fundiária/11.952, Rastreabilidade Bovina/12.097 e 7.623, "
+                       "Crédito Rural/4.829, Política Agrícola/8.171, Reforma Agrária/8.629, Manejo do Fogo/14.944, "
+                       "Mercado de Carbono/15.042, Agrotóxicos/14.785, Bolsa Verde/12.512, Terras Indígenas e Quilombolas). "
+                       "Aceita buscas diretas ou perguntas comparativas/multinorma e devolve artigos completos ou partes irmãs com lei e URL.",
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string", "description": "Pergunta ou termos em português."},
             "k": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Nº de trechos (padrão 6)."},

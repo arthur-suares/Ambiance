@@ -29,7 +29,7 @@ from eval import judge
 from eval.metrics import (KS, chunk_key, find_in_table, find_value, find_value_with_unit, first_positions, gold_sets,
                           mean, ranking_scores)
 from eval.report import write_question_trail, write_report
-from eval.text_metrics import bleu_sentence, clean_text, cosine, normalize, rouge_l
+from eval.text_metrics import SIMILARITY_MODEL, SIMILARITY_PREFIX, SIMILARITY_REVISION, bleu_sentence, clean_text, cosine, normalize, rouge_l
 from src.config import EMBEDDING_MODEL, JUDGE_MODEL, JUDGE_THINKING, LLM_MAX_TOKENS, LLM_MODEL, LLM_THINKING, PROJECT_ROOT
 from src.result_meta import strip_meta
 
@@ -267,8 +267,9 @@ def run_config(items: list[dict], use_judge: bool) -> dict:
         "juiz": {"max_caracteres_por_item": judge.MAX_ITEM_CHARS, "prompts": judge.PROMPTS} if use_judge else None,
         "bleu": {"n": 4, "pesos": "iguais (1/4)", "por_pergunta": "sacrebleu, smooth_method=exp",
                  "corpus": "sacrebleu, sem suavização", "tokenizacao": "normalização própria (eval/text_metrics.py)"},
-        "cosseno": {"modelo": EMBEDDING_MODEL, "prefixo": "query: ", "texto": "limpo (sem tabelas, rótulos e markdown)",
-                    "limite_tokens": "512 (o que passar é cortado; cada pergunta registra se houve corte)"},
+        "cosseno": {"modelo": SIMILARITY_MODEL, "revisao": SIMILARITY_REVISION,
+                    "prefixo": SIMILARITY_PREFIX, "texto": "limpo (sem tabelas, rótulos e markdown)",
+                    "limite_tokens": "8192 (o que passar é cortado; cada pergunta registra se houve corte)"},
         "referencias": {"curta": "resposta_esperada (fatos-chave; usada no Context Recall)",
                         "longa": "resposta_referencia (estrutura do prompt do agente; ROUGE-L, BLEU e cosseno)"},
         "versoes": {"python": platform.python_version(), **{p: _version(p) for p in

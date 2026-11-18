@@ -1,0 +1,31 @@
+{
+  "timestamp_utc": "2026-11-16T20:08:48.457826+00:00",
+  "model": "intfloat/multilingual-e5-large",
+  "model_revision": "3d7cfbdacd47fdda877c5cd8a79fbcc4f2a574f3",
+  "dimension": 1024,
+  "corpus_sha256": "d23e5b34e43c2baa759cff03df7d064d1174c96f14c2c91e282a21bfde7ebecd",
+  "corpus_origin": "rebuilt_not_verified_against_database",
+  "questions_sha256": "b919188e94290f389bdb2372c7dc328d9ebcb6fa418a16e04ed2db3a9cf1d64b",
+  "similarity_model": "intfloat/multilingual-e5-small",
+  "similarity_revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3",
+  "context_tokenizer": "intfloat/multilingual-e5-small",
+  "passage_prefix": "passage: ",
+  "query_prefix": "query: ",
+  "retrieval": "exact_dense_cosine",
+  "candidates": 40,
+  "reranker": null,
+  "reranker_max_length": null,
+  "reranker_revision": null,
+  "reused_embeddings": null,
+  "context_mode": "ranked",
+  "context_k": 6,
+  "context_budget": 2400,
+  "index_seconds": 40.78525737500058,
+  "generation": false,
+  "python": "3.14.6",
+  "versions": {
+    "sentence-transformers": "6.1.0",
+    "transformers": "5.19.0",
+    "numpy": "2.5.3"
+  }
+}
