@@ -20,7 +20,10 @@ import math
 
 import pandas as pd
 
+from dataclasses import replace as _replace
+
 from src.dashboard._llm import call_structured_llm
+from src.dashboard.schemas import BASE_KIND
 from src.dashboard.schemas import (
     ALLOWED_KPI_AGGS,
     ALLOWED_WIDGET_KINDS,
@@ -100,6 +103,19 @@ def validate_widget_deterministic(
 ) -> list[WidgetIssue]:
     """Valida um único componente deterministicamente contra os DataFrames do SQL."""
     issues: list[WidgetIssue] = []
+
+    # `area` e `progress` herdam todas as checagens (colunas e metodologia) de `line` e `bar`.
+    if w.kind in BASE_KIND:
+        w = _replace(w, kind=BASE_KIND[w.kind])
+    if w.kind == "kpi" and (w.trend_x or w.trend_y) and w.dataset_id in datasets_by_id:
+        cols = set(datasets_by_id[w.dataset_id].df.columns)
+        for campo, col in (("trend_x", w.trend_x), ("trend_y", w.trend_y)):
+            if not col:
+                issues.append(WidgetIssue(w.id, "deterministic", f"KPI com tendência deve informar '{campo}'."))
+            elif col not in cols:
+                issues.append(WidgetIssue(
+                    w.id, "deterministic", f"Coluna {campo}='{col}' não existe em {w.dataset_id}.",
+                ))
 
     if not w.valid and w.validation_error:
         issues.append(WidgetIssue(w.id, "deterministic", w.validation_error))

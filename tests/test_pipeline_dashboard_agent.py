@@ -176,7 +176,9 @@ def test_r3_build_dashboard_from_store_skips_data_agent_and_renders_store_number
 
     assert data_agent_calls == 0
     assert out_html.is_file()
-    assert "91234500" in res.html
+    # KPI em formato curto, com o valor exato preservado no atributo title (vindo do store, não da IA)
+    assert "91,2 mi t" in res.html
+    assert 'title="91.234.500 t"' in res.html
     assert stored_soy_session.current_spec is res.spec
     assert stored_soy_session.current_dashboard_path == out_html
 

@@ -145,7 +145,7 @@ def temp_beef_duckdb(tmp_path, monkeypatch):
 # --- Testes de contratos, truncamento e isolamento de erros ----------------------
 
 def test_supported_widget_kinds_exclude_map():
-    assert ALLOWED_WIDGET_KINDS == ("kpi", "bar", "line", "table")
+    assert ALLOWED_WIDGET_KINDS == ("kpi", "bar", "line", "area", "progress", "table")
     spec = parse_dashboard_spec({
         "title": "Painel Teste",
         "subtitle": "Subtítulo",
