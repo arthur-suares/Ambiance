@@ -30,7 +30,7 @@ HEADING_RE = re.compile(
     re.I,
 )
 END_RE = re.compile(r"^Bras[íi]lia\s*,")
-EMENTA_RE = re.compile(r"^(Disp[õo]e|Regulamenta|Institui|Altera|Estabelece)\b")
+EMENTA_RE = re.compile(r"^(Disp[õo]e|Regulamenta|Institui|Institucionaliza|Altera|Estabelece|Fixa)\b")
 NOISE_RE = re.compile(r"^(Texto compilado|Mensagem de veto|Vig[êe]ncia|\(Vide|Regulamento)", re.I)
 
 
@@ -132,6 +132,7 @@ def extract_paragraphs(html: str) -> list[str]:
         text = re.sub(r"\s+", " ", el.get_text(" ")).strip()
         # get_text(" ") separa "1" e "º" em <sup>; junta de volta.
         text = re.sub(r"(\d)\s+([º°o])(?=\W)", r"\1\2", text)
+        text = re.sub(r"^(Art\.?\s*\d+)\s+(\d+)", r"\1\2", text)
         text = re.sub(r"\s+([.,;:)])", r"\1", text)
         if text:
             blocks.append(text)
