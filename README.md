@@ -367,17 +367,27 @@ python -m src.cli ask "O que é reserva legal?" --laws-only
 
 ## 7. Interfaces: CLI e web
 
-### Chatbot
+### Chatbot e Dashboards
 
 ```bash
 python -m src.cli ask "Quais grupos exportadores tiveram maior exposição ao desmatamento em 2023?"
 python -m src.cli ask "..." --show-context      # mostra cada ferramenta chamada e o resultado
 python -m src.cli ask "..." --domain soy        # força o domínio (auto, law, beef, soy, mixed)
 python -m src.cli ask "..." --laws-only         # fluxo antigo, só leis
+python -m src.cli dashboard "Exportações de soja por país de destino em 2022" --no-open
 python -m src.cli serve                         # página em http://127.0.0.1:8000
+python -m eval.pipeline_intents                 # avalia as 20 intenções do orquestrador (offline; --llm usa chave)
 ```
 
-[src/web.py](src/web.py) é um servidor HTTP mínimo (biblioteca padrão, só em `127.0.0.1`) que serve [web/index.html](web/index.html) e expõe `POST /api/ask` com `{"question", "k", "mode": "agent"|"laws", "domain"}`. A resposta traz o texto, o domínio usado, as consultas executadas e as fontes.
+[src/web.py](src/web.py) é um servidor HTTP local (biblioteca padrão, só em `127.0.0.1`) que serve [web/index.html](web/index.html) e expõe:
+
+- **`POST /api/chat` (recomendado, com sessão)**: recebe `{"session_id": "...", "message": "...", "domain": "auto", "k": 6}` (`session_id` deve casar `^[A-Za-z0-9_-]{8,64}$`; na interface web é salvo em `sessionStorage`) e devolve `{"answer", "intent", "session_id", "dashboards": ["/dashboards/<arquivo>.html"], "tool_calls", "sources", "warnings", "seconds", "trace_id"}`.
+  - **Reaproveitamento de dados na sessão (`Result Store`)**: cada consulta executada pelo agente grava os DataFrames `[D1]...[Dn]` em memória e em `outputs/sessions/<session_id>/`. Se você perguntar um dado primeiro e em seguida pedir *"monte um dashboard com isso"*, o Agente de Dashboard reutiliza os resultados salvos sem repetir consultas ao banco.
+  - **Edição incremental de painel (`dashboard_edit`)**: após gerar um painel na sessão, comandos como *"troque o gráfico de barras por linha"*, *"remova a tabela do dashboard"* ou *"adicione um KPI de FOB"* atualizam a `DashboardSpec` atual mantendo os demais componentes intactos (buscando dados novos apenas quando necessário).
+  - **Pedidos vagos e mapas**: pedidos genéricos sem recorte (*"faz um dashboard"*, *"um gráfico"*) devolvem opções concretas de esclarecimento antes de gerar; pedidos de mapa (`map_edit`) informam que o Agente de Mapa ainda não está disponível nesta versão.
+- **`GET /dashboards/<nome>.html`**: serve exclusivamente arquivos HTML gerados dentro de `DASHBOARD_OUTPUT_DIR` (`outputs/dashboards/`), validando nome (`^[A-Za-z0-9_\-]+\.html$`) e caminho real (bloqueando `..`, codificações `%`, subpastas e links simbólicos externos com `404`). Na página web, o painel aparece abaixo da resposta em um `<iframe>` acompanhado do link **"Abrir painel"**.
+- **`POST /api/ask`**: endpoint legado sem estado de sessão (`{"question", "k", "mode": "agent"|"laws", "domain"}`), mantido sem alterações para compatibilidade.
+- **Limites de tempo (latência)**: enquanto recusas do monitor, esclarecimentos de pedidos vagos e avisos de mapa respondem em milissegundos, **a geração ou revisão completa de um painel envolve múltiplas chamadas estruturadas ao LLM e consultas SQL ao DuckDB, levando tipicamente dezenas de segundos** — portanto, não se enquadra em metas de ~3 s voltadas a interações simples.
 
 ### Consultas diretas (sem LLM)
 
@@ -482,8 +492,10 @@ Interpretações marcadas "(confirmar na metodologia)" no dicionário ainda prec
 │   ├── ingest_laws.py           # pipeline de ingestão das leis
 │   ├── rag.py                   # RAG só de leis, cliente LLM, resolução de domínio
 │   ├── agent.py                 # agente: LLM + ferramentas (dados e leis)
+│   ├── dashboard/               # planejador, agente de dados, agente de dashboard, validador e renderizador Plotly
+│   ├── pipeline/                # sessão, monitores, orquestrador de intenções, Result Store e traces JSONL
 │   ├── cli.py                   # linha de comando
-│   └── web.py                   # servidor local de teste
+│   └── web.py                   # servidor local (/api/chat, /api/ask e /dashboards/*.html)
 ├── web/index.html               # página do chatbot
 ├── docker-compose.yml           # Postgres 17 + pgvector 0.8
 └── requirements.txt
