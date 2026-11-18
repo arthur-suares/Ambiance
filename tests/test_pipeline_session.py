@@ -18,6 +18,11 @@ from src.pipeline.session import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_traces(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.pipeline.traces.TRACES_DIR", tmp_path / "traces")
+
+
 def test_session_id_validation_rules():
     assert validate_session_id("sessao_valida-01") == "sessao_valida-01"
     for invalid in ("", "curto7", "../segredo", "tem espaco aqui", "a/b_123456", "x" * 65, None, 12345678):

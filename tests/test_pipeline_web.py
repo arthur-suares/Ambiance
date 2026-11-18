@@ -16,6 +16,11 @@ from src.pipeline.session import SessionManager
 import src.web as web_mod
 
 
+@pytest.fixture(autouse=True)
+def _isolate_traces(tmp_path, monkeypatch):
+    monkeypatch.setattr("src.pipeline.traces.TRACES_DIR", tmp_path / "traces")
+
+
 class _FakeSocket:
     def __init__(self, raw_request: bytes):
         self._rfile = io.BytesIO(raw_request)
