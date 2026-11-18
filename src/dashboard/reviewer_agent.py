@@ -33,6 +33,10 @@ from src.dashboard.schemas import (
     compute_kpi_value,
     format_dataset_for_llm,
 )
+from src.dashboard.validator import (
+    validate_spec_methodological,
+    validate_widget_methodological,
+)
 
 KPI_REL_TOL = 0.01
 KPI_ABS_TOL = 0.05
@@ -134,11 +138,14 @@ def validate_widget_deterministic(
             w.id, "deterministic",
             f"Dataset '{w.dataset_id}' não existe (disponíveis: {avail}).",
         ))
+        issues.extend(validate_widget_methodological(w, None))
         return issues
 
-    df = datasets_by_id[w.dataset_id].df
+    ds = datasets_by_id[w.dataset_id]
+    df = ds.df
     if df.empty:
         issues.append(WidgetIssue(w.id, "deterministic", f"Dataset '{w.dataset_id}' não possui linhas."))
+        issues.extend(validate_widget_methodological(w, None))
         return issues
 
     cols = set(df.columns)
@@ -235,6 +242,7 @@ def validate_widget_deterministic(
                 f"Coluna sort_by='{w.sort_by}' não existe em {w.dataset_id}.",
             ))
 
+    issues.extend(validate_widget_methodological(w, ds))
     return issues
 
 
@@ -242,12 +250,13 @@ def check_deterministic(
     spec: DashboardSpec,
     datasets: list[DatasetResult] | dict[str, DatasetResult],
 ) -> list[WidgetIssue]:
-    """Executa todas as verificações determinísticas em Python puro."""
+    """Executa todas as verificações determinísticas e metodológicas em Python puro."""
     by_id = datasets if isinstance(datasets, dict) else {d.dataset_id: d for d in datasets}
     issues: list[WidgetIssue] = []
 
     if not spec.title.strip():
         issues.append(WidgetIssue(None, "deterministic", "O dashboard precisa de um título principal ('title')."))
+    issues.extend(validate_spec_methodological(spec, by_id))
     if not spec.widgets:
         issues.append(WidgetIssue(None, "deterministic", "O dashboard não contém nenhum componente em 'widgets'."))
         return issues

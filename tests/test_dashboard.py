@@ -245,29 +245,29 @@ def test_reviewer_calls_llm_only_after_deterministic_passes(monkeypatch, sample_
     fake_client = FakeAnthropicClient([
         _tool_response("emit_review", {
             "approved": False,
-            "summary": "Soma indevida de exposição entre anos.",
+            "summary": "Incoerência semântica entre título e coluna.",
             "issues": [{
-                "widget_id": "kpi_soma_anos",
-                "message": "Não some exposição de janela de 5 anos entre 2021-2023.",
+                "widget_id": "kpi_semantica",
+                "message": "O título fala em receita financeira, mas a coluna plotada é volume_t.",
             }],
         })
     ])
     monkeypatch.setattr("src.dashboard._llm.get_client", lambda: fake_client)
 
-    # Estruturalmente e aritmeticamente válido (95000 + 102000 + 98000 = 295000),
-    # mas metodologicamente incorreto (soma exposição de 5 anos entre anos).
+    # Estruturalmente, aritmeticamente e nas regras determinísticas válido (soma de volume = 670000),
+    # mas semanticamente incoerente (título fala em dólares, coluna é volume_t).
     spec = parse_dashboard_spec({
-        "title": "Exposição no Pará",
+        "title": "Comércio no Pará",
         "subtitle": "2021-2023",
         "widgets": [{
-            "id": "kpi_soma_anos",
+            "id": "kpi_semantica",
             "kind": "kpi",
-            "title": "Exposição acumulada 2021-2023",
+            "title": "Faturamento em dólares acumulado 2021-2023",
             "dataset_id": "D2",
-            "column": "deforestation_exposure_ha",
+            "column": "volume_t",
             "agg": "sum",
-            "value": 295000.0,
-            "unit": "ha",
+            "value": 670000.0,
+            "unit": "t",
             "source": "Trase — Carne bovina [D2]",
         }],
     })
@@ -276,7 +276,7 @@ def test_reviewer_calls_llm_only_after_deterministic_passes(monkeypatch, sample_
     assert review.llm_called is True
     assert review.approved is False
     assert len(fake_client.calls) == 1
-    assert review.issues[0].widget_id == "kpi_soma_anos"
+    assert review.issues[0].widget_id == "kpi_semantica"
     assert review.issues[0].check_type == "methodological"
 
 
