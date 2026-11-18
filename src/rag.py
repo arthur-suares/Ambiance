@@ -12,7 +12,7 @@ from functools import lru_cache
 import anthropic
 
 from src import vector_store
-from src.config import LLM_BASE_URL, LLM_MODEL, OPENROUTER_API_KEY
+from src.config import LLM_BASE_URL, LLM_EXTRA_PARAMS, LLM_MODEL, OPENROUTER_API_KEY
 from src.embeddings import embed_query
 from src.soy.routing import route_question
 
@@ -146,6 +146,7 @@ def answer(question: str, k: int = 6, doc_type: str | None = None, domain: str |
             "role": "user",
             "content": f"{build_context(chunks)}\n\nPergunta: {question}",
         }],
+        **LLM_EXTRA_PARAMS,
     )
 
     text = "".join(b.text for b in response.content if b.type == "text").strip()
