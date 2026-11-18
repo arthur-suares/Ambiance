@@ -54,3 +54,8 @@ if not FTS_CONFIG.isalpha():
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api")
 LLM_MODEL = os.getenv("LLM_MODEL", "anthropic/claude-haiku-5.5")
+
+# --- Dashboards gerados dinamicamente ---
+DASHBOARD_OUTPUT_DIR = resolve_project_path(
+    os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
+)
