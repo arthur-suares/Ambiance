@@ -79,7 +79,7 @@ def embed_queries(texts: list[str], batch_size: int = 32) -> np.ndarray:
     """Gera embeddings para várias consultas (sub-perguntas) numa única chamada ao modelo."""
     if not texts:
         return np.empty((0, EMBEDDING_DIM), dtype=np.float32)
-    prefix = "query: " if _E5 else ""
+    prefix = "query: " if _is_e5() else ""
     return get_model().encode(
         [prefix + t for t in texts],
         batch_size=batch_size,
