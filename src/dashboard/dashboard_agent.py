@@ -176,6 +176,41 @@ def revise_dashboard_spec(
     return parse_dashboard_spec(payload), in_tok, out_tok
 
 
+def edit_dashboard_spec(
+    request: str,
+    current_spec: DashboardSpec,
+    datasets: list[DatasetResult],
+    plan_or_goal: OrchestratorPlan | str | None = None,
+) -> tuple[DashboardSpec, int, int]:
+    """Altera incrementalmente a especificação atual do painel em 1 chamada estruturada (R4)."""
+    if isinstance(plan_or_goal, OrchestratorPlan):
+        goal = plan_or_goal.dashboard_goal
+    elif isinstance(plan_or_goal, str) and plan_or_goal.strip():
+        goal = plan_or_goal.strip()
+    else:
+        goal = current_spec.title or request
+
+    current_json = json.dumps(current_spec.to_dict(), ensure_ascii=False, indent=2)
+    user_msg = (
+        f"Pedido de edição do usuário: {request}\n"
+        f"Contexto/objetivo do painel: {goal}\n\n"
+        f"Especificação JSON atual do painel (PRESERVE os `id` e configurações dos componentes "
+        f"que não foram alvo da alteração):\n{current_json}\n\n"
+        f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
+        f"{_datasets_context(datasets)}\n"
+        "Aplique exatamente a alteração solicitada mantendo intactos os demais componentes válidos."
+    )
+    payload, in_tok, out_tok = call_structured_llm(
+        system=DASHBOARD_SYSTEM_PROMPT,
+        user_content=user_msg,
+        tool_name="emit_dashboard_spec",
+        tool_description="Devolve a especificação JSON atualizada do dashboard após aplicar a edição pedida.",
+        input_schema=DASHBOARD_SPEC_SCHEMA,
+        max_tokens=4096,
+    )
+    return parse_dashboard_spec(payload), in_tok, out_tok
+
+
 def build_dashboard_html(
     spec: DashboardSpec,
     datasets: list[DatasetResult],

@@ -83,9 +83,15 @@ def _source_metadata(tool_name: str) -> tuple[str, str]:
 
 
 class _DataSession:
-    def __init__(self) -> None:
+    def __init__(self, start_index: int = 1) -> None:
         self.datasets: list[DatasetResult] = []
         self.calls: list[ToolCall] = []
+        self._next_num = max(1, int(start_index))
+
+    def _alloc_label(self) -> str:
+        lbl = f"D{self._next_num}"
+        self._next_num += 1
+        return lbl
 
     def run(self, name: str, args: dict) -> tuple[str, bool]:
         start = time.perf_counter()
@@ -98,7 +104,7 @@ class _DataSession:
                 purpose = str(args.get("purpose") or "").strip()
                 text = _df_preview(df, truncated)
                 if not df.empty:
-                    label = f"D{len(self.datasets) + 1}"
+                    label = self._alloc_label()
                     db_name, src_label = _source_metadata(name)
                     self.datasets.append(DatasetResult(
                         dataset_id=label,
@@ -117,7 +123,7 @@ class _DataSession:
                 rows = len(df)
                 text = _df_preview(df)
                 if name != "find_entity" and not df.empty:
-                    label = f"D{len(self.datasets) + 1}"
+                    label = self._alloc_label()
                     db_name, src_label = _source_metadata(name)
                     summary = f"{name}({json.dumps(call_args, ensure_ascii=False)})"
                     self.datasets.append(DatasetResult(
@@ -163,7 +169,7 @@ def _format_plan_message(question: str, plan: OrchestratorPlan) -> str:
     return msg
 
 
-def run_data_agent(question: str, plan: OrchestratorPlan) -> DataAgentResult:
+def run_data_agent(question: str, plan: OrchestratorPlan, *, start_index: int = 1) -> DataAgentResult:
     """Executa o loop de tool-use no DuckDB e devolve DataFrames rotulados [D1, D2...]."""
     beef_ok = DUCKDB_PATH.exists()
     soy_ok = soy_queries.is_available()
@@ -189,7 +195,7 @@ def run_data_agent(question: str, plan: OrchestratorPlan) -> DataAgentResult:
     }]
 
     messages: list[dict] = [{"role": "user", "content": _format_plan_message(question, plan)}]
-    session = _DataSession()
+    session = _DataSession(start_index=start_index)
     result = DataAgentResult()
 
     for _ in range(MAX_DATA_TURNS):

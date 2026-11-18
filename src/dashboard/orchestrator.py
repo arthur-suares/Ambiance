@@ -1,15 +1,15 @@
-"""Orquestrador (1): planeja os recortes e visuais e coordena os outros 3 agentes.
+"""Planejador e coordenador interno do subsistema de dashboards (`src/dashboard/`).
+
+Nota de arquitetura: este módulo NÃO é o orquestrador de intenções do chat
+(que fica em `src/pipeline/orchestrator.py`). Aqui o papel é planejar recortes
+analíticos (`create_plan`), coordenar `run_data_agent`, `propose_dashboard_spec` /
+`edit_dashboard_spec` e `review_dashboard`, e renderizar o HTML final.
 
 Fluxo:
-1. Recebe a pergunta em linguagem natural, resolve o domínio (`resolve_domain`) e monta
-   um plano analítico (`OrchestratorPlan`) com quais dados e gráficos são necessários.
-2. Aciona o Agente de Dados (`run_data_agent`) para consultar os bancos DuckDB em modo
-   somente-leitura e obter `pd.DataFrame`s reais ([D1], [D2]...).
-3. Aciona o Agente de Dashboard (`propose_dashboard_spec`) para gerar a especificação JSON.
-4. Aciona o Agente Revisor (`review_dashboard`) e, se reprovado, pede correção ao Agente de
-   Dashboard por no máximo `MAX_REVISIONS` (2) rodadas.
-5. Se ao final das rodadas algum gráfico ainda falhar na validação, marca apenas esse
-   componente com aviso (`valid=False`) e renderiza o HTML com todos os demais gráficos.
+1. `generate_dashboard`: fluxo autônomo (usado pela CLI `python -m src.cli dashboard "..."`).
+2. `build_dashboard_from_store`: fluxo integrado ao pipeline de sessão (`ResultStore`),
+   reaproveitando `[D1..Dn]` já salvos no chat (`use_previous_results=True`) e suportando
+   edição incremental da `DashboardSpec` atual (`edit=True`).
 """
 
 from __future__ import annotations
@@ -24,6 +24,7 @@ from src.config import DASHBOARD_OUTPUT_DIR, DUCKDB_PATH
 from src.dashboard._llm import call_structured_llm
 from src.dashboard.dashboard_agent import (
     build_dashboard_html,
+    edit_dashboard_spec,
     propose_dashboard_spec,
     revise_dashboard_spec,
 )
@@ -237,6 +238,186 @@ def generate_dashboard(
         output_path=saved_path,
         plan=plan,
         datasets=datasets,
+        spec=spec,
+        reviews=reviews,
+        revisions_used=revisions_used,
+        input_tokens=total_in,
+        output_tokens=total_out,
+        seconds=round(time.perf_counter() - start, 2),
+    )
+
+
+def build_dashboard_from_store(
+    question: str,
+    session,
+    *,
+    domain: str | None = None,
+    use_previous_results: bool = True,
+    edit: bool = False,
+    needs_new_data: bool = False,
+    goal_hint: str | None = None,
+    output_path: Path | str | None = None,
+    output_dir: Path | None = None,
+    save: bool = True,
+    trace_hook=None,
+) -> DashboardRunResult:
+    """Monta ou edita um dashboard integrando-se ao `ResultStore` da sessão (R3 e R4)."""
+    start = time.perf_counter()
+    resolved_domain = resolve_domain(question, domain)
+
+    sid = getattr(session, "session_id", None) or "default"
+    store = getattr(session, "result_store", None) or getattr(session, "store", None)
+    if store is None:
+        raise ValueError("O objeto `session` precisa fornecer `result_store` (ou `store`).")
+
+    current_spec: DashboardSpec | None = getattr(session, "current_spec", None)
+    is_edit = bool(edit and current_spec is not None)
+
+    stored_datasets = store.get_datasets(sid, non_empty_only=True)
+    can_reuse_store = (
+        bool(stored_datasets)
+        and not needs_new_data
+        and (is_edit or use_previous_results)
+    )
+
+    total_in = 0
+    total_out = 0
+    data_notes = ""
+
+    if can_reuse_store:
+        goal_txt = goal_hint or (current_spec.title if is_edit and current_spec else question)
+        plan = OrchestratorPlan(
+            question=question,
+            domain=resolved_domain,
+            dashboard_goal=goal_txt,
+            data_requests=[],
+        )
+        datasets = stored_datasets
+    else:
+        t_data = time.perf_counter()
+        plan = create_plan(question, resolved_domain)
+        if goal_hint:
+            plan.methodological_notes.append(goal_hint)
+        total_in += plan.input_tokens
+        total_out += plan.output_tokens
+
+        next_idx = store.last_index(sid) + 1
+        data_res = run_data_agent(question, plan, start_index=next_idx)
+        total_in += data_res.input_tokens
+        total_out += data_res.output_tokens
+        data_notes = data_res.notes
+
+        for ds in data_res.datasets:
+            store.put(sid, ds)
+
+        if trace_hook is not None:
+            tools_used = ",".join(c.name for c in data_res.tool_calls) or "run_data_agent"
+            trace_hook("data_agent", {
+                "latency_s": round(time.perf_counter() - t_data, 3),
+                "input_tokens": plan.input_tokens + data_res.input_tokens,
+                "output_tokens": plan.output_tokens + data_res.output_tokens,
+                "tool": tools_used,
+                "verdict": "ok" if data_res.datasets else "empty",
+            })
+
+        if is_edit or use_previous_results:
+            datasets = store.get_datasets(sid, non_empty_only=True)
+        else:
+            datasets = list(data_res.datasets)
+
+    reviews: list[ReviewResult] = []
+    revisions_used = 0
+
+    if not datasets:
+        reason = data_notes or "Nenhum conjunto de dados retornou linhas para esta pergunta."
+        spec = DashboardSpec(
+            title=f"Dashboard — {question}",
+            subtitle=plan.dashboard_goal,
+            widgets=[],
+            warnings=[reason],
+        )
+    else:
+        t_dsh = time.perf_counter()
+        if is_edit and current_spec is not None:
+            spec, d_in, d_out = edit_dashboard_spec(question, current_spec, datasets, plan)
+            dsh_tool = "edit_dashboard_spec"
+        else:
+            spec, d_in, d_out = propose_dashboard_spec(question, plan, datasets)
+            dsh_tool = "propose_dashboard_spec"
+        total_in += d_in
+        total_out += d_out
+        if trace_hook is not None:
+            trace_hook("dashboard_agent", {
+                "latency_s": round(time.perf_counter() - t_dsh, 3),
+                "input_tokens": d_in,
+                "output_tokens": d_out,
+                "tool": dsh_tool,
+                "verdict": "ok",
+            })
+
+        for attempt in range(MAX_REVISIONS + 1):
+            t_val = time.perf_counter()
+            review = review_dashboard(question, spec, datasets)
+            reviews.append(review)
+            total_in += review.input_tokens
+            total_out += review.output_tokens
+            if trace_hook is not None:
+                trace_hook("validator", {
+                    "latency_s": round(time.perf_counter() - t_val, 3),
+                    "input_tokens": review.input_tokens,
+                    "output_tokens": review.output_tokens,
+                    "tool": "check_methodological_llm" if review.llm_called else "check_deterministic",
+                    "verdict": "approved" if review.approved else "rejected",
+                })
+
+            if review.approved:
+                break
+
+            if attempt < MAX_REVISIONS:
+                revisions_used += 1
+                t_rev = time.perf_counter()
+                spec, r_in, r_out = revise_dashboard_spec(question, plan, datasets, spec, review)
+                total_in += r_in
+                total_out += r_out
+                if trace_hook is not None:
+                    trace_hook("dashboard_agent", {
+                        "latency_s": round(time.perf_counter() - t_rev, 3),
+                        "input_tokens": r_in,
+                        "output_tokens": r_out,
+                        "tool": "revise_dashboard_spec",
+                        "verdict": "revised",
+                    })
+            else:
+                _apply_final_review_isolation(spec, review, question)
+
+    used_ids = {w.dataset_id for w in spec.widgets if w.dataset_id}
+    render_datasets = [d for d in datasets if d.dataset_id in used_ids] or datasets
+    html_content = build_dashboard_html(spec, render_datasets, question=question)
+
+    saved_path: Path | None = None
+    if save:
+        saved_path = (
+            Path(output_path).resolve()
+            if output_path
+            else default_output_path(question, output_dir=output_dir)
+        )
+        saved_path.parent.mkdir(parents=True, exist_ok=True)
+        saved_path.write_text(html_content, encoding="utf-8")
+
+    try:
+        session.current_spec = spec
+        if saved_path is not None:
+            session.current_dashboard_path = saved_path
+    except AttributeError:
+        pass
+
+    return DashboardRunResult(
+        question=question,
+        domain=resolved_domain,
+        html=html_content,
+        output_path=saved_path,
+        plan=plan,
+        datasets=render_datasets,
         spec=spec,
         reviews=reviews,
         revisions_used=revisions_used,
