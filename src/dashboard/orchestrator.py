@@ -56,7 +56,8 @@ ou detalhamento para tabela).
 indique claramente no objetivo.
 - Registre em `methodological_notes` os cuidados essenciais do Trase aplicáveis à pergunta \
 (ex.: exposição ao desmatamento tem janela de 5 anos e não pode ser somada entre anos; rankings \
-municipais cobrem a origem rastreada sem 'UNKNOWN'; usar ano mais recente se nenhum foi pedido).
+municipais cobrem a origem rastreada sem 'UNKNOWN'; usar ano mais recente se nenhum foi pedido; \
+na soja, o destino BRAZIL é processamento doméstico e não conta como país importador).
 """
 
 PLAN_TOOL_SCHEMA = {

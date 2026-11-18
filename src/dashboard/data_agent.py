@@ -49,6 +49,10 @@ find_entity (países/blocos estão em inglês: CHINA, EUROPEAN UNION, UNITED STA
 - Respeite rigorosamente as regras metodológicas do Trase: NÃO some exposição ao desmatamento nem emissões \
 de janela de 5 anos entre anos diferentes; exclua 'UNKNOWN' em rankings municipais e avise quando relevante.
 - Agregue no SQL (GROUP BY, SUM, AVG, ORDER BY, LIMIT) para devolver tabelas enxutas e prontas para gráficos.
+- Na soja, `country_of_first_import = 'BRAZIL'` é soja processada no próprio Brasil (consumo doméstico), \
+não é exportação. Ao contar países de destino, exclua BRAZIL (`country_of_first_import <> 'BRAZIL'`). \
+Em rankings de destino, mantenha BRAZIL só se a pergunta pedir o consumo doméstico.
+- Para contar compradores use `importer_group` (grupos importadores); para vendedores, `exporter_group`.
 - Se uma consulta falhar ou voltar vazia, ajuste e tente novamente (no máximo 2 tentativas por recorte).
 - Quando todos os datasets necessários já tiverem sido obtidos ([D1], [D2]...), encerre com um resumo curto \
 dizendo o que cada [Dn] representa.

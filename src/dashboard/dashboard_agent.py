@@ -52,6 +52,15 @@ dataset de origem (ex.: "Trase — Carne bovina v2.2.2 [D1]" ou "Trase — Soja 
 6. Em rankings municipais da `supply_chain`, indique no `subtitle` que se trata da origem rastreada \
 (excluindo 'UNKNOWN'). Nunca afirme ilegalidade a partir de exposição ao desmatamento.
 7. Não combine várias colunas em `y` com `color` ao mesmo tempo no mesmo gráfico.
+8. Escreva sempre "Brasil" (nunca "Brazil") em títulos, subtítulos e rótulos.
+9. Em destinos da soja, o valor BRAZIL de `country_of_first_import` é soja processada no próprio \
+Brasil (consumo doméstico), não é exportação. Se um gráfico ou tabela de destinos o incluir, diga no \
+`subtitle` que "Brasil = processamento doméstico". KPIs que contam países de destino devem excluir BRAZIL, \
+e o título deve dizer "(exceto Brasil)".
+10. `importer` e `importer_group` são os compradores: chame de "importadores" ou "grupos importadores", \
+nunca de "tradings". "Exportadoras" e "tradings" valem só para `exporter` e `exporter_group`.
+11. Não repita a unidade no rótulo do eixo: se `unit` já traz a unidade, o rótulo em `column_labels` \
+não deve conter "(t)", "(ha)" etc.
 """
 
 WIDGET_ITEM_SCHEMA = {

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import html
 import math
+import re
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -35,6 +36,43 @@ PALETTE = [
 ]
 
 
+# Colunas que guardam o país de destino. Nelas, BRAZIL é soja processada no próprio Brasil
+# (consumo doméstico), e não uma exportação.
+DESTINATION_COLUMNS = {"country_of_first_import", "country_of_destination", "pais_destino", "destino"}
+
+
+def display_label(value, col_name: str = "") -> str:
+    """Rótulo para exibição: "BRAZIL" vira "BRASIL" e, em coluna de destino, recebe a ressalva."""
+    text = str(value)
+    if text.strip().upper() == "BRAZIL":
+        return "BRASIL (processamento doméstico)" if col_name.lower() in DESTINATION_COLUMNS else "BRASIL"
+    return text
+
+
+def pt_text(text: str | None) -> str:
+    """Texto livre (título, subtítulo, aviso): troca a palavra "Brazil" por "Brasil"."""
+    return re.sub(r"\bBrazil\b", "Brasil", text or "", flags=re.IGNORECASE)
+
+
+def _axis_title(label: str, unit: str) -> str:
+    """Título do eixo sem repetir a unidade (ex.: "Volume (t)" + "t" não vira "Volume (t) (t)")."""
+    label, unit = (label or "").strip(), (unit or "").strip()
+    if not unit:
+        return label
+    if not label:
+        return unit
+    if f"({unit.lower()})" in label.lower() or re.search(r"\([^)]*\)\s*$", label):
+        return label
+    return f"{label} ({unit})"
+
+
+def _starts_at_zero(df: pd.DataFrame, cols: list[str]) -> bool:
+    """True se todas as séries são não negativas: nesse caso o eixo Y deve partir de zero."""
+    vals = pd.concat([pd.to_numeric(df[c], errors="coerce") for c in cols if c in df.columns], ignore_index=True)
+    vals = vals.dropna()
+    return not vals.empty and bool((vals >= 0).all())
+
+
 def format_br_value(val, col_name: str = "") -> str:
     """Formata valores escalares no padrão brasileiro para tabelas e textos auxiliares."""
     if val is None or (isinstance(val, float) and math.isnan(val)) or pd.isna(val):
@@ -54,7 +92,7 @@ def format_br_value(val, col_name: str = "") -> str:
         else:
             s = f"{val:,.4f}".rstrip("0").rstrip(".")
         return s.replace(",", "_").replace(".", ",").replace("_", ".")
-    return str(val)
+    return display_label(val, col_name)
 
 
 def _prepare_slice(df: pd.DataFrame, w: WidgetSpec, default_top_n: int | None = None) -> pd.DataFrame:
@@ -119,8 +157,8 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     if w.color and len(w.y) == 1:
         y_col = w.y[0]
         for idx, (grp, sub) in enumerate(work.groupby(w.color, sort=False, dropna=False)):
-            label = "Não informado" if pd.isna(grp) else str(grp)
-            cats = sub[cat_col].astype(str)
+            label = "Não informado" if pd.isna(grp) else display_label(grp, w.color or "")
+            cats = sub[cat_col].map(lambda v: display_label(v, cat_col))
             vals = pd.to_numeric(sub[y_col], errors="coerce")
             fig.add_trace(go.Bar(
                 name=label,
@@ -130,7 +168,7 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
                 marker_color=PALETTE[idx % len(PALETTE)],
             ))
     else:
-        cats = work[cat_col].astype(str)
+        cats = work[cat_col].map(lambda v: display_label(v, cat_col))
         for idx, y_col in enumerate(w.y):
             vals = pd.to_numeric(work[y_col], errors="coerce")
             name = w.column_labels.get(y_col, y_col)
@@ -149,7 +187,7 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         barmode=w.barmode,
         showlegend=(len(w.y) > 1 or bool(w.color)),
     )
-    axis_label = f"{w.column_labels.get(w.y[0], w.y[0])} ({w.unit})" if len(w.y) == 1 else w.unit
+    axis_label = _axis_title(w.column_labels.get(w.y[0], w.y[0]), w.unit) if len(w.y) == 1 else w.unit
     cat_label = w.column_labels.get(cat_col, cat_col)
     if horiz:
         fig.update_xaxes(title_text=axis_label, gridcolor="#eaeef2")
@@ -170,7 +208,7 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         y_col = w.y[0]
         for idx, (grp, sub) in enumerate(work.groupby(w.color, sort=False, dropna=False)):
             sub = sub.sort_values(by=x_col, ascending=True, na_position="last")
-            label = "Não informado" if pd.isna(grp) else str(grp)
+            label = "Não informado" if pd.isna(grp) else display_label(grp, w.color or "")
             fig.add_trace(go.Scatter(
                 name=label,
                 x=sub[x_col],
@@ -196,12 +234,14 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         showlegend=(len(w.y) > 1 or bool(w.color)),
         hovermode="x unified",
     )
-    y_title = f"{w.column_labels.get(w.y[0], w.y[0])} ({w.unit})" if len(w.y) == 1 else w.unit
+    y_title = _axis_title(w.column_labels.get(w.y[0], w.y[0]), w.unit) if len(w.y) == 1 else w.unit
     x_title = w.column_labels.get(x_col, x_col)
     fig.update_xaxes(title_text=x_title, gridcolor="#f0f3f6")
     if x_col.lower() in ("year", "ano") and work[x_col].nunique() <= 16:
         fig.update_xaxes(dtick=1)
     fig.update_yaxes(title_text=y_title, gridcolor="#eaeef2")
+    if _starts_at_zero(work, list(w.y)):
+        fig.update_yaxes(rangemode="tozero")  # série não negativa: o eixo parte de zero
     return fig
 
 
@@ -252,7 +292,7 @@ def build_widget_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
 
 def _render_warning_card(w: WidgetSpec, reason: str) -> str:
     span_cls = " span-2" if w.span == 2 else ""
-    title = html.escape(w.title or f"Componente {w.id}")
+    title = html.escape(pt_text(w.title) or f"Componente {w.id}")
     msg = html.escape(reason)
     return (
         f'<article class="card card-warning{span_cls}" data-widget-id="{html.escape(w.id)}">\n'
@@ -270,8 +310,8 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
 def _render_valid_card(w: WidgetSpec, fig_html: str) -> str:
     is_kpi = w.kind == "kpi"
     cls = "card kpi-card" if is_kpi else f"card{' span-2' if w.span == 2 else ''}"
-    title = html.escape(w.title)
-    subtitle_html = f'<p class="subtitle">{html.escape(w.subtitle)}</p>' if w.subtitle else ""
+    title = html.escape(pt_text(w.title))
+    subtitle_html = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
     unit_badge = f'<span class="badge">{html.escape(w.unit)}</span>' if w.unit else ""
     source = html.escape(w.source)
     return (
@@ -324,9 +364,9 @@ def render_dashboard_html(
         except Exception as exc:
             main_cards.append(_render_warning_card(w, f"{type(exc).__name__}: {exc}"))
 
-    page_title = html.escape(spec.title or (f"Dashboard — {question}" if question else "Dashboard Trase"))
+    page_title = html.escape(pt_text(spec.title) or (f"Dashboard — {question}" if question else "Dashboard Trase"))
     page_subtitle = (
-        f'<p class="hero-subtitle">{html.escape(spec.subtitle)}</p>' if spec.subtitle else ""
+        f'<p class="hero-subtitle">{html.escape(pt_text(spec.subtitle))}</p>' if spec.subtitle else ""
     )
     question_banner = (
         f'<div class="question-pill"><strong>Pergunta:</strong> {html.escape(question)}</div>'
@@ -335,7 +375,7 @@ def render_dashboard_html(
 
     top_warnings = ""
     if spec.warnings:
-        items = "".join(f"<li>{html.escape(msg)}</li>" for msg in spec.warnings)
+        items = "".join(f"<li>{html.escape(pt_text(msg))}</li>" for msg in spec.warnings)
         top_warnings = f'<section class="banner-warn"><strong>Avisos:</strong><ul>{items}</ul></section>'
 
     kpi_section = f'<section class="kpi-grid">\n{chr(10).join(kpi_cards)}\n</section>' if kpi_cards else ""
