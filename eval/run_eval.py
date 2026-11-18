@@ -64,19 +64,26 @@ def chunk_row(pos: int, c: dict, essenciais: set, todos: set) -> dict:
 # ----------------------------------------------------------------------------- etapa 1
 
 def retrieval_metrics(item: dict) -> dict | None:
-    """Busca híbrida direta com a pergunta original (só perguntas com artigo no gabarito)."""
+    """Busca híbrida com decomposição/fusão RRF nas leis (só perguntas com artigo no gabarito)."""
     if not item["artigos"]:
         return None
+    from src.fts_query import extract_legal_subqueries
     from src.rag import retrieve
     essenciais, todos = gold_sets(item)
     start = time.perf_counter()
+    subqueries = extract_legal_subqueries(item["pergunta"])
     chunks = retrieve(item["pergunta"], k=RETRIEVAL_K)
     rows = [chunk_row(i, c, essenciais, todos) for i, c in enumerate(chunks, start=1)]
     pos = first_positions(chunks)
     scores = ranking_scores(pos, essenciais, todos)
     found = {f"{lei}, art. {art}": pos.get((lei, art)) for lei, art in sorted(todos)}
-    return {"segundos": round(time.perf_counter() - start, 2), "chunks": rows, "metricas": scores,
-            "posicao_dos_artigos_do_gabarito": found}
+    return {
+        "segundos": round(time.perf_counter() - start, 2),
+        "subconsultas_juridicas": subqueries,
+        "chunks": rows,
+        "metricas": scores,
+        "posicao_dos_artigos_do_gabarito": found,
+    }
 
 
 # ----------------------------------------------------------------------------- etapa 2
@@ -124,11 +131,14 @@ def run_agent(item: dict) -> tuple[dict, list[dict]]:
     seconds = round(time.perf_counter() - start, 2)
     essenciais, todos = gold_sets(item) if item["artigos"] else (set(), set())
     calls = [{"rotulo": c.label, "ferramenta": c.name, "argumentos": c.input, "ok": c.ok, "linhas": c.rows,
-              "segundos": c.seconds, "saida": c.output} for c in answer.tool_calls]
+              "segundos": c.seconds, "saida": c.output,
+              "subconsultas_fundidas": c.subqueries_fused or None} for c in answer.tool_calls]
     agent = {"dominio": domain, "resposta": answer.text, "stop_reason": answer.stop_reason,
              "tokens_entrada": answer.input_tokens, "tokens_saida": answer.output_tokens,
              "tokens_entrada_cache": answer.cached_input_tokens,
-             "segundos": seconds, "chamadas": calls}
+             "segundos": seconds, "chamadas": calls,
+             "tipo_pergunta": answer.question_type,
+             "subconsultas": answer.subqueries}
     return agent, context_items(answer, essenciais, todos)
 
 

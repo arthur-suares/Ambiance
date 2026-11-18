@@ -16,6 +16,8 @@ import anthropic
 from src import vector_store
 from src.config import LLM_BASE_URL, LLM_EXTRA_PARAMS, LLM_MODEL, OPENROUTER_API_KEY
 from src.embeddings import embed_query
+from src.fts_query import clean_legal_query, extract_legal_subqueries, split_mixed_question
+from src.soy.routing import route_question
 
 LAW_SYSTEM_PROMPT = """\
 Você é um assistente de legislação ambiental brasileira de um sistema que monitora \
@@ -117,6 +119,49 @@ def resolve_domain(question: str, domain: str | None = None) -> str:
 
     route = route_question(question)
     return route["domain"]
+
+
+def retrieve_multi(
+    queries: list[str],
+    k: int = 6,
+    doc_type: str | None = None,
+    candidates: int = 40,
+    max_per_article: int | None = 2,
+) -> list[dict]:
+    """Executa busca híbrida para múltiplas sub-consultas e funde os resultados com Multi-Query RRF."""
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for q in queries:
+        cq = (q or "").strip()
+        key = cq.lower()
+        if cq and key not in seen:
+            seen.add(key)
+            cleaned.append(cq)
+
+    if not cleaned:
+        return []
+
+    per_query_limit = max(k * 2, 12)
+    chunk_lists: list[list[dict]] = []
+    for q in cleaned:
+        rows = vector_store.hybrid_search(
+            q,
+            embed_query(q),
+            limit=per_query_limit,
+            candidates=candidates,
+            doc_type=doc_type,
+        )
+        if rows:
+            chunk_lists.append(rows)
+
+    if len(chunk_lists) == 1 and max_per_article is None:
+        return chunk_lists[0][:k]
+
+    return vector_store.fuse_chunk_lists(
+        chunk_lists,
+        limit=k,
+        max_per_article=max_per_article,
+    )
 
 
 def decompose_legal_query(query: str) -> list[str]:
@@ -287,12 +332,27 @@ def retrieve(
     *,
     decompose: bool = True,
     context_mode: str = "siblings",
+    extra_regions: list[str] | None = None,
+    max_per_article: int | None = 2,
 ) -> list[dict]:
+    """Recupera os chunks de lei mais relevantes para `question`.
+
+    - Se a pergunta for mista (dados da cadeia + legislação, detectada por `split_mixed_question`
+      ou `extra_regions`) e `decompose=True`, separa a parte jurídica limpa e funde as sub-consultas
+      via Multi-Query RRF (`retrieve_multi`).
+    - Se a pergunta for puramente jurídica, aplica `decompose_legal_query`, intercalação multinorma
+      e expansão de partes irmãs (`context_mode="siblings"` ou `"ranked"`).
+    """
     if context_mode not in ("ranked", "siblings"):
         raise ValueError("context_mode deve ser 'ranked' ou 'siblings'.")
     if k < 1:
         return []
-    subqueries = decompose_legal_query(question) if decompose else [question]
+
+    if decompose and (extra_regions or split_mixed_question(question)["is_mixed"]):
+        subqueries = extract_legal_subqueries(question, extra_regions=extra_regions)
+        return retrieve_multi(subqueries, k=k, doc_type=doc_type, max_per_article=max_per_article)
+
+    subqueries = decompose_legal_query(question) if decompose else [clean_legal_query(question)]
     search_limit = max(k * 2, 12)
     if len(subqueries) > 1:
         full_q, parts = subqueries[0], subqueries[1:]
@@ -316,7 +376,7 @@ def retrieve(
             ranked = _interleave_candidates([full_rows, *raw_parts], limit=search_limit)
     else:
         ranked = vector_store.hybrid_search(
-            question, embed_query(question), limit=search_limit, doc_type=doc_type
+            subqueries[0], embed_query(subqueries[0]), limit=search_limit, doc_type=doc_type
         )
     if context_mode == "siblings":
         return _expand_siblings(ranked, k=k, decomposed=len(subqueries) > 1)
