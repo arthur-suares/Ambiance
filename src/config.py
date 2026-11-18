@@ -54,3 +54,22 @@ if not FTS_CONFIG.isalpha():
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api")
 LLM_MODEL = os.getenv("LLM_MODEL", "anthropic/claude-haiku-5.5")
+# LLM_THINKING=disabled manda thinking={"type": "disabled"} em todas as chamadas (ex.: modelos que raciocinam
+# por padrão, como o DeepSeek, e gastariam o max_tokens só pensando). Vazio = padrão do modelo.
+LLM_THINKING = os.getenv("LLM_THINKING", "").strip().lower()
+LLM_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if LLM_THINKING == "disabled" else {}
+# Limite de tokens de saída de cada chamada do agente. Com thinking ligado o raciocínio sai desse mesmo
+# limite, então ele precisa ser maior (senão a resposta volta cortada, stop_reason = max_tokens).
+LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "8000"))
+
+# --- LLM-as-a-judge (eval/judge.py) ---
+# JUDGE_MODEL vazio = mesmo modelo do agente (e o mesmo LLM_THINKING). Com outro modelo, o thinking do juiz
+# vem só de JUDGE_THINKING, para a configuração do agente (ex.: DeepSeek sem thinking) não vazar para o juiz.
+JUDGE_MODEL = os.getenv("JUDGE_MODEL", "").strip() or LLM_MODEL
+JUDGE_THINKING = os.getenv("JUDGE_THINKING", LLM_THINKING if JUDGE_MODEL == LLM_MODEL else "").strip().lower()
+JUDGE_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if JUDGE_THINKING == "disabled" else {}
+
+# --- Dashboards gerados dinamicamente ---
+DASHBOARD_OUTPUT_DIR = resolve_project_path(
+    os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
+)
