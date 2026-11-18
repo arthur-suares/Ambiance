@@ -142,6 +142,15 @@ def main():
     serve = sub.add_parser("serve", help="Abre uma página web local para testar o chatbot.")
     serve.add_argument("--port", type=int, default=8000)
 
+    dash = sub.add_parser("dashboard", help="Gera um dashboard interativo em HTML (Plotly) a partir de uma pergunta.")
+    dash.add_argument("question", help="Pergunta em linguagem natural.")
+    dash.add_argument("--domain", choices=["auto", "beef", "soy", "mixed"], default="auto",
+                      help="Direciona os agentes (auto = o roteador decide pela pergunta).")
+    dash.add_argument("--output", "-o", help="Arquivo HTML de saída (padrão: outputs/dashboards/).")
+    dash.add_argument("--no-open", action="store_true", help="Salva o HTML sem abrir no navegador.")
+    dash.add_argument("--show-context", action="store_true",
+                      help="Mostra o plano, consultas SQL e pareceres de revisão.")
+
     args = parser.parse_args()
 
     # "ask": agente (carne bovina, soja e leis) direcionado pelo roteador; --laws-only usa o RAG só de leis.
@@ -156,7 +165,7 @@ def main():
     # reconstruído. Os comandos soy-* usam o banco próprio da soja (gerado por ingest-soy).
     no_duckdb = {"build-db", "reload", "dictionary", "init-vector-db", "vector-stats", "ingest-laws", "search",
                  "soy-profile", "ingest-soy", "soy-top-municipalities", "soy-top-exporters",
-                 "soy-top-destinations", "soy-trend", "soy-exposure"}
+                 "soy-top-destinations", "soy-trend", "soy-exposure", "dashboard"}
     if args.command not in no_duckdb and (args.command != "ask" or use_agent):
         from src.database import ensure_database
         ensure_database()
@@ -294,6 +303,49 @@ def main():
     elif args.command == "serve":
         from src.web import serve
         serve(args.port)
+    elif args.command == "dashboard":
+        import webbrowser
+        from src.config import DUCKDB_PATH
+        from src.database import ensure_database, source_files
+        from src.dashboard import generate_dashboard
+
+        if DUCKDB_PATH.exists() or source_files()["supply_chain"]:
+            ensure_database()
+
+        result = generate_dashboard(
+            args.question,
+            domain=args.domain,
+            output_path=args.output,
+            save=True,
+        )
+        if args.show_context:
+            print(f"=== Plano do Orquestrador (domínio: {result.domain}) ===")
+            print(f"Objetivo: {result.plan.dashboard_goal}")
+            for req in result.plan.data_requests:
+                print(f"  [{req.request_id}] ({req.suggested_visual}) {req.description}")
+            for idx, rev in enumerate(result.reviews, 1):
+                origin = "LLM metodológico" if rev.llm_called else "determinístico"
+                status = "APROVADO" if rev.approved else "REPROVADO"
+                print(f"\n=== Revisão #{idx} ({origin}): {status} ===")
+                for issue in rev.issues:
+                    print(f"  - [{issue.widget_id or 'GERAL'}] {issue.message}")
+            print()
+
+        valid_count = sum(1 for w in result.spec.widgets if w.valid)
+        warn_count = len(result.spec.widgets) - valid_count
+        print(f"Dashboard: {result.spec.title}")
+        print(f"Componentes: {valid_count} válido(s)"
+              + (f", {warn_count} com aviso" if warn_count else ""))
+        if result.datasets:
+            print("\nConsultas:")
+            for ds in result.datasets:
+                print(f"  [{ds.dataset_id}] ({ds.database}, {len(ds.df)} linhas) {ds.query_summary}")
+        print(f"\nArquivo salvo em: {result.output_path}")
+        print(f"(tokens: {result.input_tokens} entrada, {result.output_tokens} saída; "
+              f"{result.revisions_used} correção(ões); {result.seconds}s)")
+
+        if not args.no_open and result.output_path:
+            webbrowser.open(result.output_path.as_uri())
 
 
 if __name__ == "__main__":

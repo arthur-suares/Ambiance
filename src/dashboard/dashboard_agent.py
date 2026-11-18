@@ -1,0 +1,177 @@
+"""Agente de dashboard (3): escolhe tipos de gráfico, monta layout em JSON e renderiza com Plotly.
+
+Tipos suportados nesta etapa: `kpi`, `bar`, `line` e `table`.
+O LLM devolve apenas uma especificação JSON declarativa (`DashboardSpec`), sem qualquer
+código Python, HTML ou JavaScript; o módulo `renderer.py` transforma a especificação
+e os DataFrames em um dashboard HTML interativo com Plotly.
+"""
+
+from __future__ import annotations
+
+import json
+
+from src.dashboard._llm import call_structured_llm
+from src.dashboard.renderer import render_dashboard_html
+from src.dashboard.schemas import (
+    ALLOWED_KPI_AGGS,
+    ALLOWED_WIDGET_KINDS,
+    DashboardSpec,
+    DatasetResult,
+    MAX_ROWS_TO_LLM,
+    OrchestratorPlan,
+    ReviewResult,
+    format_dataset_for_llm,
+    parse_dashboard_spec,
+)
+
+DASHBOARD_SYSTEM_PROMPT = """\
+Você é o Agente de Dashboard dedicado do sistema Trase RAG.
+Você recebe DataFrames já extraídos do DuckDB ([D1], [D2]...) e projeta um dashboard analítico \
+interativo em português por meio de uma especificação JSON declarativa.
+
+Tipos de componentes permitidos (`kind`): APENAS `kpi`, `bar`, `line` e `table`.
+(Mapas e gráficos de pizza NÃO são permitidos.)
+
+Quando usar cada tipo:
+- `kpi`: indicadores-chave de destaque no topo (informe `dataset_id`, `column`, `agg` entre \
+first/sum/mean/max/min/count e `value` numérico exato calculado a partir do dataset).
+- `line`: evolução temporal por ano (`x="year"`, `y=["coluna_numerica"]`, opcional `color`).
+- `bar`: rankings e comparações entre categorias (`x="coluna_categoria"`, `y=["coluna_numerica"]`, \
+use `orientation="h"` quando os nomes de municípios/empresas forem longos).
+- `table`: tabela detalhada com as colunas relevantes e rótulos amigáveis em `column_labels`.
+
+Regras obrigatórias de qualidade e citação:
+1. Todo componente DEVE ter `title` claro (com recorte e ano/período), `unit` explícita \
+(ex.: "ha", "t", "US$", "tCO2e", "%", "ha/t") e `source` citando explicitamente "Trase" e o \
+dataset de origem (ex.: "Trase — Carne bovina v2.2.2 [D1]" ou "Trase — Soja [D2]").
+2. Use exclusivamente nomes de colunas que existam no `dataset_id` referenciado.
+3. Em KPIs, o campo `value` deve bater exatamente com o valor do SQL (`column` + `agg`).
+4. NUNCA some exposição ao desmatamento ou emissões de janela de 5 anos entre anos diferentes \
+(ex.: nunca use `agg="sum"` num dataset de vários anos para exposição).
+5. NUNCA some percentuais (`%`) ou intensidades (`ha/t`, `t/ha`) entre regiões.
+6. Em rankings municipais da `supply_chain`, indique no `subtitle` que se trata da origem rastreada \
+(excluindo 'UNKNOWN'). Nunca afirme ilegalidade a partir de exposição ao desmatamento.
+7. Não combine várias colunas em `y` com `color` ao mesmo tempo no mesmo gráfico.
+"""
+
+WIDGET_ITEM_SCHEMA = {
+    "type": "object",
+    "required": ["id", "kind", "title", "dataset_id", "unit", "source"],
+    "properties": {
+        "id": {"type": "string", "description": "Identificador único do componente (ex.: kpi1, w1, w2)."},
+        "kind": {"type": "string", "enum": list(ALLOWED_WIDGET_KINDS)},
+        "title": {"type": "string"},
+        "subtitle": {"type": "string"},
+        "dataset_id": {"type": "string", "description": "ID do dataset (ex.: D1, D2)."},
+        "unit": {"type": "string", "description": "Unidade (ex.: ha, t, US$, tCO2e, %, ha/t, múltiplas)."},
+        "source": {"type": "string", "description": "Deve citar 'Trase' e o ID [Dn]."},
+        "span": {"type": "integer", "enum": [1, 2], "description": "1 = meia largura, 2 = largura total."},
+        "column": {"type": "string", "description": "Apenas para kpi: coluna numérica no dataset."},
+        "agg": {"type": "string", "enum": list(ALLOWED_KPI_AGGS), "description": "Apenas para kpi."},
+        "value": {"type": "number", "description": "Apenas para kpi: valor numérico exato esperado do SQL."},
+        "x": {"type": "string", "description": "Para bar/line: coluna do eixo de categoria ou tempo."},
+        "y": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Para bar/line: uma ou mais colunas numéricas.",
+        },
+        "color": {"type": "string", "description": "Opcional para bar/line com uma única coluna em y."},
+        "orientation": {"type": "string", "enum": ["v", "h"], "description": "Para bar: v ou h."},
+        "barmode": {"type": "string", "enum": ["group", "stack"]},
+        "markers": {"type": "boolean"},
+        "columns": {"type": "array", "items": {"type": "string"}, "description": "Para table: colunas exibidas."},
+        "column_labels": {"type": "object", "description": "Mapeamento opcional coluna -> rótulo legível."},
+        "sort_by": {"type": "string"},
+        "ascending": {"type": "boolean"},
+        "top_n": {"type": "integer", "minimum": 1, "maximum": 200},
+    },
+}
+
+DASHBOARD_SPEC_SCHEMA = {
+    "type": "object",
+    "required": ["title", "subtitle", "widgets"],
+    "properties": {
+        "title": {"type": "string", "description": "Título principal do dashboard."},
+        "subtitle": {"type": "string", "description": "Resumo do escopo, período e cuidados de leitura."},
+        "widgets": {
+            "type": "array",
+            "minItems": 1,
+            "items": WIDGET_ITEM_SCHEMA,
+        },
+    },
+}
+
+
+def _datasets_context(datasets: list[DatasetResult]) -> str:
+    return "\n".join(format_dataset_for_llm(d, max_rows=MAX_ROWS_TO_LLM) for d in datasets)
+
+
+def propose_dashboard_spec(
+    question: str,
+    plan: OrchestratorPlan,
+    datasets: list[DatasetResult],
+) -> tuple[DashboardSpec, int, int]:
+    """Gera a especificação JSON inicial do dashboard a partir dos DataFrames."""
+    reqs = "\n".join(
+        f"- [{r.request_id}] visual sugerido={r.suggested_visual}: {r.description}"
+        for r in plan.data_requests
+    )
+    user_msg = (
+        f"Pergunta do usuário: {question}\n"
+        f"Objetivo do painel: {plan.dashboard_goal}\n"
+        f"Sugestões do Orquestrador:\n{reqs}\n\n"
+        f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
+        f"{_datasets_context(datasets)}"
+    )
+    payload, in_tok, out_tok = call_structured_llm(
+        system=DASHBOARD_SYSTEM_PROMPT,
+        user_content=user_msg,
+        tool_name="emit_dashboard_spec",
+        tool_description="Devolve a especificação JSON completa do dashboard.",
+        input_schema=DASHBOARD_SPEC_SCHEMA,
+        max_tokens=4096,
+    )
+    return parse_dashboard_spec(payload), in_tok, out_tok
+
+
+def revise_dashboard_spec(
+    question: str,
+    plan: OrchestratorPlan,
+    datasets: list[DatasetResult],
+    previous_spec: DashboardSpec,
+    review: ReviewResult,
+) -> tuple[DashboardSpec, int, int]:
+    """Corrige a especificação JSON do dashboard com base nos apontamentos do Agente Revisor."""
+    issues_txt = "\n".join(
+        f"- [{i.widget_id or 'GERAL'}] ({i.check_type}): {i.message}"
+        for i in review.issues
+    )
+    prev_json = json.dumps(previous_spec.to_dict(), ensure_ascii=False, indent=2)
+    user_msg = (
+        f"Pergunta do usuário: {question}\n"
+        f"Objetivo do painel: {plan.dashboard_goal}\n\n"
+        f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
+        f"{_datasets_context(datasets)}\n"
+        f"Especificação JSON anterior:\n{prev_json}\n\n"
+        f"Problemas apontados pelo Agente Revisor (corrija TODOS mantendo os gráficos válidos):\n"
+        f"{issues_txt}"
+    )
+    payload, in_tok, out_tok = call_structured_llm(
+        system=DASHBOARD_SYSTEM_PROMPT,
+        user_content=user_msg,
+        tool_name="emit_dashboard_spec",
+        tool_description="Devolve a especificação JSON corrigida do dashboard.",
+        input_schema=DASHBOARD_SPEC_SCHEMA,
+        max_tokens=4096,
+    )
+    return parse_dashboard_spec(payload), in_tok, out_tok
+
+
+def build_dashboard_html(
+    spec: DashboardSpec,
+    datasets: list[DatasetResult],
+    *,
+    question: str = "",
+) -> str:
+    """Renderiza a especificação JSON em HTML interativo com Plotly."""
+    return render_dashboard_html(spec, datasets, question=question)
