@@ -9,6 +9,7 @@ Uso: python -m src.cli serve   (abre em http://127.0.0.1:8000)
 Só escuta em 127.0.0.1 (acessível apenas nesta máquina).
 """
 
+import importlib.util
 import json
 from pathlib import Path
 import re
@@ -17,8 +18,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import src.config as config_mod
 from src.config import PROJECT_ROOT
-from src.agent import ask as agent_ask, tool_call_summary
-from src.pipeline.chat import handle_message
+# O agente e o pipeline de chat carregam o DuckDB: são importados só quando usados (ver /api/chat),
+# para o servidor subir também no modo jurídico, sem a base analítica.
 from src.pipeline.session import (
     InvalidSessionIdError,
     SessionManager,
@@ -58,9 +59,15 @@ def resolve_dashboard_path(raw_request_path: str, base_dir: Path | None = None) 
     return candidate
 
 
+def _analytics_available() -> bool:
+    return importlib.util.find_spec("duckdb") is not None
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         clean_path, _, _ = self.path.partition("?")
+        if clean_path == "/api/health":
+            return self._json(200, {"ok": True, "analytics_available": _analytics_available()})
         if clean_path in ("/", "/index.html"):
             return self._send(200, "text/html; charset=utf-8", INDEX_HTML.read_bytes())
         if clean_path.startswith("/dashboards/"):
@@ -86,9 +93,16 @@ class Handler(BaseHTTPRequestHandler):
             domain = resolve_domain(question, (body.get("domain") or "auto").strip().lower())
 
             start = time.perf_counter()
-            if body.get("mode", "agent") == "agent" and domain in AGENT_DOMAINS:
+            mode = body.get("mode", "agent")
+            if mode == "agent" and domain in AGENT_DOMAINS:
+                if not _analytics_available():
+                    return self._json(400, {
+                        "error": "O modo 'Dados + leis' requer o DuckDB e os dados em data/raw/. Selecione o modo 'Só leis' para consultar as 29 leis ambientais."
+                    })
                 return self._agent(question, k, start, domain)
-            result = answer(question, k=k, domain=domain)
+            # No modo só-leis, consultas sobre a cadeia sem DuckDB usam o prompt jurídico quando o roteador retornar "auto" ou dados puros.
+            law_domain = domain if domain in ("law", "beef", "soy", "mixed") else "law"
+            result = answer(question, k=k, domain=law_domain)
             elapsed = time.perf_counter() - start
 
             self._json(200, {
@@ -146,6 +160,8 @@ class Handler(BaseHTTPRequestHandler):
         mode = str(body.get("mode") or "agent").strip().lower() or "agent"
 
         try:
+            from src.pipeline.chat import handle_message
+
             session = SESSION_MANAGER.get_or_create(sid)
             payload = handle_message(
                 session,
@@ -169,6 +185,7 @@ class Handler(BaseHTTPRequestHandler):
             })
 
     def _agent(self, question, k, start, domain):
+        from src.agent import ask as agent_ask, tool_call_summary
         result = agent_ask(question, k_laws=k, domain=domain)
         self._json(200, {
             "answer": result.text,
@@ -206,9 +223,12 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def serve(port: int = 8000) -> None:
-    from src.database import ensure_database
     from src.embeddings import get_model
-    ensure_database()
+    if _analytics_available():
+        from src.database import ensure_database
+        ensure_database()
+    else:
+        print("[web] DuckDB não instalado — subindo em modo jurídico ('Só leis', 29 normas federais).")
     print("Carregando modelo de embeddings...")
     get_model()  # carrega antes, para a primeira pergunta não demorar
     server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
@@ -217,3 +237,7 @@ def serve(port: int = 8000) -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nServidor parado.")
+
+
+if __name__ == "__main__":
+    serve()

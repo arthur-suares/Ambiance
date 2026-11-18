@@ -85,6 +85,9 @@ def write_question_trail(rec: dict, path: Path) -> None:
     if r is None:
         L += ["Sem artigo de lei no gabarito: a etapa não se aplica a esta pergunta.", ""]
     else:
+        if r.get("subconsultas_juridicas"):
+            L += ["**Sub-buscas jurídicas fundidas (Multi-Query RRF):**", ""]
+            L += [f"- `{sq}`" for sq in r["subconsultas_juridicas"]] + [""]
         L += table(["Pos.", "Lei", "Art.", "Parte", "Score RRF", "Rank semântico", "Rank palavras-chave", "Relevância", "Trecho"],
                    [[c["posicao"], c["lei"], c["artigo"], f"{c['parte']}/{c['partes']}" if (c.get("partes") or 1) > 1 else "—",
                      fmt(c["score_rrf"], 4), c["rank_semantico"] or "—", c["rank_palavras_chave"] or "—",
@@ -105,6 +108,13 @@ def write_question_trail(rec: dict, path: Path) -> None:
         L += ["O agente não rodou (ver erros acima).", ""]
     else:
         L += [f"Domínio roteado: `{a['dominio']}` · {len(a['chamadas'])} chamada(s) de ferramenta", ""]
+        if a.get("subconsultas"):
+            L += ["### Plano do Agente Decompositor", ""]
+            L += table(
+                ["ID", "Domínio", "Subpergunta", "Depende de"],
+                [[sq.get("id"), sq.get("domain"), sq.get("question"), ", ".join(sq.get("depends_on") or []) or "—"]
+                 for sq in a["subconsultas"]],
+            )
         for n, c in enumerate(a["chamadas"], start=1):
             L += [f"### Chamada {n}: `{c['ferramenta']}` → {c['rotulo'] or '—'}", "",
                   f"ok: {fmt(c['ok'])} · linhas: {c['linhas'] if c['linhas'] is not None else '—'} · {fmt(c['segundos'])} s", "",
@@ -132,6 +142,19 @@ def write_question_trail(rec: dict, path: Path) -> None:
                      v["na_resposta"]["trecho"] if v["na_resposta"] else "não encontrado",
                      pct(v["na_resposta"]["erro_rel"]) if v["na_resposta"] else "—"] for v in ch["valores"]])
         L += [f"**Valor recuperado:** {pct(ch['valor_recuperado'])} · **Acerto de valores:** {pct(ch['acerto_valores'])}", ""]
+        if "valor_recuperado_solto" in ch:
+            where = lambda v: " · ".join(x for x in (v.get("cadeia"), v.get("escopo"), v.get("metrica"),
+                                                     ", ".join(v.get("termos") or []), str(v.get("ano") or "")) if x)
+            L += ["Critério estruturado: no contexto, o número só conta no lugar indicado abaixo (lei: em trecho de lei, "
+                  "com a unidade); na resposta, só conta com a unidade. O critério solto (número próximo em qualquer "
+                  "lugar do texto) é o das rodadas anteriores.", ""]
+            L += table(["Valor esperado", "Onde deve estar", "Solto: no contexto", "Solto: na resposta",
+                        "Números próximos rejeitados no contexto"],
+                       [[v["descricao"], where(v) or "—", ", ".join(v["no_contexto_solto"]) or "não",
+                         v["na_resposta_solto"]["trecho"] if v["na_resposta_solto"] else "não encontrado",
+                         "; ".join(v.get("rejeitados_no_contexto") or []) or "—"] for v in ch["valores"]])
+            L += [f"**Critério solto:** valor recuperado {pct(ch['valor_recuperado_solto'])} · "
+                  f"acerto de valores {pct(ch['acerto_valores_solto'])}", ""]
 
     # 6 ----------------------------------------------------------------------
     L += ["## 6. Juiz (LLM-as-a-judge)", ""]
@@ -236,12 +259,17 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
         row("Recall@5", "recall@5", "fração dos artigos do gabarito (essenciais + complementares) no top-5"),
         row("Context Recall", "context_recall", "fração das afirmações da referência presentes no contexto do agente (juiz)"),
         row("Context Precision", "context_precision", "itens úteis do contexto e se vieram primeiro (juiz)"),
-        row("Valor recuperado", "valor_recuperado", "fração dos números do gabarito presentes no contexto"),
+        row("Valor recuperado", "valor_recuperado", "fração dos números do gabarito presentes no contexto, no lugar "
+            "certo (cadeia, escopo, métrica, entidade e ano)"),
+        row("Valor recuperado (critério solto)", "valor_recuperado_solto", "número próximo em qualquer lugar do contexto "
+            "(critério das rodadas anteriores)"),
     ])
     L += ["### Geração: a resposta está certa e apoiada no que foi buscado?", ""]
     L += table(["Métrica", "Valor", "n", "O que mede"], [
         row("Faithfulness", "faithfulness", "fração das afirmações da resposta sustentadas pelo contexto (juiz)"),
-        row("Acerto de valores", "acerto_valores", "fração dos números do gabarito presentes na resposta"),
+        row("Acerto de valores", "acerto_valores", "fração dos números do gabarito presentes na resposta, com a unidade"),
+        row("Acerto de valores (critério solto)", "acerto_valores_solto", "número próximo em qualquer lugar da resposta "
+            "(critério das rodadas anteriores)"),
         row("ROUGE-L F1 (ref. curta)", "rouge_l_f1_curta", "sobreposição de palavras em ordem com a referência curta"),
         row("ROUGE-L F1 (ref. longa)", "rouge_l_f1_longa", "sobreposição de palavras em ordem com a referência longa"),
         row("BLEU de corpus (ref. curta)", "curta", "n-gramas (1 a 4) em comum, somados no grupo", kind="corpus"),
@@ -255,6 +283,8 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
         row("Tokens médios por pergunta", "tokens", "entrada + saída do agente (soma de todos os turnos)", casas=0),
         row("Tokens de entrada (média)", "tokens_entrada", "", casas=0),
         row("Tokens de saída (média)", "tokens_saida", "", casas=0),
+        row("Tokens de entrada lidos do cache (média)", "tokens_entrada_cache",
+            "parte da entrada servida pelo cache de prompt (já incluída na entrada)", casas=0),
     ])
 
     # por tipo
@@ -333,11 +363,19 @@ def write_report(records: list[dict], config: dict, path: Path) -> None:
 
     judge_in = sum((res.get("uso") or {}).get("input_tokens", 0) for r in records if r["juiz"] for res in r["juiz"].values())
     judge_out = sum((res.get("uso") or {}).get("output_tokens", 0) for r in records if r["juiz"] for res in r["juiz"].values())
+    agent_model, judge_model = config.get("modelo_agente"), config.get("modelo_juiz")
+    if not judge_model:
+        bias = []
+    elif judge_model == agent_model:
+        bias = [f"- **Viés de autoavaliação:** o juiz (`{judge_model}`) é o mesmo modelo do agente."]
+    else:
+        bias = [f"- **Juiz diferente do agente:** juiz `{judge_model}`, agente `{agent_model}`. Isso reduz o viés de "
+                "autoavaliação, mas as notas de rodadas com juízes diferentes não são diretamente comparáveis."]
     L += ["", "## Limitações", "",
-          "- **Uma rodada só e sem controle de temperatura:** o Claude Haiku 5.5 não aceita temperatura 0, então o agente "
+          f"- **Uma rodada só e sem controle de temperatura:** temperatura {config.get('temperatura')}, então o agente "
           "e o juiz podem dar respostas e notas um pouco diferentes se a avaliação for repetida. A busca direta "
           "(Hit/Recall/MRR) não usa LLM e é reprodutível.",
-          "- **Viés de autoavaliação:** o juiz é o mesmo modelo do sistema.",
+          *bias,
           "- **Poucas perguntas por tipo:** carne bovina e soja têm 2 perguntas cada; as médias desses tipos são instáveis.",
           "- **Relevância anotada à mão:** os artigos essenciais/complementares do gabarito definem Hit, Recall e MRR.",
           "- **Busca direta ≠ busca do agente:** Hit/Recall/MRR usam a pergunta original; o agente escreve o próprio "

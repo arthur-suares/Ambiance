@@ -318,12 +318,16 @@ A parte fixa do prompt é marcada com `cache_control` (prompt caching), porque o
 | `territorial_metric` | carne | Indicador territorial por região (ranking ou valor de uma região) |
 | `find_entity` | carne | Grafia exata de um nome |
 | `run_sql` | carne | SELECT livre no `trase.duckdb` |
-| `soy_top_municipalities`, `soy_top_exporters`, `soy_top_destinations` | soja | Rankings |
-| `soy_yearly_trend`, `soy_deforestation_by_biome` | soja | Série anual e exposição por bioma |
+| `soy_top_municipalities` | soja | Ranking de municípios por exposição ou volume (sem a origem não rastreada, por padrão) |
+| `soy_top_exporters` | soja | Ranking de grupos exportadores (ou empresas) por exposição ou volume (sem soja processada no Brasil e exportador desconhecido, por padrão) |
+| `soy_top_destinations` | soja | Ranking de países de primeira importação por volume (sem o consumo interno, por padrão) |
+| `soy_yearly_trend`, `soy_deforestation_by_biome` | soja | Série anual (com filtros por UF, bioma ou grupo exportador) e exposição por bioma |
 | `soy_territorial_metric` | soja | Indicador territorial por região |
 | `soy_facilities_summary` | soja | Instalações agregadas por UF, município, empresa, categoria ou tipo |
 | `run_soy_sql` | soja | SELECT livre no `soy.duckdb` |
 | `search_laws` | leis | Busca híbrida nas leis (a mesma da seção 4.1) |
+
+Nos rankings (`top_municipalities`, `top_exporters`, `soy_top_municipalities`, `soy_top_exporters`, `soy_facilities_summary`) o parâmetro `order_by` é **obrigatório**: sem ele a chamada volta com erro e o LLM precisa dizer por qual métrica quer ordenar. Isso evita responder "o maior exportador em volume" com um ranking ordenado por exposição.
 
 **Loop de execução** (`ask()`):
 
@@ -336,6 +340,7 @@ A parte fixa do prompt é marcada com `cache_control` (prompt caching), porque o
 **Formato dos resultados enviados ao LLM**:
 
 - Tabelas são convertidas em CSV, com números arredondados a 6 algarismos significativos e no máximo **60 linhas** (com aviso quando há mais).
+- Antes do CSV vai uma **legenda** (linhas iniciadas por `# `), gerada pela própria consulta ([src/result_meta.py](src/result_meta.py)): cadeia, escopo (fluxos da cadeia × indicador territorial × instalações), ano, agrupamento, ordenação, filtros, o que foi excluído (e quanto isso representa), unidade de cada coluna e notas de interpretação. É o que o CSV sozinho não diz; o LLM e o juiz da avaliação leem a mesma legenda. O SQL livre recebe só a cadeia e o aviso de que o significado depende das colunas escolhidas.
 - Trechos de lei vão em XML: `<documento rotulo="L3" lei="Lei nº 12.651/2012 – Código Florestal" artigo="12" parte="1/2" fonte="https://...">texto</documento>`.
 
 ### 6.2 Citações

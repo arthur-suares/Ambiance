@@ -1,9 +1,10 @@
 """Geração de embeddings com sentence-transformers.
 
-O modelo padrão (intfloat/multilingual-e5-small) foi treinado com prefixos:
+O modelo padrão (BAAI/bge-m3, 1024 dimensões) não usa prefixos em consultas ou
+trechos. Modelos da família E5 ("e5" no nome) usam:
 - "passage: " para os textos indexados;
 - "query: "   para as perguntas.
-Usar o prefixo errado (ou nenhum) piora a recuperação de forma silenciosa.
+Usar o prefixo errado piora a recuperação de forma silenciosa.
 """
 
 from functools import lru_cache
@@ -13,6 +14,10 @@ import numpy as np
 from src.config import EMBEDDING_DIM, EMBEDDING_MODEL
 
 _E5 = "e5" in EMBEDDING_MODEL.lower()
+
+
+def _is_e5() -> bool:
+    return "e5" in EMBEDDING_MODEL.lower()
 
 
 @lru_cache(maxsize=1)
@@ -41,13 +46,22 @@ def max_model_tokens() -> int:
 
 
 def count_tokens(text: str) -> int:
-    """Tokens que o modelo vai enxergar, incluindo o prefixo "passage: "."""
-    prefix = "passage: " if _E5 else ""
+    """Tokens que o modelo vai enxergar (inclui o prefixo 'passage: ' em modelos E5)."""
+    prefix = "passage: " if _is_e5() else ""
     return len(get_model().tokenizer.encode(prefix + text, add_special_tokens=True))
 
 
+def count_chunk_tokens(text: str) -> int:
+    """Contagem canônica para o chunking (inclui a folga de 2 tokens de 'passage: ').
+
+    Garante que a divisão dos artigos em chunks de até 480 tokens (partes de 256)
+    seja idêntica entre modelos XLM-RoBERTa (e5-small, e5-large e bge-m3).
+    """
+    return len(get_model().tokenizer.encode("passage: " + text, add_special_tokens=True))
+
+
 def embed_passages(texts: list[str], batch_size: int = 32) -> np.ndarray:
-    prefix = "passage: " if _E5 else ""
+    prefix = "passage: " if _is_e5() else ""
     return get_model().encode(
         [prefix + t for t in texts],
         batch_size=batch_size,
@@ -57,5 +71,18 @@ def embed_passages(texts: list[str], batch_size: int = 32) -> np.ndarray:
 
 
 def embed_query(text: str) -> np.ndarray:
-    prefix = "query: " if _E5 else ""
+    prefix = "query: " if _is_e5() else ""
     return get_model().encode(prefix + text, normalize_embeddings=True)
+
+
+def embed_queries(texts: list[str], batch_size: int = 32) -> np.ndarray:
+    """Gera embeddings para várias consultas (sub-perguntas) numa única chamada ao modelo."""
+    if not texts:
+        return np.empty((0, EMBEDDING_DIM), dtype=np.float32)
+    prefix = "query: " if _is_e5() else ""
+    return get_model().encode(
+        [prefix + t for t in texts],
+        batch_size=batch_size,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+    )

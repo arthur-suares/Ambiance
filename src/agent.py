@@ -12,22 +12,70 @@ Cada resultado recebe um rótulo ([D1], [D2]... para dados, [L1], [L2]... para
 trechos de lei) que o LLM usa para citar a origem de cada número ou afirmação.
 """
 
+import csv
+import io
 import json
 import math
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
 from src import queries
-from src.config import LLM_MODEL
+from src import result_meta as rm
+from src.config import LLM_EXTRA_PARAMS, LLM_MAX_TOKENS, LLM_MODEL
 from src.data_dictionary import render_prompt
 from src.database import SqlError, run_readonly_sql
-from src.rag import get_client
+from src.fts_query import extract_legal_subqueries, split_mixed_question
+from src.rag import get_client, retrieve_multi
 from src.soy import queries as soy_queries
+from src.soy.routing import route_question
+from src.vector_store import _chunk_identity
 
 MAX_TURNS = 10
 MAX_ROWS_TO_LLM = 60
+MAX_SUBQUERIES = 6
+
+DECOMPOSE_TOOL = {
+    "name": "create_retrieval_plan",
+    "description": "Decompõe uma pergunta mista em subconsultas limpas por domínio (dados da soja, dados da carne bovina e legislação ambiental).",
+    "input_schema": {
+        "type": "object",
+        "required": ["question_type", "subqueries"],
+        "properties": {
+            "question_type": {"type": "string", "enum": ["data", "legislation", "mixed"]},
+            "subqueries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_SUBQUERIES,
+                "items": {
+                    "type": "object",
+                    "required": ["id", "domain", "question"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "domain": {"type": "string", "enum": ["soy_data", "beef_data", "legislation"]},
+                        "question": {"type": "string"},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+        },
+    },
+}
+
+DECOMPOSE_PROMPT = """\
+Você é o Agente Decompositor de um sistema RAG sobre cadeias agropecárias (soja e carne bovina) e legislação ambiental brasileira.
+Sua tarefa é dividir a pergunta do usuário em subconsultas independentes e limpas por domínio, sem respondê-la:
+- `soy_data`: métricas, rankings, séries temporais ou instalações da cadeia da soja (Trase).
+- `beef_data`: métricas, rankings, séries temporais, pastagem ou frigoríficos da cadeia da carne bovina (Trase).
+- `legislation`: regras, percentuais de Reserva Legal/APP, multas, penas, definições (CAR, Amazônia Legal, UC) ou licenciamento nas leis ambientais.
+
+Regras críticas para separar os domínios:
+1. Na subconsulta `legislation`, NUNCA inclua nomes de empresas (ex.: JBS, Cargill), volumes de exportação, anos de safra ou termos exclusivos da cadeia ("grupo exportador", "cadeia da soja", "carne bovina", "capacidade de processamento"). Escreva apenas a pergunta jurídica pura para não poluir os embeddings da busca vetorial.
+2. Preserve na subconsulta `legislation` qualquer bioma, região, diploma legal (Código Florestal, Decreto 6.514/2008, PNMC, PNMA, Lei da Mata Atlântica, Lei de Crimes Ambientais, SNUC) ou condição jurídica mencionada na pergunta.
+3. Se a pergunta jurídica usar expressão anafórica como "nesses biomas" ou "nesse bioma", explicite o bioma caso ele apareça na pergunta, ou marque `depends_on` apontando para o `id` da subconsulta de dados.
+"""
 
 SYSTEM_PROMPT = """\
 Você é o assistente de dados de um sistema que monitora riscos ambientais nas cadeias da \
@@ -58,12 +106,24 @@ diga qual usou ou responda para as duas.
 - Para perguntas sobre o que a lei exige, use search_laws. Perguntas mistas (dados + \
 lei) usam as duas.
 - Se uma ferramenta der erro, corrija a chamada e tente de novo (no máximo duas vezes).
+- Cada resultado de dados começa com uma legenda (linhas "# "): cadeia, escopo, ano, agrupamento, ordenação, filtros, o que foi excluído, unidades e notas. Ela é parte da evidência; leia antes de concluir:
+  - só diga que algo é "o maior" numa métrica se o resultado estiver ordenado por essa métrica (um ranking por exposição não mostra quem lidera em volume: refaça com outro order_by);
+  - só compare ou combine valores de mesmo escopo: "fluxos da cadeia" e "indicador territorial" medem coisas diferentes e dão números diferentes para a mesma região;
+  - confira se o agrupamento é o pedido (grupo econômico x empresa; município x UF x bioma);
+  - ao citar um ranking, diga o que ficou de fora dele, usando a própria legenda. Não crie explicações para diferenças entre números além do que a legenda e os dados dizem.
+- "Exposição ao desmatamento" de uma cadeia (soja ou carne) num bioma, UF ou município é um número de fluxos da cadeia: use deforestation_by_region (carne) ou soy_deforestation_by_biome (soja), não o indicador territorial. Use territorial_metric / soy_territorial_metric só quando a pergunta for sobre a região inteira (ex.: desmatamento total, área, produção).
+- Nos rankings, order_by é obrigatório: escolha a métrica que a pergunta pede ("maior exportador" = volume; "maior exposição" = exposição).
 
 Como responder:
 - Responda em português, direto e em linguagem acessível. Comece pela resposta; \
 depois, se útil, o contexto.
 - Cite a origem logo após cada número ou afirmação, com o rótulo do resultado: [D1], \
 [D2] para dados e [L1], [L2] para leis. Na primeira citação de lei, diga a lei e o artigo.
+- Ao juntar dados e lei na mesma resposta, não use o ano dos dados nas frases sobre a lei: cite a lei \
+com o próprio número e ano (ex.: "a Lei 12.187/2009 fixou..."), e o ano dos dados só nas frases sobre os dados.
+- Quando a lei aplicar uma fração a uma pena ou valor (metade, um terço, dobro), cite a regra como está \
+na lei e, se fizer a conta, mostre-a aplicada aos dois limites (ex.: "metade de 1 a 3 anos = 6 meses a \
+1 ano e 6 meses").
 - Informe o ano, os filtros e a unidade dos números. Arredonde com bom senso \
 (ex.: 277,6 mil ha; US$ 4,53 bilhões) usando o formato numérico brasileiro.
 - Siga as regras de interpretação abaixo, em especial: não some exposição entre anos e \
@@ -91,9 +151,12 @@ SOY_RULES = """\
 não some entre anos (a mesma área aparece em até 5 anos). Compare anos lado a lado.
 - volume está em toneladas; fob em US$.
 - Linhas UNKNOWN (município/UF/bioma de origem não rastreados) e exportador PROCESSED DOMESTICALLY \
-(soja processada no Brasil) ou UNKNOWN CUSTOMER aparecem nos rankings: diga o que são e, ao falar \
-dos maiores municípios ou empresas, destaque os identificados.
-- Para grupos econômicos use exporter_group / importer_group (via run_soy_sql).
+(soja processada no Brasil) ou UNKNOWN / UNKNOWN CUSTOMER (exportador não identificado) não são um município \
+nem um exportador. As consultas prontas de ranking excluem essas linhas por padrão e informam, na legenda, \
+quanto elas representam; em run_soy_sql, exclua-as você mesmo quando a pergunta for sobre os maiores \
+municípios ou exportadores, e diga isso.
+- Grupo econômico (exporter_group, ex.: CARGILL) e empresa (exporter, ex.: CARGILL AGRICOLA SA) são níveis \
+diferentes: soy_top_exporters usa by_group para escolher.
 - soy_spatial_metrics (ferramenta soy_territorial_metric) traz indicadores da região inteira (área, produção, \
 produtividade, desmatamento, emissões, RTRS, % ZDC), não fluxos da cadeia; prefira-a às tabelas antigas \
 soy_deforestation e soy_gross_emissions, que só têm municípios. Métricas em % ou t/ha não se somam entre regiões.
@@ -109,13 +172,13 @@ TOOLS = [
         "description": "Ranking de municípios de produção num ano, a partir dos fluxos da cadeia "
                        "(view flows_by_municipality). Devolve exposição ao desmatamento (ha), volume (t), "
                        "volume exportado, FOB (US$), emissões líquidas e exposição por tonelada. Exclui a origem "
-                       "desconhecida (UNKNOWN), que concentra ~90% da exposição: diga que o ranking cobre só a parte rastreada.",
-        "input_schema": {"type": "object", "properties": {
+                       "desconhecida (UNKNOWN), que concentra a maior parte da exposição: diga que o ranking cobre só a parte rastreada.",
+        "input_schema": {"type": "object", "required": ["order_by"], "properties": {
             "year": _YEAR, "limit": _LIMIT,
             "biome": {"type": "string", "description": "Ex.: AMAZONIA, CERRADO, MATA ATLANTICA."},
             "state": {"type": "string", "description": "UF por extenso ou sigla, ex.: PARA, MATO GROSSO, MT."},
             "order_by": {"type": "string", "enum": sorted(queries.MUNICIPALITY_ORDER),
-                         "description": "Indicador de ordenação (padrão deforestation_exposure_ha)."},
+                         "description": "Métrica de ordenação (obrigatório): a que a pergunta pede."},
             "include_unknown": {"type": "boolean",
                                 "description": "Incluir a linha de origem desconhecida (padrão false)."},
         }},
@@ -125,11 +188,11 @@ TOOLS = [
         "description": "Ranking de grupos exportadores (ou exportadores) num ano, com exposição ao desmatamento, "
                        "volume, FOB, exposição por tonelada, nº de municípios de origem e de destinos, "
                        "e compromisso de desmatamento zero. Antes de 2015 não há exposição e o ranking usa volume.",
-        "input_schema": {"type": "object", "properties": {
+        "input_schema": {"type": "object", "required": ["order_by"], "properties": {
             "year": _YEAR, "limit": _LIMIT,
             "order_by": {"type": "string", "enum": sorted(queries.EXPORTER_ORDER),
-                         "description": "Indicador de ordenação (padrão deforestation_exposure_ha; "
-                                        "use volume_t para 'maiores exportadores')."},
+                         "description": "Métrica de ordenação (obrigatório): volume_t para 'maiores exportadores', "
+                                        "deforestation_exposure_ha para 'maior exposição'."},
             "include_domestic": {"type": "boolean", "description": "Incluir a linha de consumo interno (padrão false)."},
             "by_group": {"type": "boolean", "description": "true = por grupo econômico (padrão); false = por empresa."},
         }},
@@ -155,6 +218,21 @@ TOOLS = [
         }},
     },
     {
+        "name": "deforestation_by_region",
+        "description": "Carne bovina: exposição ao desmatamento (ha), volume (t) e emissões líquidas por bioma ou UF "
+                       "de produção num ano, a partir dos fluxos da cadeia. Use para 'exposição da carne' num bioma "
+                       "ou estado e para saber qual bioma/UF lidera. Traz a linha UNKNOWN (origem não rastreada).",
+        "input_schema": {"type": "object", "required": ["level"], "properties": {
+            "level": {"type": "string", "enum": sorted(queries.REGION_LEVELS),
+                      "description": "biome = por bioma; state = por UF de produção."},
+            "year": _YEAR,
+            "region": {"type": "string", "description": "Filtra uma região: bioma (ex.: AMAZONIA, CERRADO) ou UF "
+                       "por extenso ou sigla (ex.: MATO GROSSO, MT). Omita para ver todas."},
+            "include_unknown": {"type": "boolean",
+                                "description": "Incluir a linha de origem não rastreada (padrão true)."},
+        }},
+    },
+    {
         "name": "exposure_intensity_by_municipality",
         "description": "Municípios com maior exposição ao desmatamento por tonelada (ha/t) num ano, "
                        "ignorando os de volume pequeno.",
@@ -175,7 +253,8 @@ TOOLS = [
     {
         "name": "territorial_metric",
         "description": "Indicador territorial (tabela spatial_metrics) por região: ranking de regiões ou o valor "
-                       "de uma região específica. Descreve a região inteira, não fluxos da cadeia.",
+                       "de uma região específica. Descreve a região inteira, não fluxos da cadeia: para a exposição "
+                       "da cadeia da carne por bioma ou UF, use deforestation_by_region.",
         "input_schema": {"type": "object", "required": ["metric"], "properties": {
             "metric": {"type": "string", "enum": sorted(queries.SPATIAL_METRIC_NAMES)},
             "level": {"type": "string", "enum": ["country", "biome", "state", "municipality"],
@@ -211,8 +290,13 @@ TOOLS = [
     },
     {
         "name": "search_laws",
-        "description": "Busca trechos de leis ambientais brasileiras (Código Florestal, Lei de Crimes Ambientais, "
-                       "Decreto 6.514/2008, Lei da Mata Atlântica, SNUC, PNMA, PNMC). Devolve artigos com lei e URL.",
+        "description": "Busca trechos nas 29 normas federais brasileiras indexadas de legislação agroambiental "
+                       "(Código Florestal, Crimes Ambientais, Decretos 6.514/2008, 7.830/2012, 8.235/2014 e 11.687/2023, "
+                       "Mata Atlântica, SNUC, PNMA, PNMC, LC 140/2011, PSA/14.119, Licenciamento/15.190, Água/9.433, "
+                       "Florestas Públicas/11.284, Regularização Fundiária/11.952, Rastreabilidade Bovina/12.097 e 7.623, "
+                       "Crédito Rural/4.829, Política Agrícola/8.171, Reforma Agrária/8.629, Manejo do Fogo/14.944, "
+                       "Mercado de Carbono/15.042, Agrotóxicos/14.785, Bolsa Verde/12.512, Terras Indígenas e Quilombolas). "
+                       "Aceita buscas diretas ou perguntas comparativas/multinorma e devolve artigos completos ou partes irmãs com lei e URL.",
         "input_schema": {"type": "object", "required": ["query"], "properties": {
             "query": {"type": "string", "description": "Pergunta ou termos em português."},
             "k": {"type": "integer", "minimum": 1, "maximum": 10, "description": "Nº de trechos (padrão 6)."},
@@ -222,37 +306,59 @@ TOOLS = [
 
 _SOY_YEAR = {"type": "integer", "description": "Ano (2004-2022). Omita para o mais recente."}
 
+_SOY_ORDER = {"type": "string", "enum": list(soy_queries.RANKING_ORDER),
+              "description": "Métrica de ordenação (obrigatório): volume_tonnes para 'maiores em volume', "
+                             "exposure_ha para 'maior exposição ao desmatamento'."}
+
 SOY_TOOLS = [
     {
         "name": "soy_top_municipalities",
-        "description": "Soja: ranking de municípios de produção num ano por exposição ao desmatamento (ha), "
-                       "com volume (t). Filtros opcionais de UF e bioma.",
-        "input_schema": {"type": "object", "properties": {
-            "year": _SOY_YEAR, "limit": _LIMIT,
-            "state": {"type": "string", "description": "UF como aparece nos dados (confira com run_soy_sql se preciso)."},
+        "description": "Soja: ranking de municípios de produção num ano, a partir dos fluxos da cadeia, com "
+                       "exposição ao desmatamento (ha) e volume (t). Exclui a origem não rastreada (UNKNOWN), que "
+                       "não é um município; a legenda do resultado diz quanto ela representa.",
+        "input_schema": {"type": "object", "required": ["order_by"], "properties": {
+            "year": _SOY_YEAR, "limit": _LIMIT, "order_by": _SOY_ORDER,
+            "state": {"type": "string", "description": "UF por extenso, sem acento (ex.: MATO GROSSO)."},
             "biome": {"type": "string", "description": "Ex.: AMAZONIA, CERRADO."},
+            "include_unknown": {"type": "boolean",
+                                "description": "Incluir a linha de origem não rastreada (padrão false)."},
         }},
     },
     {
         "name": "soy_top_exporters",
-        "description": "Soja: ranking de exportadores num ano por exposição ao desmatamento (ha), com volume (t).",
-        "input_schema": {"type": "object", "properties": {"year": _SOY_YEAR, "limit": _LIMIT}},
+        "description": "Soja: ranking de grupos exportadores (ou empresas) num ano, com volume (t) e exposição ao "
+                       "desmatamento (ha). Exclui o que não é exportador identificado (soja processada no Brasil e "
+                       "exportador desconhecido); a legenda do resultado diz quanto isso representa.",
+        "input_schema": {"type": "object", "required": ["order_by"], "properties": {
+            "year": _SOY_YEAR, "limit": _LIMIT, "order_by": _SOY_ORDER,
+            "by_group": {"type": "boolean", "description": "true = por grupo econômico (padrão); false = por empresa."},
+            "include_unidentified": {"type": "boolean", "description": "Incluir PROCESSED DOMESTICALLY e UNKNOWN "
+                                     "(padrão false)."},
+        }},
     },
     {
         "name": "soy_top_destinations",
-        "description": "Soja: ranking de países de primeira importação num ano por volume (t).",
+        "description": "Soja: ranking de países de primeira importação num ano por volume (t), com exposição (ha). "
+                       "Exclui o consumo interno (BRAZIL).",
         "input_schema": {"type": "object", "properties": {
             "year": _SOY_YEAR, "limit": _LIMIT, "state": {"type": "string", "description": "UF de origem."},
+            "include_domestic": {"type": "boolean", "description": "Incluir BRAZIL (consumo interno). Padrão false."},
         }},
     },
     {
         "name": "soy_yearly_trend",
-        "description": "Soja: série anual de volume (t), exposição ao desmatamento (ha) e emissões brutas (tCO2e).",
-        "input_schema": {"type": "object", "properties": {}},
+        "description": "Soja: série anual de volume (t), exposição ao desmatamento (ha) e emissões brutas (tCO2e) "
+                       "dos fluxos da cadeia, com filtros opcionais. Sem filtro = cadeia inteira.",
+        "input_schema": {"type": "object", "properties": {
+            "state": {"type": "string", "description": "UF de produção por extenso, sem acento (ex.: MATO GROSSO)."},
+            "biome": {"type": "string", "description": "Ex.: AMAZONIA, CERRADO, MATA ATLANTICA."},
+            "exporter_group": {"type": "string", "description": "Grupo exportador, nome exato (ex.: CARGILL)."},
+        }},
     },
     {
         "name": "soy_deforestation_by_biome",
-        "description": "Soja: exposição ao desmatamento (ha) por bioma num ano.",
+        "description": "Soja: exposição ao desmatamento (ha) e volume (t) por bioma num ano, a partir dos fluxos da "
+                       "cadeia. Traz todos os biomas e a linha UNKNOWN (origem não rastreada).",
         "input_schema": {"type": "object", "properties": {"year": _SOY_YEAR}},
     },
     {
@@ -276,13 +382,14 @@ SOY_TOOLS = [
         "name": "soy_facilities_summary",
         "description": "Soja: instalações (armazéns e processadoras) agregadas por UF, município, empresa, categoria ou "
                        "tipo, com nº de instalações e capacidades de armazenagem (t) e processamento (t/dia).",
-        "input_schema": {"type": "object", "properties": {
+        "input_schema": {"type": "object", "required": ["order_by"], "properties": {
             "group_by": {"type": "string", "enum": list(soy_queries.FACILITY_GROUPS), "description": "Padrão state."},
             "state": {"type": "string", "description": "UF por extenso, sem acento (ex.: MATO GROSSO)."},
             "municipality": {"type": "string"},
             "category": {"type": "string", "enum": ["STORAGE", "PROCESSING"]},
             "company": {"type": "string", "description": "Trecho do nome da empresa (busca parcial)."},
-            "order_by": {"type": "string", "enum": ["facilities", "storage_capacity_t", "processing_capacity_t_day"]},
+            "order_by": {"type": "string", "enum": list(soy_queries.FACILITY_ORDER),
+                         "description": "Métrica de ordenação (obrigatório): a capacidade ou contagem que a pergunta pede."},
             "limit": _LIMIT,
         }},
     },
@@ -299,21 +406,12 @@ SOY_TOOLS = [
 ]
 
 
-def _soy_year(year):
-    # Exposição é janela de 5 anos: sem ano, usa o mais recente em vez de somar todos.
-    return year or soy_queries.latest_year()
-
-
 SOY_QUERY_FUNCS = {
-    "soy_top_municipalities": lambda limit=10, year=None, state=None, biome=None:
-        soy_queries.top_municipalities(limit=limit, year=_soy_year(year), state=state, biome=biome),
-    "soy_top_exporters": lambda limit=10, year=None:
-        soy_queries.top_exporters(limit=limit, year=_soy_year(year)),
-    "soy_top_destinations": lambda limit=10, year=None, state=None:
-        soy_queries.top_destinations(limit=limit, year=_soy_year(year), state=state),
-    "soy_yearly_trend": lambda: soy_queries.yearly_trend(),
-    "soy_deforestation_by_biome": lambda year=None:
-        soy_queries.deforestation_by_biome(year=_soy_year(year)),
+    "soy_top_municipalities": soy_queries.top_municipalities,
+    "soy_top_exporters": soy_queries.top_exporters,
+    "soy_top_destinations": soy_queries.top_destinations,
+    "soy_yearly_trend": soy_queries.yearly_trend,
+    "soy_deforestation_by_biome": soy_queries.deforestation_by_biome,
     "soy_territorial_metric": soy_queries.territorial_metric,
     "soy_facilities_summary": soy_queries.facilities_summary,
 }
@@ -323,12 +421,25 @@ QUERY_FUNCS = {
     "top_exporters": queries.top_exporters,
     "top_destinations": queries.top_destinations,
     "yearly_trend": queries.yearly_trend,
+    "deforestation_by_region": queries.deforestation_by_region,
     "exposure_intensity_by_municipality": queries.exposure_intensity_by_municipality,
     "commitment_summary": queries.commitment_summary,
     "territorial_metric": queries.territorial_metric,
     "find_entity": queries.find_entity,
     **SOY_QUERY_FUNCS,
 }
+
+# Parâmetros que o LLM tem de informar: sem eles a chamada volta com erro, em vez de usar um padrão silencioso.
+REQUIRED_ARGS = {t["name"]: t["input_schema"].get("required", []) for t in TOOLS + SOY_TOOLS}
+
+
+def _check_required(name: str, args: dict) -> None:
+    missing = [k for k in REQUIRED_ARGS.get(name, []) if args.get(k) in (None, "")]
+    if not missing:
+        return
+    props = next(t for t in TOOLS + SOY_TOOLS if t["name"] == name)["input_schema"]["properties"]
+    hints = [f"{k} (um de: {', '.join(props[k]['enum'])})" if props[k].get("enum") else k for k in missing]
+    raise ValueError(f"{name}: informe {'; '.join(hints)}.")
 
 
 @dataclass
@@ -340,6 +451,7 @@ class ToolCall:
     output: str
     rows: int | None = None
     seconds: float = 0.0
+    subqueries_fused: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -349,9 +461,184 @@ class AgentAnswer:
     tool_calls: list[ToolCall] = field(default_factory=list)
     law_sources: list[dict] = field(default_factory=list)
     stop_reason: str | None = None
-    input_tokens: int = 0
+    input_tokens: int = 0  # tudo o que o modelo leu, incluindo o que veio do cache
     output_tokens: int = 0
     datasets: list = field(default_factory=list)
+    cached_input_tokens: int = 0  # parte de input_tokens lida do cache de prompt
+    question_type: str | None = None
+    subqueries: list[dict] = field(default_factory=list)
+
+
+def _usage_input(usage) -> tuple[int, int]:
+    """(entrada total, parte lida do cache). Com cache_control, usage.input_tokens traz só o que ficou fora do
+    cache: somar só ele faz o custo cair quando o provedor acerta o cache, sem nada ter mudado."""
+    read = getattr(usage, "cache_read_input_tokens", None) or 0
+    written = getattr(usage, "cache_creation_input_tokens", None) or 0
+    return (getattr(usage, "input_tokens", 0) or 0) + read + written, read
+
+
+def build_fallback_plan(question: str) -> dict:
+    """Constrói um plano de subconsultas determinístico (sem LLM) caso o decompositor falhe ou seja omitido."""
+    split = split_mixed_question(question)
+    subqueries: list[dict] = []
+
+    for clause in split["data_clauses"]:
+        dom = route_question(clause)["domain"]
+        if dom == "soy":
+            sub_domains = ["soy_data"]
+        elif dom == "beef":
+            sub_domains = ["beef_data"]
+        else:
+            # Cláusula que compara soja e carne bovina (ex.: M01, M09)
+            sub_domains = ["soy_data", "beef_data"]
+        for sd in sub_domains:
+            sq_id = f"sq{len(subqueries) + 1}"
+            subqueries.append({
+                "id": sq_id,
+                "domain": sd,
+                "question": clause,
+                "depends_on": [],
+            })
+
+    data_ids = [sq["id"] for sq in subqueries]
+    for clause in split["legal_clauses"]:
+        sq_id = f"sq{len(subqueries) + 1}"
+        subqueries.append({
+            "id": sq_id,
+            "domain": "legislation",
+            "question": clause,
+            "depends_on": [],
+        })
+
+    domains = {sq["domain"] for sq in subqueries}
+    if "legislation" in domains and (domains & {"soy_data", "beef_data"}):
+        q_type = "mixed"
+    elif domains == {"legislation"}:
+        q_type = "legislation"
+    else:
+        q_type = "data"
+        if not subqueries:
+            dom = route_question(question)["domain"]
+            subqueries.append({
+                "id": "sq1",
+                "domain": "soy_data" if dom == "soy" else "beef_data",
+                "question": question,
+                "depends_on": [],
+            })
+
+    return {"question_type": q_type, "subqueries": subqueries[:MAX_SUBQUERIES]}
+
+
+def validate_retrieval_plan(raw: Any, fallback_question: str | None = None) -> dict:
+    """Valida e normaliza o plano de subconsultas de forma resiliente (sem abortar a execução por detalhes de grafo)."""
+    if not isinstance(raw, dict):
+        if fallback_question:
+            return build_fallback_plan(fallback_question)
+        raise ValueError("Plano de recuperação inválido: esperado um objeto JSON.")
+
+    items = raw.get("subqueries")
+    if not isinstance(items, list) or not items:
+        if fallback_question:
+            return build_fallback_plan(fallback_question)
+        raise ValueError("Plano de recuperação inválido: subqueries deve conter ao menos 1 item.")
+
+    valid_domains = {"soy_data", "beef_data", "legislation"}
+    normalized: list[dict] = []
+    seen_ids: set[str] = set()
+    seen_queries: set[tuple[str, str]] = set()
+
+    for idx, item in enumerate(items[:MAX_SUBQUERIES], start=1):
+        if not isinstance(item, dict):
+            continue
+        domain = item.get("domain")
+        question = item.get("question")
+        if domain not in valid_domains or not isinstance(question, str) or not question.strip():
+            continue
+
+        raw_id = item.get("id")
+        subquery_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else f"sq{idx}"
+        if subquery_id in seen_ids:
+            subquery_id = f"sq{idx}_{len(seen_ids) + 1}"
+
+        norm_q = " ".join(question.lower().split())
+        dedupe_key = (domain, norm_q)
+        if dedupe_key in seen_queries:
+            continue
+
+        raw_deps = item.get("depends_on")
+        deps: list[str] = []
+        if isinstance(raw_deps, list):
+            for d in raw_deps:
+                if isinstance(d, str) and d in seen_ids and d not in deps:
+                    deps.append(d)
+
+        seen_ids.add(subquery_id)
+        seen_queries.add(dedupe_key)
+        normalized.append({
+            "id": subquery_id,
+            "domain": domain,
+            "question": question.strip(),
+            "depends_on": deps,
+        })
+
+    if not normalized:
+        if fallback_question:
+            return build_fallback_plan(fallback_question)
+        raise ValueError("Plano de recuperação inválido: nenhuma subconsulta válida.")
+
+    domains = {sq["domain"] for sq in normalized}
+    if "legislation" in domains and (domains & {"soy_data", "beef_data"}):
+        question_type = "mixed"
+    elif domains == {"legislation"}:
+        question_type = "legislation"
+    else:
+        question_type = "data"
+
+    # Se a pergunta era mista mas o LLM esqueceu um dos lados (dados ou legislação), complementa com o fallback determinístico
+    if fallback_question:
+        fb = build_fallback_plan(fallback_question)
+        if fb["question_type"] == "mixed" and question_type != "mixed":
+            for fb_sq in fb["subqueries"]:
+                if fb_sq["domain"] not in domains and len(normalized) < MAX_SUBQUERIES:
+                    new_id = f"sq{len(normalized) + 1}"
+                    normalized.append({**fb_sq, "id": new_id, "depends_on": []})
+                    domains.add(fb_sq["domain"])
+            if "legislation" in domains and (domains & {"soy_data", "beef_data"}):
+                question_type = "mixed"
+
+    return {"question_type": question_type, "subqueries": normalized}
+
+
+def decompose_question(
+    question: str, history: list[dict] | None = None
+) -> tuple[dict, int, int]:
+    """Aciona o Agente Decompositor para quebrar uma pergunta mista em sub-buscas limpas, com fallback determinístico."""
+    try:
+        response = get_client().messages.create(
+            model=LLM_MODEL,
+            max_tokens=1024,
+            system=[{"type": "text", "text": DECOMPOSE_PROMPT}],
+            tools=[DECOMPOSE_TOOL],
+            tool_choice={"type": "tool", "name": DECOMPOSE_TOOL["name"]},
+            messages=list(history or []) + [{"role": "user", "content": question}],
+            **LLM_EXTRA_PARAMS,
+        )
+        block = next(
+            (
+                c for c in response.content
+                if getattr(c, "type", None) == "tool_use"
+                and getattr(c, "name", None) == DECOMPOSE_TOOL["name"]
+            ),
+            None,
+        )
+        in_tok, _ = _usage_input(response.usage)
+        out_tok = getattr(response.usage, "output_tokens", 0) or 0
+        if block is not None:
+            plan = validate_retrieval_plan(block.input, fallback_question=question)
+            return plan, in_tok, out_tok
+    except Exception:
+        pass
+    return build_fallback_plan(question), 0, 0
 
 
 def _round(v):
@@ -360,13 +647,16 @@ def _round(v):
     return v
 
 
-def df_to_text(df: pd.DataFrame, truncated: bool = False) -> str:
+def df_to_text(df: pd.DataFrame, truncated: bool = False, meta: dict | None = None) -> str:
+    """Legenda (o que o resultado significa: src/result_meta.py) + CSV. meta substitui a legenda do DataFrame."""
+    legend = rm.render(meta or df.attrs.get("meta"))
+    head = legend + "\n" if legend else ""
     if df.empty:
-        return "(nenhuma linha)"
+        return head + "(nenhuma linha)"
     shown = df.head(MAX_ROWS_TO_LLM).map(_round)
     text = shown.to_csv(index=False).strip()
     extra = len(df) > MAX_ROWS_TO_LLM or truncated
-    return text + (f"\n(... mostrando {len(shown)} linhas; há mais)" if extra else f"\n({len(df)} linhas)")
+    return head + text + (f"\n(... mostrando {len(shown)} linhas; há mais)" if extra else f"\n({len(df)} linhas)")
 
 
 def _dataset_source_meta(tool_name: str) -> tuple[str, str]:
@@ -376,7 +666,8 @@ def _dataset_source_meta(tool_name: str) -> tuple[str, str]:
 
 
 class _Session:
-    def __init__(self, k_laws: int, session_id: str | None = None, result_store=None):
+    def __init__(self, k_laws: int, planned_law_queries: list[str] | None = None,
+                 session_id: str | None = None, result_store=None):
         self.k_laws = k_laws
         self.session_id = session_id
         self.result_store = result_store if (result_store is not None and session_id) else None
@@ -385,6 +676,21 @@ class _Session:
         self.calls: list[ToolCall] = []
         self.datasets: list = []
         self.laws_down = False
+        self.planned_law_queries: list[str] = list(planned_law_queries or [])
+        self.discovered_regions: list[str] = []
+        self._law_index_by_key: dict[tuple, int] = {}
+        self._last_subqueries_fused: list[str] = []
+
+    def _record_regions(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        region_cols = ("biome", "state", "state_of_production", "region")
+        for col in df.columns:
+            if col.strip().lower() in region_cols:
+                for val in df[col].head(5).dropna().astype(str):
+                    v = val.strip()
+                    if v and v.upper() not in ("UNKNOWN", "BRAZIL", "NONE", "NAN") and v not in self.discovered_regions:
+                        self.discovered_regions.append(v)
 
     def _next_label(self) -> str:
         if self.result_store is not None and self.session_id:
@@ -426,6 +732,7 @@ class _Session:
         label, rows = "", None
         df_captured: pd.DataFrame | None = None
         truncated = False
+        self._last_subqueries_fused = []
         try:
             if name == "search_laws" and self.laws_down:
                 raise RuntimeError("base de leis indisponível")
@@ -434,15 +741,19 @@ class _Session:
             elif name in ("run_sql", "run_soy_sql"):
                 connect = soy_queries.connect_readonly if name == "run_soy_sql" else None
                 df_captured, truncated = run_readonly_sql(args["sql"], connect=connect)
+                self._record_regions(df_captured)
                 label, rows = self._next_label(), len(df_captured)
-                text = df_to_text(df_captured, truncated)
+                cadeia = soy_queries.SOY if name == "run_soy_sql" else queries.BEEF
+                text = df_to_text(df_captured, truncated, meta={"cadeia": cadeia, "escopo": rm.FREE_SQL})
             elif name in QUERY_FUNCS:
+                _check_required(name, args)
                 df = QUERY_FUNCS[name](**args)
                 rows = len(df)
                 if name == "find_entity":
                     text = df_to_text(df)
                 else:
                     df_captured = df
+                    self._record_regions(df)
                     label = self._next_label()
                     text = df_to_text(df)
             else:
@@ -461,25 +772,67 @@ class _Session:
         if ok and label and df_captured is not None:
             self._save_dataset(label, name, args, df_captured, truncated, elapsed)
 
-        self.calls.append(ToolCall(label or name, name, args, ok, text, rows, elapsed))
+        self.calls.append(ToolCall(
+            label=label or name,
+            name=name,
+            input=args,
+            ok=ok,
+            output=text,
+            rows=rows,
+            seconds=elapsed,
+            subqueries_fused=list(self._last_subqueries_fused),
+        ))
         if label and ok:
             text = f"Resultado [{label}]\n{text}"
         return text, ok
 
     def _search_laws(self, args: dict) -> tuple[str, str]:
-        from src.rag import retrieve
-        chunks = retrieve(args["query"], k=args.get("k") or self.k_laws)
+        k = args.get("k") or self.k_laws
+        raw_query = args.get("query", "")
+        seeds = [raw_query] + self.planned_law_queries
+        self.planned_law_queries = []
+
+        subqueries: list[str] = []
+        seen_sq: set[str] = set()
+        for seed in seeds:
+            if not seed or not seed.strip():
+                continue
+            for sq in extract_legal_subqueries(seed, extra_regions=self.discovered_regions[:4]):
+                key = sq.lower().strip()
+                if key and key not in seen_sq:
+                    seen_sq.add(key)
+                    subqueries.append(sq)
+
+        if not subqueries and raw_query:
+            subqueries = [raw_query]
+
+        self._last_subqueries_fused = list(subqueries)
+        chunks = retrieve_multi(subqueries, k=k)
         if not chunks:
             return "(nenhum trecho encontrado)", ""
+
         docs = []
+        new_indices: list[int] = []
+        all_indices: list[int] = []
         for c in chunks:
-            self.law_sources.append(c)
-            i = len(self.law_sources)
-            m = c["metadata"]
+            ckey = _chunk_identity(c)
+            if ckey in self._law_index_by_key:
+                i = self._law_index_by_key[ckey]
+            else:
+                self.law_sources.append(c)
+                i = len(self.law_sources)
+                self._law_index_by_key[ckey] = i
+                new_indices.append(i)
+            all_indices.append(i)
+            m = c.get("metadata") or {}
             parte = f' parte="{m["parte"]}/{m["partes"]}"' if m.get("partes", 1) > 1 else ""
             docs.append(f'<documento rotulo="L{i}" lei="{c["title"]}" artigo="{m.get("artigo")}"{parte} '
                         f'fonte="{c["url"]}">\n{c["content"]}\n</documento>')
-        first, last = len(self.law_sources) - len(chunks) + 1, len(self.law_sources)
+
+        if new_indices:
+            first, last = new_indices[0], new_indices[-1]
+        else:
+            first, last = min(all_indices), max(all_indices)
         return "<documentos>\n" + "\n".join(docs) + "\n</documentos>", f"L{first}-L{last}"
 
 
@@ -495,6 +848,7 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
         domain: str | None = None, session_id: str | None = None,
         result_store=None) -> AgentAnswer:
     soy_ok = soy_queries.is_available()
+    effective_domain = domain if (domain and domain != "auto") else route_question(question)["domain"]
     system = [{
         "type": "text",
         "text": SYSTEM_PROMPT.format(
@@ -505,22 +859,88 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
         ),
         "cache_control": {"type": "ephemeral"},
     }]
-    if domain in DOMAIN_HINTS:
-        system.append({"type": "text", "text": f"Roteamento: {DOMAIN_HINTS[domain]}"})
+    if effective_domain in DOMAIN_HINTS:
+        system.append({"type": "text", "text": f"Roteamento: {DOMAIN_HINTS[effective_domain]}"})
+
+    result = AgentAnswer(question, "")
+    planned_law_queries: list[str] = []
+
+    if effective_domain == "mixed":
+        plan, plan_in, plan_out = decompose_question(question, history)
+        result.input_tokens += plan_in
+        result.output_tokens += plan_out
+        result.question_type = plan["question_type"]
+        result.subqueries = plan["subqueries"]
+        planned_law_queries = [
+            sq["question"] for sq in plan["subqueries"] if sq["domain"] == "legislation"
+        ]
+        plan_lines = "\n".join(
+            f"- [{sq['id']} | {sq['domain']}] {sq['question']}"
+            for sq in plan["subqueries"]
+        )
+        system.append({
+            "type": "text",
+            "text": (
+                "Subperguntas identificadas pelo Agente Decompositor:\n"
+                f"{plan_lines}\n"
+                "Para responder com precisão: chame as ferramentas de dados para cada subpergunta de dados "
+                "e chame `search_laws` passando apenas a subpergunta jurídica limpa (sem termos de soja/carne). "
+                "Ao final, integre tudo numa única resposta citando [D...] e [L...]."
+            ),
+        })
+
+    # Nunca removemos ferramentas do agente: se o roteamento inicial for parcial, o agente mantém acesso total.
     tools = TOOLS + SOY_TOOLS if soy_ok else TOOLS
     messages = list(history or []) + [{"role": "user", "content": question}]
-    session = _Session(k_laws, session_id=session_id, result_store=result_store)
-    result = AgentAnswer(question, "")
+    session = _Session(k_laws, planned_law_queries=planned_law_queries,
+                       session_id=session_id, result_store=result_store)
+    forced_law_check = False
+    forced_data_check = False
 
     for _ in range(MAX_TURNS):
         response = get_client().messages.create(
-            model=LLM_MODEL, max_tokens=8000, system=system, tools=tools, messages=messages,
+            model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, system=system, tools=tools, messages=messages,
+            **LLM_EXTRA_PARAMS,
         )
-        result.input_tokens += response.usage.input_tokens
+        total_in, cached_in = _usage_input(response.usage)
+        result.input_tokens += total_in
+        result.cached_input_tokens += cached_in
         result.output_tokens += response.usage.output_tokens
         result.stop_reason = response.stop_reason
 
         if response.stop_reason != "tool_use":
+            # Guardrail de completude para perguntas mistas: garante que tanto dados [D] quanto leis [L] foram consultados
+            if effective_domain == "mixed" and response.stop_reason == "end_turn":
+                has_data = any(c.ok and c.label.startswith("D") for c in session.calls)
+                has_law = any(c.ok and c.name == "search_laws" for c in session.calls)
+                if not has_law and not session.laws_down and not forced_law_check:
+                    forced_law_check = True
+                    law_q = planned_law_queries[0] if planned_law_queries else question
+                    law_text, law_ok = session.run("search_laws", {"query": law_q, "k": k_laws})
+                    if law_ok:
+                        messages.append({"role": "assistant", "content": response.content})
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "A parte jurídica desta pergunta mista ainda não havia sido consultada em `search_laws`. "
+                                f"Aqui estão os trechos de lei recuperados e fundidos:\n\n{law_text}\n\n"
+                                "Reescreva a resposta completa integrando os dados já consultados e estes trechos de lei, "
+                                "citando os rótulos [D...] e [L...]."
+                            ),
+                        })
+                        continue
+                if not has_data and not forced_data_check:
+                    forced_data_check = True
+                    messages.append({"role": "assistant", "content": response.content})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "A parte quantitativa (dados do Trase) desta pergunta mista ainda não foi consultada. "
+                            "Chame a ferramenta de dados correspondente antes de concluir a resposta."
+                        ),
+                    })
+                    continue
+
             result.text = "".join(b.text for b in response.content if b.type == "text").strip()
             if response.stop_reason == "refusal":
                 result.text = "O modelo recusou responder a esta pergunta."

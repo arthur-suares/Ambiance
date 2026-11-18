@@ -1,0 +1,1402 @@
+{
+  "source_run": "eval/resultados/rag_juridico/rodadas/juridico_bge_m3_29leis_gen/details.jsonl",
+  "historical_model": {
+    "id": "intfloat/multilingual-e5-small",
+    "revision": "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+  },
+  "new_model": {
+    "id": "BAAI/bge-m3",
+    "revision": "5617a9f61b028005a4858fdac845db406aefb181"
+  },
+  "positive": {
+    "e5_small": {
+      "n": 42,
+      "mean": 0.9035674617404029,
+      "median": 0.903038501739502,
+      "min": 0.8418908715248108,
+      "max": 0.9364345669746399,
+      "truncated_responses": 5,
+      "truncated_references": 0,
+      "max_tokens_seen": 720
+    },
+    "bge_m3": {
+      "n": 42,
+      "mean": 0.7801446893385479,
+      "median": 0.797285407781601,
+      "min": 0.492930144071579,
+      "max": 0.9371374845504761,
+      "truncated_responses": 0,
+      "truncated_references": 0,
+      "max_tokens_seen": 717
+    },
+    "discriminative_baseline": {
+      "e5_small": {
+        "proprio_media": 0.9035674134890238,
+        "outras_media": 0.8469205986401207,
+        "outras_max": 0.9404235482215881,
+        "perguntas": 42,
+        "margin": 0.056646814848903104
+      },
+      "bge_m3": {
+        "proprio_media": 0.7801447063684464,
+        "outras_media": 0.5081673782669294,
+        "outras_max": 0.8840087056159973,
+        "perguntas": 42,
+        "margin": 0.271977328101517
+      }
+    }
+  },
+  "abstention": {
+    "e5_small": {
+      "n": 6,
+      "mean": 0.8731700877348582,
+      "median": 0.8653875589370728,
+      "min": 0.8517128825187683,
+      "max": 0.9032633304595947,
+      "truncated_responses": 0,
+      "truncated_references": 0,
+      "max_tokens_seen": 493
+    },
+    "bge_m3": {
+      "n": 6,
+      "mean": 0.5608422855536143,
+      "median": 0.5559278726577759,
+      "min": 0.47721076011657715,
+      "max": 0.6415712833404541,
+      "truncated_responses": 0,
+      "truncated_references": 0,
+      "max_tokens_seen": 490
+    }
+  },
+  "truncated_in_e5": [
+    {
+      "id": "J06",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9188737869262695,
+        "tokens_resposta": 529,
+        "tokens_referencia": 56,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7462091445922852,
+        "tokens_resposta": 526,
+        "tokens_referencia": 53,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.17266464233398438
+    },
+    {
+      "id": "J14",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9024403095245361,
+        "tokens_resposta": 713,
+        "tokens_referencia": 79,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.704759418964386,
+        "tokens_resposta": 710,
+        "tokens_referencia": 76,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.19768089056015015
+    },
+    {
+      "id": "J24",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8992376327514648,
+        "tokens_resposta": 514,
+        "tokens_referencia": 77,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7660886645317078,
+        "tokens_resposta": 511,
+        "tokens_referencia": 74,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.13314896821975708
+    },
+    {
+      "id": "J26",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9159505367279053,
+        "tokens_resposta": 720,
+        "tokens_referencia": 107,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8111104965209961,
+        "tokens_resposta": 717,
+        "tokens_referencia": 104,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.10484004020690918
+    },
+    {
+      "id": "J27",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9079491496086121,
+        "tokens_resposta": 617,
+        "tokens_referencia": 89,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8026696443557739,
+        "tokens_resposta": 614,
+        "tokens_referencia": 86,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.10527950525283813
+    }
+  ],
+  "lowest_bge_m3_pos": [
+    {
+      "id": "J10",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8418908715248108,
+        "tokens_resposta": 447,
+        "tokens_referencia": 34,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.492930144071579,
+        "tokens_resposta": 444,
+        "tokens_referencia": 31,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.3489607274532318
+    },
+    {
+      "id": "J13",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9142745733261108,
+        "tokens_resposta": 404,
+        "tokens_referencia": 61,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6543704271316528,
+        "tokens_resposta": 401,
+        "tokens_referencia": 58,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.259904146194458
+    },
+    {
+      "id": "L06",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8974452018737793,
+        "tokens_resposta": 238,
+        "tokens_referencia": 49,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6620315313339233,
+        "tokens_resposta": 235,
+        "tokens_referencia": 46,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.23541367053985596
+    },
+    {
+      "id": "J18",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8972376585006714,
+        "tokens_resposta": 163,
+        "tokens_referencia": 36,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6669468879699707,
+        "tokens_resposta": 160,
+        "tokens_referencia": 33,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.23029077053070068
+    },
+    {
+      "id": "L03",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8650702238082886,
+        "tokens_resposta": 501,
+        "tokens_referencia": 60,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6865857243537903,
+        "tokens_resposta": 498,
+        "tokens_referencia": 57,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.1784844994544983
+    }
+  ],
+  "highest_bge_m3_pos": [
+    {
+      "id": "J29",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9282094836235046,
+        "tokens_resposta": 169,
+        "tokens_referencia": 81,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.9371374845504761,
+        "tokens_resposta": 166,
+        "tokens_referencia": 78,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": 0.008928000926971436
+    },
+    {
+      "id": "J25",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9294028282165527,
+        "tokens_resposta": 175,
+        "tokens_referencia": 76,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8970057964324951,
+        "tokens_resposta": 172,
+        "tokens_referencia": 73,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.03239703178405762
+    },
+    {
+      "id": "J23",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9021570086479187,
+        "tokens_resposta": 254,
+        "tokens_referencia": 68,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8767973184585571,
+        "tokens_resposta": 251,
+        "tokens_referencia": 65,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.025359690189361572
+    },
+    {
+      "id": "J31",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9067353010177612,
+        "tokens_resposta": 393,
+        "tokens_referencia": 89,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8683610558509827,
+        "tokens_resposta": 390,
+        "tokens_referencia": 86,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.038374245166778564
+    },
+    {
+      "id": "J07",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9097427129745483,
+        "tokens_resposta": 133,
+        "tokens_referencia": 45,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8673617839813232,
+        "tokens_resposta": 130,
+        "tokens_referencia": 42,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0423809289932251
+    }
+  ],
+  "per_question": [
+    {
+      "id": "L01",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8806740045547485,
+        "tokens_resposta": 388,
+        "tokens_referencia": 47,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7908999919891357,
+        "tokens_resposta": 385,
+        "tokens_referencia": 44,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.08977401256561279
+    },
+    {
+      "id": "L02",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8967239260673523,
+        "tokens_resposta": 110,
+        "tokens_referencia": 35,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7533197402954102,
+        "tokens_resposta": 107,
+        "tokens_referencia": 32,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.14340418577194214
+    },
+    {
+      "id": "L03",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8650702238082886,
+        "tokens_resposta": 501,
+        "tokens_referencia": 60,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6865857243537903,
+        "tokens_resposta": 498,
+        "tokens_referencia": 57,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.1784844994544983
+    },
+    {
+      "id": "L04",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8862015008926392,
+        "tokens_resposta": 287,
+        "tokens_referencia": 27,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7258237600326538,
+        "tokens_resposta": 284,
+        "tokens_referencia": 24,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.16037774085998535
+    },
+    {
+      "id": "L05",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8954731225967407,
+        "tokens_resposta": 213,
+        "tokens_referencia": 27,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7831122875213623,
+        "tokens_resposta": 210,
+        "tokens_referencia": 24,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.11236083507537842
+    },
+    {
+      "id": "L06",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8974452018737793,
+        "tokens_resposta": 238,
+        "tokens_referencia": 49,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6620315313339233,
+        "tokens_resposta": 235,
+        "tokens_referencia": 46,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.23541367053985596
+    },
+    {
+      "id": "L07",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9364345669746399,
+        "tokens_resposta": 108,
+        "tokens_referencia": 42,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7983234524726868,
+        "tokens_resposta": 105,
+        "tokens_referencia": 39,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.13811111450195312
+    },
+    {
+      "id": "L08",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.89948570728302,
+        "tokens_resposta": 158,
+        "tokens_referencia": 39,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8430668115615845,
+        "tokens_resposta": 155,
+        "tokens_referencia": 36,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.05641889572143555
+    },
+    {
+      "id": "J01",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.903322696685791,
+        "tokens_resposta": 225,
+        "tokens_referencia": 58,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7978188991546631,
+        "tokens_resposta": 222,
+        "tokens_referencia": 55,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.10550379753112793
+    },
+    {
+      "id": "J02",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9248232245445251,
+        "tokens_resposta": 143,
+        "tokens_referencia": 59,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.746985673904419,
+        "tokens_resposta": 140,
+        "tokens_referencia": 56,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.1778375506401062
+    },
+    {
+      "id": "J03",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9269952178001404,
+        "tokens_resposta": 486,
+        "tokens_referencia": 83,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8355597257614136,
+        "tokens_resposta": 483,
+        "tokens_referencia": 80,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0914354920387268
+    },
+    {
+      "id": "J04",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8820945620536804,
+        "tokens_resposta": 509,
+        "tokens_referencia": 30,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7020852565765381,
+        "tokens_resposta": 506,
+        "tokens_referencia": 27,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.18000930547714233
+    },
+    {
+      "id": "J05",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8854019641876221,
+        "tokens_resposta": 341,
+        "tokens_referencia": 48,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8002504110336304,
+        "tokens_resposta": 338,
+        "tokens_referencia": 45,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0851515531539917
+    },
+    {
+      "id": "J06",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9188737869262695,
+        "tokens_resposta": 529,
+        "tokens_referencia": 56,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7462091445922852,
+        "tokens_resposta": 526,
+        "tokens_referencia": 53,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.17266464233398438
+    },
+    {
+      "id": "J07",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9097427129745483,
+        "tokens_resposta": 133,
+        "tokens_referencia": 45,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8673617839813232,
+        "tokens_resposta": 130,
+        "tokens_referencia": 42,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0423809289932251
+    },
+    {
+      "id": "J08",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9311502575874329,
+        "tokens_resposta": 475,
+        "tokens_referencia": 84,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7926939725875854,
+        "tokens_resposta": 472,
+        "tokens_referencia": 81,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.1384562849998474
+    },
+    {
+      "id": "J09",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9146043062210083,
+        "tokens_resposta": 184,
+        "tokens_referencia": 47,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7967519164085388,
+        "tokens_resposta": 181,
+        "tokens_referencia": 44,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.11785238981246948
+    },
+    {
+      "id": "J10",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8418908715248108,
+        "tokens_resposta": 447,
+        "tokens_referencia": 34,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.492930144071579,
+        "tokens_resposta": 444,
+        "tokens_referencia": 31,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.3489607274532318
+    },
+    {
+      "id": "J11",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9228731393814087,
+        "tokens_resposta": 305,
+        "tokens_referencia": 58,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8229950666427612,
+        "tokens_resposta": 302,
+        "tokens_referencia": 55,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.09987807273864746
+    },
+    {
+      "id": "J12",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8949137926101685,
+        "tokens_resposta": 203,
+        "tokens_referencia": 46,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7932102680206299,
+        "tokens_resposta": 200,
+        "tokens_referencia": 43,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.10170352458953857
+    },
+    {
+      "id": "J13",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9142745733261108,
+        "tokens_resposta": 404,
+        "tokens_referencia": 61,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6543704271316528,
+        "tokens_resposta": 401,
+        "tokens_referencia": 58,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.259904146194458
+    },
+    {
+      "id": "J14",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9024403095245361,
+        "tokens_resposta": 713,
+        "tokens_referencia": 79,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.704759418964386,
+        "tokens_resposta": 710,
+        "tokens_referencia": 76,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.19768089056015015
+    },
+    {
+      "id": "J15",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8892909288406372,
+        "tokens_resposta": 247,
+        "tokens_referencia": 42,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8079190254211426,
+        "tokens_resposta": 244,
+        "tokens_referencia": 39,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.08137190341949463
+    },
+    {
+      "id": "J16",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9064831733703613,
+        "tokens_resposta": 303,
+        "tokens_referencia": 42,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8314654231071472,
+        "tokens_resposta": 300,
+        "tokens_referencia": 39,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.07501775026321411
+    },
+    {
+      "id": "J17",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9125723838806152,
+        "tokens_resposta": 385,
+        "tokens_referencia": 57,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8258078098297119,
+        "tokens_resposta": 382,
+        "tokens_referencia": 54,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.08676457405090332
+    },
+    {
+      "id": "J18",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8972376585006714,
+        "tokens_resposta": 163,
+        "tokens_referencia": 36,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6669468879699707,
+        "tokens_resposta": 160,
+        "tokens_referencia": 33,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.23029077053070068
+    },
+    {
+      "id": "J19",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9016000032424927,
+        "tokens_resposta": 355,
+        "tokens_referencia": 48,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8104978799819946,
+        "tokens_resposta": 352,
+        "tokens_referencia": 45,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.09110212326049805
+    },
+    {
+      "id": "J20",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9064026474952698,
+        "tokens_resposta": 234,
+        "tokens_referencia": 50,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7397746443748474,
+        "tokens_resposta": 231,
+        "tokens_referencia": 47,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.16662800312042236
+    },
+    {
+      "id": "J21",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8827897310256958,
+        "tokens_resposta": 189,
+        "tokens_referencia": 40,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7185680866241455,
+        "tokens_resposta": 186,
+        "tokens_referencia": 37,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.1642216444015503
+    },
+    {
+      "id": "J22",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9036170840263367,
+        "tokens_resposta": 138,
+        "tokens_referencia": 28,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7251900434494019,
+        "tokens_resposta": 135,
+        "tokens_referencia": 25,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.17842704057693481
+    },
+    {
+      "id": "J23",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9021570086479187,
+        "tokens_resposta": 254,
+        "tokens_referencia": 68,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8767973184585571,
+        "tokens_resposta": 251,
+        "tokens_referencia": 65,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.025359690189361572
+    },
+    {
+      "id": "J24",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8992376327514648,
+        "tokens_resposta": 514,
+        "tokens_referencia": 77,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.7660886645317078,
+        "tokens_resposta": 511,
+        "tokens_referencia": 74,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.13314896821975708
+    },
+    {
+      "id": "J25",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9294028282165527,
+        "tokens_resposta": 175,
+        "tokens_referencia": 76,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8970057964324951,
+        "tokens_resposta": 172,
+        "tokens_referencia": 73,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.03239703178405762
+    },
+    {
+      "id": "J26",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9159505367279053,
+        "tokens_resposta": 720,
+        "tokens_referencia": 107,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8111104965209961,
+        "tokens_resposta": 717,
+        "tokens_referencia": 104,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.10484004020690918
+    },
+    {
+      "id": "J27",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9079491496086121,
+        "tokens_resposta": 617,
+        "tokens_referencia": 89,
+        "limite_tokens": 512,
+        "truncada_resposta": true,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8026696443557739,
+        "tokens_resposta": 614,
+        "tokens_referencia": 86,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.10527950525283813
+    },
+    {
+      "id": "J28",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9027543067932129,
+        "tokens_resposta": 317,
+        "tokens_referencia": 68,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8389216065406799,
+        "tokens_resposta": 314,
+        "tokens_referencia": 65,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.06383270025253296
+    },
+    {
+      "id": "J29",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9282094836235046,
+        "tokens_resposta": 169,
+        "tokens_referencia": 81,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.9371374845504761,
+        "tokens_resposta": 166,
+        "tokens_referencia": 78,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": 0.008928000926971436
+    },
+    {
+      "id": "J30",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9251631498336792,
+        "tokens_resposta": 314,
+        "tokens_referencia": 92,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8603895902633667,
+        "tokens_resposta": 311,
+        "tokens_referencia": 89,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0647735595703125
+    },
+    {
+      "id": "J31",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9067353010177612,
+        "tokens_resposta": 393,
+        "tokens_referencia": 89,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8683610558509827,
+        "tokens_resposta": 390,
+        "tokens_referencia": 86,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.038374245166778564
+    },
+    {
+      "id": "J32",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8940080404281616,
+        "tokens_resposta": 319,
+        "tokens_referencia": 60,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.748563289642334,
+        "tokens_resposta": 316,
+        "tokens_referencia": 57,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.14544475078582764
+    },
+    {
+      "id": "J33",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.9124736785888672,
+        "tokens_resposta": 198,
+        "tokens_referencia": 60,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.8237244486808777,
+        "tokens_resposta": 195,
+        "tokens_referencia": 57,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0887492299079895
+    },
+    {
+      "id": "J34",
+      "deve_abster": false,
+      "e5_small": {
+        "cosseno": 0.8948889970779419,
+        "tokens_resposta": 481,
+        "tokens_referencia": 70,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.811992347240448,
+        "tokens_resposta": 478,
+        "tokens_referencia": 67,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.0828966498374939
+    },
+    {
+      "id": "N01",
+      "deve_abster": true,
+      "e5_small": {
+        "cosseno": 0.9032633304595947,
+        "tokens_resposta": 304,
+        "tokens_referencia": 46,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.5433286428451538,
+        "tokens_resposta": 301,
+        "tokens_referencia": 43,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.3599346876144409
+    },
+    {
+      "id": "N02",
+      "deve_abster": true,
+      "e5_small": {
+        "cosseno": 0.8998051881790161,
+        "tokens_resposta": 261,
+        "tokens_referencia": 44,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6221947073936462,
+        "tokens_resposta": 258,
+        "tokens_referencia": 41,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.2776104807853699
+    },
+    {
+      "id": "N03",
+      "deve_abster": true,
+      "e5_small": {
+        "cosseno": 0.8517128825187683,
+        "tokens_resposta": 243,
+        "tokens_referencia": 28,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.5122212171554565,
+        "tokens_resposta": 240,
+        "tokens_referencia": 25,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.33949166536331177
+    },
+    {
+      "id": "N04",
+      "deve_abster": true,
+      "e5_small": {
+        "cosseno": 0.8547476530075073,
+        "tokens_resposta": 369,
+        "tokens_referencia": 26,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.568527102470398,
+        "tokens_resposta": 366,
+        "tokens_referencia": 23,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.2862205505371094
+    },
+    {
+      "id": "N05",
+      "deve_abster": true,
+      "e5_small": {
+        "cosseno": 0.8760274648666382,
+        "tokens_resposta": 493,
+        "tokens_referencia": 40,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.6415712833404541,
+        "tokens_resposta": 490,
+        "tokens_referencia": 37,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.23445618152618408
+    },
+    {
+      "id": "N06",
+      "deve_abster": true,
+      "e5_small": {
+        "cosseno": 0.8534640073776245,
+        "tokens_resposta": 277,
+        "tokens_referencia": 26,
+        "limite_tokens": 512,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "bge_m3": {
+        "cosseno": 0.47721076011657715,
+        "tokens_resposta": 274,
+        "tokens_referencia": 23,
+        "limite_tokens": 8192,
+        "truncada_resposta": false,
+        "truncada_referencia": false
+      },
+      "delta": -0.37625324726104736
+    }
+  ]
+}

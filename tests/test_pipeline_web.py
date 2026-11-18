@@ -121,9 +121,9 @@ def test_r7_api_chat_validates_session_id_and_preserves_legacy_api_ask(monkeypat
         "agent_ask",
         lambda q, **kw: AgentAnswer(question=q, text="Resposta simulada [D1]."),
     )
+    # /api/ask importa o agente na hora do uso (para o servidor subir sem DuckDB): troca-se no módulo de origem.
     monkeypatch.setattr(
-        web_mod,
-        "agent_ask",
+        "src.agent.ask",
         lambda q, **kw: AgentAnswer(question=q, text="Resposta legada /api/ask."),
     )
 

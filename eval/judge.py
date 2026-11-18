@@ -1,8 +1,8 @@
 """LLM-as-a-judge: Faithfulness, Context Precision e Context Recall (definições do RAGAS).
 
 O juiz só faz julgamentos sim/não, com justificativa; a nota é calculada por fórmula aqui.
-Usa o mesmo cliente e o mesmo modelo do sistema (src/rag.py:get_client, LLM_MODEL).
-O Claude Haiku 5.5 não aceita temperatura 0, então as notas podem variar um pouco entre rodadas.
+Usa o mesmo cliente do sistema (src/rag.py:get_client) e o modelo JUDGE_MODEL (padrão: o do agente, LLM_MODEL).
+A temperatura não é enviada (fica o padrão da API), então as notas podem variar um pouco entre rodadas.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 
 from eval.metrics import average_precision
-from src.config import LLM_MODEL
+from src.config import JUDGE_EXTRA_PARAMS, JUDGE_MODEL
 from src.rag import get_client
 
 MAX_ITEM_CHARS = 6000  # cada item de contexto (tabela ou trecho de lei) é cortado aqui, se for maior
@@ -20,6 +20,10 @@ Você avalia se a RESPOSTA de um sistema de RAG é fiel ao CONTEXTO que o sistem
 
 Passo 1: divida a RESPOSTA em afirmações factuais atômicas (números, nomes, percentuais, artigos de lei, \
 conclusões). Ignore cortesias, frases sobre o próprio sistema e ressalvas genéricas sem conteúdo factual.
+Ignore também as ressalvas de método que o sistema é instruído a fazer, quando não trazem número, nome nem \
+artigo de lei: que exposição ao desmatamento não prova ilegalidade nem responsabilidade de empresa, município \
+ou produtor; que verificar descumprimento exigiria dados de cada imóvel; que valores de janela de 5 anos não se \
+somam entre anos. Qualquer outra afirmação, inclusive sobre o que os dados mostram, continua sendo avaliada.
 Passo 2: para cada afirmação, decida se ela pode ser inferida diretamente do CONTEXTO. Arredondamentos \
 razoáveis de números do contexto e cálculos simples sobre eles (soma, diferença, percentual) contam como \
 sustentados. Conhecimento externo ao contexto NÃO conta, mesmo que seja verdadeiro.
@@ -81,7 +85,8 @@ def _ask(system: str, user: str) -> tuple[dict, str, dict]:
     usage = {"input_tokens": 0, "output_tokens": 0}
     raw = ""
     for attempt in range(2):
-        response = get_client().messages.create(model=LLM_MODEL, max_tokens=8000, system=system, messages=messages)
+        response = get_client().messages.create(model=JUDGE_MODEL, max_tokens=8000, system=system, messages=messages,
+                                                 **JUDGE_EXTRA_PARAMS)
         usage["input_tokens"] += response.usage.input_tokens
         usage["output_tokens"] += response.usage.output_tokens
         raw = "".join(b.text for b in response.content if b.type == "text").strip()
