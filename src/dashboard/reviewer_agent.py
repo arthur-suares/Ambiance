@@ -36,6 +36,7 @@ from src.dashboard.schemas import (
     compute_kpi_value,
     format_dataset_for_llm,
 )
+from src.dashboard.messages import log_issues
 from src.dashboard.validator import (
     validate_spec_methodological,
     validate_widget_methodological,
@@ -153,6 +154,7 @@ def validate_widget_deterministic(
         issues.append(WidgetIssue(
             w.id, "deterministic",
             f"Dataset '{w.dataset_id}' não existe (disponíveis: {avail}).",
+            code="sem_dados",
         ))
         issues.extend(validate_widget_methodological(w, None))
         return issues
@@ -160,7 +162,8 @@ def validate_widget_deterministic(
     ds = datasets_by_id[w.dataset_id]
     df = ds.df
     if df.empty:
-        issues.append(WidgetIssue(w.id, "deterministic", f"Dataset '{w.dataset_id}' não possui linhas."))
+        issues.append(WidgetIssue(w.id, "deterministic", f"Dataset '{w.dataset_id}' não possui linhas.",
+                                  code="sem_dados"))
         issues.extend(validate_widget_methodological(w, None))
         return issues
 
@@ -191,12 +194,14 @@ def validate_widget_deterministic(
                     w.id, "deterministic",
                     f"KPI deve informar 'value' numérico correspondente a {w.dataset_id}.{w.column} "
                     f"({w.agg} = {actual:.6g}).",
+                    code="kpi_valor",
                 ))
             elif not math.isclose(w.value, actual, rel_tol=KPI_REL_TOL, abs_tol=KPI_ABS_TOL):
                 issues.append(WidgetIssue(
                     w.id, "deterministic",
                     f"Valor do KPI ({w.value}) diverge do resultado SQL em {w.dataset_id}.{w.column} "
                     f"com agg='{w.agg}' (valor real = {actual:.6g}).",
+                    code="kpi_valor",
                 ))
 
     elif w.kind in ("bar", "line"):
@@ -319,8 +324,13 @@ def check_methodological_llm(
         wid_str = str(wid).strip() if wid else None
         if wid_str and wid_str not in valid_ids:
             wid_str = None
-        issues.append(WidgetIssue(wid_str, "methodological", str(raw_issue["message"]).strip()))
+        # Recomendação do revisor LLM é observação: vai para o log e nunca oculta o gráfico.
+        # As regras que bloqueiam (R5, colunas) são conferidas em código, antes desta etapa.
+        issues.append(WidgetIssue(wid_str, "methodological", str(raw_issue["message"]).strip(),
+                                  code="observacao", blocking=False))
 
+    # Reprovação do LLM ainda pede uma nova tentativa ao gerador, mas, como são observações,
+    # nunca ocultam o gráfico quando as tentativas acabam (ver `_apply_final_review_isolation`).
     approved = bool(payload.get("approved", False)) and len(issues) == 0
     return ReviewResult(
         approved=approved,
@@ -348,6 +358,7 @@ def check_requested_chart(spec: DashboardSpec, requested) -> list[WidgetIssue]:
     return [WidgetIssue(
         None, "deterministic",
         f"O pedido foi {requested.kind_label} e o painel ainda não tem esse gráfico.",
+        code="pedido", blocking=False,
     )]
 
 
@@ -362,6 +373,7 @@ def review_dashboard(
     `requested` é o `ChartChoice` guardado no plano: o revisor confere se o tipo pedido foi atendido.
     """
     det_issues = check_requested_chart(spec, requested) + check_deterministic(spec, datasets)
+    log_issues("revisor", det_issues)
     if det_issues:
         return ReviewResult(
             approved=False,
@@ -369,4 +381,6 @@ def review_dashboard(
             summary=f"{len(det_issues)} problema(s) encontrado(s) na verificação determinística.",
             llm_called=False,
         )
-    return check_methodological_llm(question, spec, datasets)
+    review = check_methodological_llm(question, spec, datasets)
+    log_issues("revisor_llm", review.issues)
+    return review

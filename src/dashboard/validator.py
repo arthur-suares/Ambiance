@@ -238,6 +238,7 @@ def validate_widget_methodological(
                 f"O {field_label} do componente contém alegação indevida ('{claim}'). "
                 "Os dados do Trase medem apenas exposição associada à cadeia, não ilegalidade ou autoria direta; "
                 "reescreva usando 'exposição ao desmatamento'.",
+                code="alegacao",
             ))
 
     if ds is None or ds.df.empty:
@@ -255,6 +256,7 @@ def validate_widget_methodological(
                 f"KPI não pode usar agg='{w.agg}' sobre '{w.column}' em {w.dataset_id} porque o dataset "
                 f"contém {n_years} anos distintos ({year_col}) e o indicador usa janela móvel de 5 anos "
                 "(janelas sobrepostas contariam o mesmo desmatamento várias vezes). Filtre um único ano.",
+                code="janela_5_anos",
             ))
 
         if w.agg == "sum" and is_non_additive_column_or_unit(w.column, w.unit, df):
@@ -263,6 +265,7 @@ def validate_widget_methodological(
                 "methodological",
                 f"KPI não pode somar (agg='sum') a coluna não aditiva '{w.column}' (unidade '{w.unit}'). "
                 "Percentuais, intensidades e produtividade não se somam entre regiões ou entidades.",
+                code="soma_percentual",
             ))
         elif (
             w.agg == "mean"
@@ -274,6 +277,7 @@ def validate_widget_methodological(
                 "methodological",
                 f"KPI com agg='mean' sobre percentual ('{w.column}') só é permitido quando o título "
                 "indica explicitamente tratar-se de 'média' simples.",
+                code="media_percentual",
             ))
 
     # R5-b: gráficos bar/line com coluna y de janela de 5 anos em dataset multianual
@@ -290,7 +294,21 @@ def validate_widget_methodological(
                     f"Gráfico '{w.kind}' não pode agregar indicador de janela de 5 anos ({cols_str}) "
                     f"num dataset com {n_years} anos distintos sem separar por ano em 'x' ou 'color' "
                     "nem filtrar um único ano (série anual é permitida; total multianual é bloqueado).",
+                    code="janela_5_anos",
                 ))
+
+    # R5-b: exibir o percentual de cada grupo é permitido; SOMAR (empilhar) percentuais ou
+    # intensidades entre grupos não é.
+    stacks = (w.kind == "bar" and w.barmode == "stack" and bool(w.color or len(w.y) > 1)) or (
+        w.kind == "line" and w.stacked
+    )
+    if stacks and any(c in df.columns and is_non_additive_column_or_unit(c, w.unit, df) for c in w.y):
+        issues.append(WidgetIssue(
+            w.id,
+            "methodological",
+            f"Gráfico empilhado soma percentuais/intensidades entre grupos ({', '.join(w.y)}).",
+            code="soma_percentual",
+        ))
 
     return issues
 
@@ -330,6 +348,7 @@ def validate_spec_methodological(
                 "methodological",
                 f"O {field_label} contém alegação indevida ('{claim}'). "
                 "Substitua por linguagem neutra baseada em 'exposição ao desmatamento'.",
+                code="alegacao",
             ))
 
     for warn_msg in list(spec.warnings):
@@ -340,6 +359,7 @@ def validate_spec_methodological(
                 "methodological",
                 f"Um aviso do painel contém alegação indevida ('{claim}'). "
                 "Substitua por linguagem neutra baseada em 'exposição ao desmatamento'.",
+                code="alegacao",
             ))
 
     # R5-d: rankings municipais da cadeia da soja com linhas UNKNOWN -> aviso em spec.warnings (não bloqueia)
@@ -359,8 +379,8 @@ def validate_spec_methodological(
         values = sliced[muni_col].dropna().astype(str).str.strip().str.upper()
         if (values == "UNKNOWN").any() or values.str.startswith("UNKNOWN ").any():
             msg = (
-                f"O recorte municipal da soja em [{w.dataset_id}] ('{w.title or w.id}') contém fluxos com "
-                "origem 'UNKNOWN' (município não rastreado na cadeia); considere destacar os municípios identificados."
+                f"“{w.title or 'Ranking de municípios'}” inclui volume de origem não identificada "
+                "(município não rastreado); essa linha aparece no fim."
             )
             if msg not in spec.warnings:
                 spec.warnings.append(msg)

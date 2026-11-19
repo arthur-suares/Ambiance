@@ -14,6 +14,7 @@ Fluxo:
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 import re
@@ -32,6 +33,7 @@ from src.dashboard.dashboard_agent import (
 )
 from src.dashboard.data_agent import run_data_agent
 from src.dashboard.reviewer_agent import review_dashboard
+from src.dashboard.messages import user_message
 from src.dashboard.validator import find_illegality_claim
 from src.dashboard.schemas import (
     ALLOWED_WIDGET_KINDS,
@@ -44,6 +46,8 @@ from src.dashboard.schemas import (
 )
 from src.rag import resolve_domain
 from src.soy import queries as soy_queries
+
+logger = logging.getLogger(__name__)
 
 ORCHESTRATOR_SYSTEM_PROMPT = """\
 Você é o Agente Orquestrador de dashboards analíticos do Trase (cadeias da carne bovina e da soja \
@@ -186,53 +190,64 @@ def _apply_final_review_isolation(spec: DashboardSpec, final_review: ReviewResul
     if not spec.title.strip():
         spec.title = f"Dashboard — {question}"
 
-    issues_by_widget: dict[str, list[str]] = {}
+    # Só problemas bloqueantes ocultam um gráfico; observações ficam no log (já registradas pelo revisor).
+    # A tela recebe uma frase simples escolhida pelo tipo do problema, nunca o texto técnico.
+    codes_by_widget: dict[str, list[str]] = {}
     for issue in final_review.issues:
+        if not issue.blocking or issue.code == "alegacao" and issue.widget_id:
+            continue  # alegação em título de gráfico: o texto é reescrito, o gráfico fica
         if issue.widget_id:
-            issues_by_widget.setdefault(issue.widget_id, []).append(issue.message)
-        else:
-            spec.warnings.append(issue.message)
+            codes_by_widget.setdefault(issue.widget_id, []).append(issue.code)
+        elif issue.code != "alegacao":  # alegação em texto: reescrita em _omit_unresolved_claims
+            msg = user_message([issue.code])
+            if msg not in spec.warnings:
+                spec.warnings.append(msg)
 
     for w in spec.widgets:
-        if w.id in issues_by_widget:
+        if w.id in codes_by_widget:
             w.valid = False
-            w.validation_error = "; ".join(issues_by_widget[w.id])
+            w.validation_codes = codes_by_widget[w.id]
+            w.validation_error = user_message(w.validation_codes)
 
 
-OMITTED_CLAIM_WARNING = (
-    "Um texto do painel foi omitido por usar termos incompatíveis com dados de exposição ao "
-    "desmatamento do Trase."
-)
+OMITTED_CLAIM_WARNING = "Reescrevi um texto do painel para falar apenas de exposição ao desmatamento."
+
+
+def _neutral_widget_title(w) -> str:
+    cols = " ".join([*(w.y or []), w.column or ""]).lower()
+    return "Exposição ao desmatamento" if ("expos" in cols or "defor" in cols or "desmat" in cols) else "Gráfico do painel"
 
 
 def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
-    """Retira textos com alegação indevida que sobraram após as rodadas de revisão.
+    """Reescreve textos com alegação indevida que sobraram após as rodadas de revisão.
 
-    As mensagens do revisor citam o termo detectado (ex.: "alegação indevida ('ilegal')") e, ao
-    esgotar as revisões, iam para `spec.warnings`; o monitor de saída então bloqueava o painel
-    inteiro por causa do texto do próprio revisor. Aqui o texto é retirado e trocado por um aviso
-    neutro. O monitor continua com as mesmas regras e bloqueia o que escapar.
+    - Título/subtítulo do painel ou de um gráfico: o texto é trocado por um neutro, o gráfico continua
+      (os dados estão certos) e o leitor recebe UMA frase simples avisando.
+    - Avisos que vieram do próprio revisor e citam o termo: descartados em silêncio (ficam no log).
+    O monitor de saída continua com as mesmas regras e bloqueia o que escapar.
     """
-    omitted = False
+    rewritten = False
     if find_illegality_claim(spec.title):
         fallback = f"Dashboard — {question}" if question else ""
         spec.title = fallback if fallback and not find_illegality_claim(fallback) else "Painel Trase"
-        omitted = True
+        rewritten = True
     if find_illegality_claim(spec.subtitle):
         spec.subtitle = ""
-        omitted = True
-    kept = [msg for msg in spec.warnings if not find_illegality_claim(msg)]
-    omitted = omitted or len(kept) != len(spec.warnings)
+        rewritten = True
     for w in spec.widgets:
-        if find_illegality_claim(w.title) or find_illegality_claim(w.subtitle):
-            w.title = "Componente ocultado"
+        if find_illegality_claim(w.title):
+            w.title = _neutral_widget_title(w)
+            rewritten = True
+        if find_illegality_claim(w.subtitle):
             w.subtitle = ""
-            w.valid = False
-            w.validation_error = OMITTED_CLAIM_WARNING
-            omitted = True
-        elif w.validation_error and find_illegality_claim(w.validation_error):
-            w.validation_error = OMITTED_CLAIM_WARNING
-    if omitted and OMITTED_CLAIM_WARNING not in kept:
+            rewritten = True
+        if w.validation_error and find_illegality_claim(w.validation_error):
+            w.validation_error = user_message(w.validation_codes)
+    dropped = [msg for msg in spec.warnings if find_illegality_claim(msg)]
+    for msg in dropped:
+        logger.info("Aviso descartado por conter termo proibido: %s", msg)
+    kept = [msg for msg in spec.warnings if msg not in dropped]
+    if rewritten and OMITTED_CLAIM_WARNING not in kept:
         kept.append(OMITTED_CLAIM_WARNING)
     spec.warnings = kept
 

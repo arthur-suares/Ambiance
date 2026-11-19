@@ -44,7 +44,29 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
   (somar poderia juntar janelas de 5 anos ou regiões).
 - `BRAZIL` em coluna de destino aparece como "BRASIL (processamento doméstico)".
 - Todo texto vindo da IA passa por `html.escape`.
-- Componente inválido vira cartão de aviso; o resto do painel continua.
+- Gráfico reprovado com dados vira **lista com os mesmos dados**, com uma frase simples do motivo
+  ("… Mostrei os mesmos dados como lista."). O cartão de aviso fica só para quando não há dado.
+
+## O que o leitor vê quando algo dá errado
+
+- **Bloqueante x observação.** Só ocultam um gráfico os problemas conferidos em código: soma de janela
+  de 5 anos entre anos, soma de percentuais/intensidades entre grupos (incluindo barras ou área
+  empilhadas), alegação de ilegalidade e coluna inexistente. Recomendações do revisor LLM são
+  observações: podem pedir mais uma tentativa ao gerador, mas nunca ocultam o gráfico.
+- **Mostrar o percentual de cada grupo é permitido**; somá-los (KPI com soma, barras empilhadas) não é.
+- **Sem texto interno na tela.** Cada problema tem um tipo (`WidgetIssue.code`), e a tela mostra uma frase
+  fixa para esse tipo (`src/dashboard/messages.py`). O texto técnico do revisor vai só para o log.
+- **Termo proibido no texto da IA:** título ou subtítulo é reescrito, o gráfico continua e o leitor vê
+  "Reescrevi um texto do painel para falar apenas de exposição ao desmatamento." Textos do próprio
+  revisor que citam o termo são descartados sem aviso.
+- **Rótulos dos dados em português:** UNKNOWN → "não identificado", UNKNOWN CUSTOMER → "cliente não
+  identificado", PROCESSED DOMESTICALLY → "consumo no Brasil"; nomes de campo que a IA escreva no texto
+  ("(exporter_group)") somem.
+- **Subtítulo do painel em até 2 linhas**; o texto completo fica em "Rastreabilidade → Notas do recorte".
+- **"Outros" e "não identificado" sempre no fim** dos rankings, listas e tabelas, em cinza neutro, e
+  nunca cortados pelo limite de itens.
+- **Tabela com unidades diferentes:** cada coluna declara a sua (`column_units`), o cabeçalho mostra
+  "Volume (t)" e "Participação (%)" e o selo do cartão mostra "t / %".
 
 ## Como o pedido vira gráfico
 

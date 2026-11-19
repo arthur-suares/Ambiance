@@ -10,12 +10,15 @@ Segurança e resiliência:
 from __future__ import annotations
 
 import html
+import logging
 import math
 import re
+from dataclasses import replace
 
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.dashboard.messages import NO_DATA_TITLE, SHOWN_AS_LIST, is_residual_label, plain_labels, short_subtitle, user_message
 from src.dashboard.reviewer_agent import validate_widget_deterministic
 from src.dashboard.schemas import (
     DashboardSpec,
@@ -23,6 +26,8 @@ from src.dashboard.schemas import (
     WidgetSpec,
     compute_kpi_value,
 )
+
+logger = logging.getLogger(__name__)
 
 # Paleta terrosa, legível nos temas claro e escuro (verde-floresta, limão, teal, âmbar,
 # terracota, petróleo, lilás-acinzentado, pedra).
@@ -38,23 +43,63 @@ PALETTE = [
 ]
 
 
+NEUTRAL = "#9a9789"  # cinza quente para "Outros" e "não identificado"
+
 # Colunas que guardam o país de destino. Nelas, BRAZIL é soja processada no próprio Brasil
 # (consumo doméstico), e não uma exportação.
 DESTINATION_COLUMNS = {"country_of_first_import", "country_of_destination", "pais_destino", "destino"}
 
 
 def display_label(value, col_name: str = "") -> str:
-    """Rótulo para exibição: "BRAZIL" vira "BRASIL" e, em coluna de destino, recebe a ressalva."""
+    """Rótulo para exibição: "BRAZIL" vira "BRASIL" (com a ressalva em coluna de destino) e rótulos
+    técnicos como UNKNOWN ou PROCESSED DOMESTICALLY viram português simples."""
     text = str(value)
     if text.strip().upper() == "BRAZIL":
         return "BRASIL (processamento doméstico)" if col_name.lower() in DESTINATION_COLUMNS else "BRASIL"
-    return text
+    plain = plain_labels(text)
+    if plain != text and plain[:1].islower():
+        plain = plain[:1].upper() + plain[1:]
+    return plain
 
 
 def pt_text(text: str | None) -> str:
-    """Texto livre (título, subtítulo, aviso): troca a palavra "Brazil" por "Brasil"."""
-    return re.sub(r"\bBrazil\b", "Brasil", text or "", flags=re.IGNORECASE)
+    """Texto livre (título, subtítulo, aviso): "Brazil" vira "Brasil" e rótulos técnicos dos dados
+    (UNKNOWN, PROCESSED DOMESTICALLY...) viram português simples."""
+    return plain_labels(re.sub(r"\bBrazil\b", "Brasil", text or "", flags=re.IGNORECASE))
 
+
+
+# Nome amigável de coluna quando a IA não deu rótulo: nunca o nome cru do campo na tela.
+_FRIENDLY_COLUMNS = (
+    (r"(?:^|_)(?:pct|perc|percent|share|participac\w*|participation)(?:_|$)", "Participação"),
+    (r"(?:^|_)(?:fob|usd|valor)(?:_|$)", "Valor FOB"),
+    (r"expos|deforest|desmat", "Exposição ao desmatamento"),
+    (r"co2|emiss", "Emissões"),
+    (r"(?:^|_)(?:volume|tonnes|toneladas)(?:_|$)", "Volume"),
+    (r"^(?:municipality|municipio|municipality_of_production)$", "Município"),
+    (r"^exporter_group$", "Grupo exportador"),
+    (r"^exporter$", "Exportador"),
+    (r"^importer_group$", "Grupo importador"),
+    (r"^importer$", "Importador"),
+    (r"^(?:country_of_first_import|country_of_destination|destination|destino|pais_destino)$", "País de destino"),
+    (r"^(?:state|uf|estado)$", "Estado"),
+    (r"^(?:biome|bioma)$", "Bioma"),
+    (r"^(?:year|ano)$", "Ano"),
+)
+
+
+def _label(w: WidgetSpec, col: str | None) -> str:
+    """Rótulo da coluna para a tela: o que a IA deu em `column_labels` ou um nome amigável."""
+    if not col:
+        return ""
+    if col in w.column_labels:
+        return w.column_labels[col]
+    low = col.lower()
+    for pattern, nome in _FRIENDLY_COLUMNS:
+        if re.search(pattern, low):
+            return nome
+    txt = plain_labels(col).replace("_", " ").strip()
+    return txt[:1].upper() + txt[1:]
 
 def _axis_title(label: str, unit: str) -> str:
     """Título do eixo sem repetir a unidade (ex.: "Volume (t)" + "t" não vira "Volume (t) (t)")."""
@@ -83,7 +128,7 @@ def format_br_value(val, col_name: str = "") -> str:
         return "Sim" if val else "Não"
     if isinstance(val, int) or (isinstance(val, float) and val.is_integer()):
         iv = int(val)
-        if col_name.lower() in ("year", "ano"):
+        if re.search(r"(?:^|_)(?:year|ano)(?:_|$)", col_name.lower()):
             return str(iv)
         return f"{iv:,}".replace(",", ".")
     if isinstance(val, float):
@@ -188,6 +233,9 @@ h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.2px;
 }
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
 .card-header h3 { font-size: 15.5px; font-weight: 650; margin: 0; line-height: 1.35; }
+.scope-notes { font-size: 13px; color: var(--muted); margin: 8px 0 12px; }
+.scope-notes p { margin: 4px 0 0; }
+.fallback-note { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
 .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
 .badge {
   flex-shrink: 0; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
@@ -420,9 +468,31 @@ def _prepare_slice(df: pd.DataFrame, w: WidgetSpec, default_top_n: int | None = 
     limit = w.top_n or default_top_n
     if limit and w.kind in ("line", "area") and w.x in out.columns:
         return _limit_time_series(out, w, limit)
+    residual_col = _residual_column(out, w)
+    if residual_col is not None:
+        # "Outros" e "não identificado" vão sempre no fim e nunca são cortados pelo top_n.
+        mask = out[residual_col].map(is_residual_label)
+        rest, residual = out[~mask], out[mask]
+        if limit:
+            rest = rest.head(max(limit - len(residual), 1))
+        return pd.concat([rest, residual])
     if limit:
         out = out.head(limit)
     return out
+
+
+def _residual_column(df: pd.DataFrame, w: WidgetSpec) -> str | None:
+    """Coluna de categoria de um ranking (barras, participações, lista) que tem linhas residuais."""
+    if w.kind not in ("bar", "progress", "table", "pie", "donut"):
+        return None
+    if w.kind == "table":
+        col = next((c for c in (w.columns or list(df.columns))
+                    if c in df.columns and not pd.api.types.is_numeric_dtype(df[c])), None)
+    else:
+        col = w.x
+    if not col or col not in df.columns or _is_time(col):
+        return None
+    return col if df[col].map(is_residual_label).any() else None
 
 
 def _limit_time_series(out: pd.DataFrame, w: WidgetSpec, limit: int) -> pd.DataFrame:
@@ -529,9 +599,13 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
                  pd.to_numeric(sub[y_col], errors="coerce"), PALETTE[idx % len(PALETTE)], False)
     else:
         cats = work[cat_col].map(lambda v: display_label(v, cat_col))
+        residual = work[cat_col].map(is_residual_label).tolist() if cat_col in work.columns else []
         for idx, y_col in enumerate(w.y):
-            _add(w.column_labels.get(y_col, y_col), cats, pd.to_numeric(work[y_col], errors="coerce"),
-                 PALETTE[idx % len(PALETTE)], single)
+            color = PALETTE[idx % len(PALETTE)]
+            if single and any(residual):  # "Outros"/"não identificado" em cor neutra
+                color = [NEUTRAL if r else color for r in residual]
+            _add(_label(w, y_col), cats, pd.to_numeric(work[y_col], errors="coerce"),
+                 color, single)
 
     n = len(work)
     height = max(320, 56 + 32 * n) if horiz else 360
@@ -540,13 +614,13 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         barmode=w.barmode,
         showlegend=(len(w.y) > 1 or bool(w.color)),
     )
-    axis_label = _axis_title(w.column_labels.get(w.y[0], w.y[0]), w.unit) if len(w.y) == 1 else w.unit
+    axis_label = _axis_title(_label(w, w.y[0]), w.unit) if len(w.y) == 1 else w.unit
     _style_axes(fig, value_axis="x" if horiz else "y")
     if horiz:
         fig.update_xaxes(title_text=axis_label)
         fig.update_yaxes(title_text="", type="category")
     else:
-        fig.update_xaxes(title_text=w.column_labels.get(cat_col, cat_col) if not _is_time(cat_col) else "",
+        fig.update_xaxes(title_text=_label(w, cat_col) if not _is_time(cat_col) else "",
                          type=None if _is_time(cat_col) else "category")
         fig.update_yaxes(title_text=axis_label)
         if _is_time(cat_col) and work[cat_col].nunique() <= 12:
@@ -589,7 +663,7 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
             _add(label, sub, w.y[0], PALETTE[idx % len(PALETTE)])
     else:
         for idx, y_col in enumerate(w.y):
-            _add(w.column_labels.get(y_col, y_col), work, y_col, PALETTE[idx % len(PALETTE)])
+            _add(_label(w, y_col), work, y_col, PALETTE[idx % len(PALETTE)])
 
     fig.update_layout(
         **_base_layout(height=360, margin={"l": 8, "r": 20, "t": 18, "b": 40}),
@@ -597,8 +671,8 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         hovermode="x unified",
     )
     _style_axes(fig, value_axis="y")
-    y_title = _axis_title(w.column_labels.get(w.y[0], w.y[0]), w.unit) if len(w.y) == 1 else w.unit
-    fig.update_xaxes(title_text="" if _is_time(x_col) else w.column_labels.get(x_col, x_col))
+    y_title = _axis_title(_label(w, w.y[0]), w.unit) if len(w.y) == 1 else w.unit
+    fig.update_xaxes(title_text="" if _is_time(x_col) else _label(w, x_col))
     if _is_time(x_col) and work[x_col].nunique() <= 12:
         fig.update_xaxes(dtick=1)
     fig.update_yaxes(title_text=y_title)
@@ -612,7 +686,7 @@ def _build_table_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     work = _prepare_slice(df, w, default_top_n=50)
     cols = w.columns if w.columns else list(work.columns)
     fig = go.Figure(go.Table(
-        header={"values": [html.escape(w.column_labels.get(c, c)) for c in cols]},
+        header={"values": [html.escape(_label(w, c)) for c in cols]},
         cells={"values": [[format_br_value(v, c) for v in work[c].tolist()] for c in cols]},
     ))
     fig.update_layout(**_base_layout(height=max(180, 68 + 30 * min(len(work), 12))))
@@ -665,7 +739,9 @@ def _uid(w: WidgetSpec) -> str:
 
 def _card_header(w: WidgetSpec) -> str:
     subtitle = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
-    badge = f'<span class="badge">{html.escape(w.unit)}</span>' if w.unit else ""
+    units = list(dict.fromkeys(u for u in w.column_units.values() if u)) if w.kind == "table" else []
+    unit_txt = " / ".join(units) if len(units) > 1 else w.unit
+    badge = f'<span class="badge">{html.escape(unit_txt)}</span>' if unit_txt else ""
     return (f'<div class="card-header"><div><h3>{html.escape(pt_text(w.title))}</h3>{subtitle}</div>'
             f'{badge}</div>')
 
@@ -699,7 +775,7 @@ def _render_kpi_card(w: WidgetSpec, df: pd.DataFrame, featured: bool = False) ->
             pct = f"{abs(d):,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
             delta = (f'<span class="delta" title="Variação em relação a {html.escape(_fmt_axis_value(trend["prev_x"]))}">'
                      f'{arrow} {pct}% <span class="delta-ref">vs {html.escape(_fmt_axis_value(trend["prev_x"]))}</span></span>')
-        label = (f"Série de {w.column_labels.get(w.trend_y, w.trend_y)} de "
+        label = (f"Série de {_label(w, w.trend_y)} de "
                  f"{_fmt_axis_value(trend['xs'][0])} a {_fmt_axis_value(trend['last_x'])}")
         meta = f'<div class="kpi-meta">{delta}{_sparkline_svg(trend["ys"], _uid(w), label)}</div>'
     subtitle = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
@@ -715,6 +791,13 @@ def _render_kpi_card(w: WidgetSpec, df: pd.DataFrame, featured: bool = False) ->
     )
 
 
+def _column_header(w: WidgetSpec, col: str) -> str:
+    """Rótulo da coluna com a SUA unidade (`column_units`), sem repetir se o rótulo já a traz."""
+    label = _label(w, col)
+    unit = w.column_units.get(col, "")
+    return _axis_title(label, unit) if unit else label
+
+
 def _render_table_html(w: WidgetSpec, df: pd.DataFrame) -> str:
     work = _prepare_slice(df, w, default_top_n=50)
     cols = [c for c in (w.columns or list(work.columns)) if c in work.columns]
@@ -726,7 +809,7 @@ def _render_table_html(w: WidgetSpec, df: pd.DataFrame) -> str:
         if not vals.empty and (vals >= 0).all() and vals.max() > 0:
             max_v = float(vals.max())
     head = "".join(
-        f'<th scope="col" class="{"num" if c in numeric else ""}">{html.escape(w.column_labels.get(c, c))}</th>'
+        f'<th scope="col" class="{"num" if c in numeric else ""}">{html.escape(_column_header(w, c))}</th>'
         for c in cols
     )
     rows = []
@@ -761,17 +844,21 @@ def _render_progress_html(w: WidgetSpec, df: pd.DataFrame) -> str:
             raise ValueError(f"Sem total positivo em {w.dataset_id}.{y_col} para calcular participações.")
         scale = 100.0 / total
         n_rows = int((vals_all > 0).sum())
-        note = (f'<p class="note">Percentual sobre a soma de {html.escape(w.column_labels.get(y_col, y_col))} '
+        note = (f'<p class="note">Percentual sobre a soma de {html.escape(_label(w, y_col))} '
                 f'nas {n_rows} linhas de [{html.escape(w.dataset_id)}], não sobre o total geral.</p>')
     rows = []
-    for idx, (_, row) in enumerate(work.head(min(w.top_n or 10, 10)).iterrows()):
+    cap = min(w.top_n or 10, 10)
+    if len(work) > cap:  # mantém "Outros" (já no fim) dentro do limite de 10 linhas
+        res_mask = work[x_col].map(is_residual_label) if x_col in work.columns else pd.Series(False, index=work.index)
+        work = pd.concat([work[~res_mask].head(max(cap - int(res_mask.sum()), 1)), work[res_mask]])
+    for idx, (_, row) in enumerate(work.iterrows()):
         v = pd.to_numeric(pd.Series([row[y_col]]), errors="coerce").iloc[0]
         if pd.isna(v):
             continue
         pct = float(v) * scale
         pct_txt = f"{pct:,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
         value_txt = "" if pct_like else f'<span class="prog-v">{html.escape(format_compact_br(v, w.unit))}</span>'
-        color = PALETTE[idx % len(PALETTE)] if idx < 3 else PALETTE[0]
+        color = NEUTRAL if is_residual_label(row[x_col]) else (PALETTE[idx % len(PALETTE)] if idx < 3 else PALETTE[0])
         rows.append(
             f'<li><div class="prog-row"><span class="prog-label">{html.escape(display_label(row[x_col], x_col))}</span>'
             f'{value_txt}<span class="prog-pct">{pct_txt}%</span></div>'
@@ -782,20 +869,38 @@ def _render_progress_html(w: WidgetSpec, df: pd.DataFrame) -> str:
 
 
 def _render_warning_card(w: WidgetSpec, reason: str) -> str:
+    """Cartão de aviso: só quando realmente não há dado para mostrar."""
     span_cls = " span-2" if w.span == 2 else ""
-    title = html.escape(pt_text(w.title) or f"Componente {w.id}")
-    msg = html.escape(reason)
+    title = html.escape(pt_text(w.title) or "Gráfico do painel")
     return (
         f'<article class="card card-warning{span_cls}" data-widget-id="{html.escape(w.id)}">\n'
         f'  <div class="card-header">\n'
         f'    <div>\n'
-        f'      <span class="badge badge-warn">{_icon("aviso", "icon-sm")} Componente omitido</span>\n'
+        f'      <span class="badge badge-warn">{_icon("aviso", "icon-sm")} {NO_DATA_TITLE}</span>\n'
         f'      <h3>{title}</h3>\n'
         f'    </div>\n'
         f'  </div>\n'
-        f'  <p class="warn-text">Este gráfico não pôde ser exibido: {msg}</p>\n'
+        f'  <p class="warn-text">{html.escape(reason)}</p>\n'
         f'</article>'
     )
+
+
+def _render_fallback(w: WidgetSpec, by_id: dict[str, DatasetResult], codes: list[str]) -> str:
+    """Gráfico reprovado: mostra os MESMOS dados como lista, com uma frase simples do motivo.
+
+    A lista só exibe as linhas que vieram da consulta (não soma nem cria valores), então não fere as
+    regras R5. O texto técnico do revisor nunca chega aqui (ver `messages.user_message`)."""
+    reason = user_message(codes)
+    ds = by_id.get(w.dataset_id)
+    if ds is None or ds.df.empty or "sem_dados" in codes:
+        return _render_warning_card(w, user_message(["sem_dados"]))
+    df = ds.df
+    wanted = list(w.columns) if w.kind == "table" else [c for c in [w.x, *w.y, w.column, w.color] if c]
+    cols = [c for c in dict.fromkeys(wanted) if c in df.columns] or list(df.columns)
+    lista = replace(w, kind="table", columns=cols, sort_by=w.sort_by if w.sort_by in df.columns else None,
+                    valid=True, validation_error=None, validation_codes=[])
+    note = f'<p class="fallback-note">{html.escape(reason)} {SHOWN_AS_LIST}</p>'
+    return _render_valid_card(lista, note + _render_table_html(lista, df))
 
 
 # --- Página --------------------------------------------------------------------------
@@ -839,10 +944,10 @@ def render_dashboard_html(
 
     for w in spec.widgets:
         section = SECTION_OF.get(w.kind, "detalhamento")
-        det_issues = validate_widget_deterministic(w, by_id)
-        if not w.valid or det_issues:
-            reason = w.validation_error or "; ".join(i.message for i in det_issues)
-            cards[section].append(_render_warning_card(w, reason))
+        blocking = [i for i in validate_widget_deterministic(w, by_id) if i.blocking]
+        if not w.valid or blocking:
+            codes = list(w.validation_codes) or [i.code for i in blocking]
+            cards[section].append(_render_fallback(w, by_id, codes))
             continue
         df = by_id[w.dataset_id].df
         try:
@@ -865,12 +970,18 @@ def render_dashboard_html(
                 aria = html.escape(pt_text(w.title) + (f". {pt_text(w.subtitle)}" if w.subtitle else ""))
                 cards[section].append(_render_valid_card(
                     w, f'<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>'))
-        except Exception as exc:
-            cards[section].append(_render_warning_card(w, f"{type(exc).__name__}: {exc}"))
+        except Exception:
+            logger.exception("Falha ao desenhar o componente %s", w.id)
+            cards[section].append(_render_fallback(w, by_id, []))
 
     page_title = html.escape(pt_text(spec.title) or (f"Dashboard — {question}" if question else "Dashboard Trase"))
     short_title = page_title if len(page_title) <= 48 else page_title[:46].rstrip() + "…"
-    page_subtitle = f'<p class="hero-subtitle">{html.escape(pt_text(spec.subtitle))}</p>' if spec.subtitle else ""
+    # Subtítulo em até 2 linhas; o texto completo fica em "Rastreabilidade".
+    full_subtitle = pt_text(spec.subtitle)
+    hero_sub = short_subtitle(full_subtitle)
+    page_subtitle = f'<p class="hero-subtitle">{html.escape(hero_sub)}</p>' if hero_sub else ""
+    scope_notes = (f'<div class="scope-notes"><strong>Notas do recorte</strong><p>{html.escape(full_subtitle)}</p></div>'
+                   if full_subtitle and full_subtitle != hero_sub else "")
     question_banner = (
         f'<div class="question-pill"><strong>Pergunta:</strong> {html.escape(question)}</div>' if question else ""
     )
@@ -963,6 +1074,7 @@ def render_dashboard_html(
     {chr(10).join(sections_html)}
     <details class="provenance" id="rastreabilidade">
       <summary>Rastreabilidade: consultas SQL e fontes de dados</summary>
+      {scope_notes}
       {queries_html}
     </details>
     <footer class="page-footer">

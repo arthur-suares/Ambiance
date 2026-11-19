@@ -47,7 +47,7 @@ aditivas DENTRO de cada ano (nunca percentuais ou intensidades).
 - `progress`: lista de participações (ex.: % do volume por destino), com `x` = categoria e \
 `y` = [coluna]; até 10 linhas. Se a coluna já for percentual ou fração, ela é usada como está; \
 senão o percentual é calculado sobre o total do dataset.
-- `table`: tabela detalhada com as colunas relevantes e rótulos amigáveis em `column_labels`.
+- `table`: tabela detalhada com as colunas relevantes e rótulos amigáveis em `column_labels`. Quando as colunas tiverem unidades diferentes (ex.: toneladas e %), informe a unidade DE CADA COLUNA em `column_units` (ex.: {{"volume_t": "t", "share_pct": "%"}}); `unit` pode resumir ("t / %").
 - Em `kpi`, opcionalmente informe `trend_x` (ex.: "year") e `trend_y` (coluna numérica) de um \
 dataset com vários anos: a variação e a mini-série são calculadas em código. Não informe valores.
 
@@ -77,6 +77,7 @@ e o título deve dizer "(exceto Brasil)".
 nunca de "tradings". "Exportadoras" e "tradings" valem só para `exporter` e `exporter_group`.
 11. Não repita a unidade no rótulo do eixo: se `unit` já traz a unidade, o rótulo em `column_labels` \
 não deve conter "(t)", "(ha)" etc.
+12. Títulos, subtítulos e rótulos são para leigos: NUNCA escreva nomes de colunas, tabelas ou campos (ex.: exporter_group, share_pct, supply_chain), nem rótulos crus dos dados (UNKNOWN, PROCESSED DOMESTICALLY); diga "grupo exportador", "participação", "origem não identificada", "consumo no Brasil". O subtítulo do painel tem no máximo 2 frases curtas.
 """.format(kinds=kinds_for_prompt(), choice_by_intent=CHOICE_BY_INTENT)
 
 WIDGET_ITEM_SCHEMA = {
@@ -109,6 +110,7 @@ WIDGET_ITEM_SCHEMA = {
         "trend_y": {"type": "string", "description": "Opcional para kpi: coluna numérica da mini-série."},
         "columns": {"type": "array", "items": {"type": "string"}, "description": "Para table: colunas exibidas."},
         "column_labels": {"type": "object", "description": "Mapeamento opcional coluna -> rótulo legível."},
+        "column_units": {"type": "object", "description": "Para table: unidade de cada coluna (coluna -> unidade)."},
         "sort_by": {"type": "string"},
         "ascending": {"type": "boolean"},
         "top_n": {"type": "integer", "minimum": 1, "maximum": 200},

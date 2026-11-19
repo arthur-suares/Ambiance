@@ -328,7 +328,7 @@ class OutputMonitor:
                 rule="partial_degradation",
                 reason=f"{len(degraded_widgets)} componente(s) degradado(s) com aviso.",
                 warnings=[
-                    f"Componente '{w.id}' exibido com aviso: {w.validation_error or 'falha de validação'}."
+                    f"“{w.title or 'Gráfico do painel'}”: {w.validation_error or 'não pôde ser mostrado como planejado.'}"
                     for w in degraded_widgets
                 ],
             )

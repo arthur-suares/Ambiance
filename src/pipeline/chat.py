@@ -17,6 +17,7 @@ import uuid
 import src.config as config_mod
 from src.agent import ToolCall, ask as agent_ask, tool_call_summary
 from src.dashboard.chart_intent import suggest_other_views
+from src.dashboard.messages import short_subtitle
 from src.dashboard.orchestrator import build_dashboard_from_store
 from src.pipeline.orchestrator import MAP_UNAVAILABLE_MESSAGE, classify_intent
 from src.pipeline.session import ChatSession
@@ -130,7 +131,7 @@ def _format_dashboard_summary(
     )
     parts.append(summary)
     if dash_res.spec.subtitle:
-        parts.append(dash_res.spec.subtitle)
+        parts.append(short_subtitle(dash_res.spec.subtitle))
     chart = getattr(getattr(dash_res, "plan", None), "requested_chart", None)
     if chart is not None and chart.notice:
         parts.append(chart.notice)

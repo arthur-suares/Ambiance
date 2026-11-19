@@ -100,12 +100,14 @@ class WidgetSpec:
     # Campos de tabela e ordenação/recorte
     columns: list[str] = field(default_factory=list)
     column_labels: dict[str, str] = field(default_factory=dict)
+    column_units: dict[str, str] = field(default_factory=dict)   # unidade de cada coluna (table)
     sort_by: str | None = None
     ascending: bool = False
     top_n: int | None = None
     # Estado de validação por componente (permite degradar só o gráfico inválido)
     valid: bool = True
-    validation_error: str | None = None
+    validation_error: str | None = None      # frase simples para a tela (nunca texto técnico)
+    validation_codes: list[str] = field(default_factory=list)  # tipos dos problemas bloqueantes
 
     def to_dict(self) -> dict:
         out: dict = {
@@ -132,6 +134,7 @@ class WidgetSpec:
                 out["markers"] = self.markers
         elif self.kind == "table":
             out.update({"columns": self.columns, "column_labels": self.column_labels,
+                        "column_units": self.column_units,
                         "sort_by": self.sort_by, "ascending": self.ascending, "top_n": self.top_n})
         if not self.valid and self.validation_error:
             out["validation_error"] = self.validation_error
@@ -159,7 +162,12 @@ class DashboardSpec:
 class WidgetIssue:
     widget_id: str | None    # None = problema geral do dashboard
     check_type: str          # "deterministic" | "methodological"
-    message: str
+    message: str             # texto técnico, para o agente e para o log (nunca para a tela)
+    # Tipo do problema; a tela mostra uma frase simples escolhida por ele (`messages.user_message`).
+    code: str = "estrutura"
+    # Só problemas bloqueantes (regras R5 e colunas inexistentes) ocultam um gráfico.
+    # Observações (ex.: recomendações do revisor LLM) vão para o log e nunca invalidam o componente.
+    blocking: bool = True
 
 
 @dataclass
@@ -320,6 +328,12 @@ def parse_widget_spec(raw: object, index: int) -> WidgetSpec:
         if isinstance(raw_labels, dict) else {}
     )
 
+    raw_units = raw.get("column_units")
+    col_units = (
+        {str(k): str(v).strip() for k, v in raw_units.items() if str(v).strip()}
+        if isinstance(raw_units, dict) else {}
+    )
+
     valid = True
     err = val_error
     if kind not in ALLOWED_WIDGET_KINDS:
@@ -359,6 +373,7 @@ def parse_widget_spec(raw: object, index: int) -> WidgetSpec:
         trend_y=str(raw["trend_y"]).strip() if raw.get("trend_y") else None,
         columns=_as_str_list(raw.get("columns")),
         column_labels=col_labels,
+        column_units=col_units,
         sort_by=str(raw["sort_by"]).strip() if raw.get("sort_by") else None,
         ascending=bool(raw.get("ascending", False)),
         top_n=top_n,

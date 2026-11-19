@@ -315,7 +315,8 @@ def test_r5d_soy_municipal_ranking_with_unknown_adds_warning_without_blocking():
     })
     issues = check_deterministic(spec, [ds])
     assert issues == []
-    assert any("UNKNOWN" in w for w in spec.warnings)
+    assert any("origem não identificada" in w for w in spec.warnings)
+    assert not any("UNKNOWN" in w for w in spec.warnings)  # sem rótulo técnico na tela
 
 
 # --- R5-e: alegações de ilegalidade ou autoria recusadas sem chamar LLM ---------
