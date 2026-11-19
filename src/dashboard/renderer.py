@@ -780,22 +780,41 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
 
 # --- Página --------------------------------------------------------------------------
 
+_CDN_SCRIPT_RE = re.compile(r'<script\b[^>]*\bsrc="https://cdn\.plot\.ly/[^"]+"[^>]*>\s*</script>')
+
+
+def _plotly_loader(plotlyjs: str) -> str:
+    """Tag que carrega o Plotly uma única vez no <head>, antes de qualquer gráfico."""
+    if plotlyjs == "inline":
+        from plotly.offline import get_plotlyjs
+        return f'<script type="text/javascript">{get_plotlyjs()}</script>'
+    # Mesma URL (versão e integridade) que o próprio Plotly usaria.
+    match = _CDN_SCRIPT_RE.search(go.Figure().to_html(full_html=False, include_plotlyjs="cdn"))
+    if match is None:  # pragma: no cover - depende do formato interno do Plotly
+        raise RuntimeError("Não foi possível obter a tag do Plotly por CDN.")
+    return match.group(0)
+
+
 def render_dashboard_html(
     spec: DashboardSpec,
     datasets: list[DatasetResult],
     *,
     question: str = "",
-    plotlyjs: str = "cdn",
+    plotlyjs: str = "inline",
     theme: str | None = None,
 ) -> str:
     """Renderiza o dashboard completo numa página HTML única.
 
-    plotlyjs: "cdn" (padrão) ou "inline" (página 100% offline). theme: None (segue o sistema e a
+    plotlyjs: "inline" (padrão, página 100% offline) ou "cdn" (arquivo menor, carrega o Plotly da
+    internet). O Plotly é carregado uma vez no <head>: as seções reordenam os cartões, então o
+    primeiro gráfico do JSON nem sempre é o primeiro da página. theme: None (segue o sistema e a
     escolha salva), "light" ou "dark".
     """
+    if plotlyjs not in ("inline", "cdn"):
+        raise ValueError(f"plotlyjs deve ser 'inline' ou 'cdn', não {plotlyjs!r}.")
     by_id = {d.dataset_id: d for d in datasets}
     cards: dict[str, list[str]] = {sid: [] for sid, _ in SECTIONS}
-    plotly_loaded = False
+    needs_plotly = False
     first_kpi = True
 
     for w in spec.widgets:
@@ -816,16 +835,13 @@ def render_dashboard_html(
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df)))
             else:
                 fig = build_widget_figure(w, df)
-                include = False
-                if not plotly_loaded:
-                    include = True if plotlyjs == "inline" else "cdn"
                 fig_html = fig.to_html(
                     full_html=False,
-                    include_plotlyjs=include,
+                    include_plotlyjs=False,
                     config={"responsive": True, "displaylogo": False,
                             "modeBarButtons": [["toImage"]], "toImageButtonOptions": {"scale": 2}},
                 )
-                plotly_loaded = True
+                needs_plotly = True
                 aria = html.escape(pt_text(w.title) + (f". {pt_text(w.subtitle)}" if w.subtitle else ""))
                 cards[section].append(_render_valid_card(
                     w, f'<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>'))
@@ -873,6 +889,7 @@ def render_dashboard_html(
         )
     queries_html = "\n".join(queries_items) or "<p class='meta'>Nenhuma consulta registrada.</p>"
     theme_attr = f' data-theme="{theme}"' if theme in ("light", "dark") else ""
+    plotly_head = _plotly_loader(plotlyjs) if needs_plotly else ""
 
     return f"""<!doctype html>
 <html lang="pt-BR"{theme_attr}>
@@ -894,6 +911,7 @@ def render_dashboard_html(
 <style>
 {PAGE_CSS}
 </style>
+{plotly_head}
 </head>
 <body>
 <a class="skip" href="#conteudo">Pular para o conteúdo</a>

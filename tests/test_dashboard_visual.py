@@ -155,14 +155,38 @@ def test_secoes_na_ordem_com_ancoras_e_sem_secao_vazia():
 def test_nenhum_recurso_externo_alem_do_plotly():
     widgets = [{"id": "l", "kind": "line", "title": "L", "dataset_id": "D1", "x": "year", "y": ["volume_t"],
                 "unit": "t", "source": "Trase [D1]"}]
-    cdn = _page(widgets, [_ds("D1", SERIE)])
+    cdn = _page([dict(w) for w in widgets], [_ds("D1", SERIE)], plotlyjs="cdn")
     externos = re.findall(r'(?:src|href)="(https?://[^"]+)"', cdn)
     assert externos and all("cdn.plot.ly" in u for u in externos)
-    inline = _page(widgets, [_ds("D1", SERIE)], plotlyjs="inline")
+    inline = _page(widgets, [_ds("D1", SERIE)])  # padrão: Plotly embutido
     # O código-fonte do Plotly embutido contém textos com URLs; o que importa é a marcação da página.
     marcacao = re.sub(r"<script\b[^>]*>.*?</script>", "", inline, flags=re.S)
     assert "<script" not in marcacao and not re.findall(r'(?:src|href)="https?://', marcacao)
     assert '<script src="http' not in inline
+
+
+@pytest.mark.parametrize("modo", ["inline", "cdn"])
+def test_plotly_carrega_antes_de_todo_grafico_mesmo_com_barra_antes_da_linha(modo):
+    """Regressão: com a barra antes da linha no JSON, o Plotly ia para a seção Rankings, que fica
+    depois da Evolução na página; a linha era desenhada antes de o Plotly existir e ficava em branco."""
+    widgets = [
+        {"id": "b", "kind": "bar", "title": "B", "dataset_id": "D2", "x": "municipality", "y": ["volume_t"],
+         "unit": "t", "source": "Trase [D2]"},
+        {"id": "l", "kind": "line", "title": "L", "dataset_id": "D1", "x": "year", "y": ["volume_t"],
+         "unit": "t", "source": "Trase [D1]"},
+    ]
+    page = _page(widgets, [_ds("D1", SERIE), _ds("D2", RANK)], plotlyjs=modo)
+    carga = [m.start() for m in re.finditer(r"cdn\.plot\.ly/|plotly\.js v\d", page)]
+    desenhos = [m.start() for m in re.finditer(r"Plotly\.newPlot\(", page)]
+    assert len(desenhos) == 2 and page.index('id="evolucao"') < page.index('id="rankings"')
+    assert len(carga) >= 1 and page.index("</head>") > carga[0]
+    assert all(pos > carga[0] for pos in desenhos)
+
+
+def test_pagina_sem_grafico_plotly_nao_carrega_plotly():
+    page = _page([{"id": "t", "kind": "table", "title": "T", "dataset_id": "D1", "unit": "t",
+                   "source": "Trase [D1]"}], [_ds("D1", SERIE)])
+    assert "Plotly" not in page and "cdn.plot.ly" not in page
 
 
 def test_texto_da_ia_e_escapado():

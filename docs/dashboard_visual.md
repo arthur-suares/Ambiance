@@ -22,8 +22,10 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
 - Rastreabilidade: as consultas SQL de cada `[Dn]`, com botão Copiar.
 - Rodapé: "Dados: Trase (CC BY 4.0). Exposição ao desmatamento é uma associação estatística e não prova
   ilegalidade."
-- Sem fontes, ícones ou estilos externos. A única dependência externa é o Plotly
-  (`render_dashboard_html(..., plotlyjs="cdn" | "inline")`).
+- Sem fontes, ícones ou estilos externos. O Plotly vai embutido por padrão
+  (`render_dashboard_html(..., plotlyjs="inline" | "cdn")`) e é carregado uma única vez no `<head>`,
+  antes de qualquer gráfico: as seções reordenam os cartões, então o primeiro gráfico do JSON nem
+  sempre é o primeiro da página.
 
 ## Componentes
 
