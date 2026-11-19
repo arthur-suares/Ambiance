@@ -25,6 +25,24 @@ DEFAULT_MESSAGE = "Não consegui mostrar este gráfico como planejado."
 SHOWN_AS_LIST = "Mostrei os mesmos dados como lista."
 NO_DATA_TITLE = "Sem dados para este gráfico"
 
+# F4: estados do painel, em frases simples (sem nome de erro, tabela ou consulta).
+PROGRESS_STEPS = (
+    "Entendendo o pedido",
+    "Buscando os dados",
+    "Conferindo os números",
+    "Montando os gráficos",
+)
+NO_DATA_HINT = "Tente outro ano ou um recorte maior, como o estado ou o bioma."
+EMPTY_PAGE_TITLE = "Não encontrei dados para este recorte"
+EMPTY_SUGGESTIONS = (
+    "Tente outro ano: as medidas de exposição ao desmatamento começam em 2015.",
+    "Troque o município pelo estado ou pelo bioma.",
+    "Confira a grafia do nome do lugar, da empresa ou do país.",
+)
+ERROR_PAGE_TITLE = "Não consegui montar o painel desta vez"
+ERROR_MESSAGE = ("Não consegui montar o painel desta vez. Tente de novo em instantes; se continuar, "
+                 "peça de outro jeito, por exemplo com um ano ou um estado.")
+
 
 def user_message(codes) -> str:
     """Uma frase simples para o primeiro tipo de problema conhecido."""

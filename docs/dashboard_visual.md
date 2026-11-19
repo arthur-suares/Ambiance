@@ -105,6 +105,41 @@ Tudo está em `PAGE_CSS` (`src/dashboard/renderer.py`), como variáveis CSS nos 
 - **Tabela com unidades diferentes:** cada coluna declara a sua (`column_units`), o cabeçalho mostra
   "Volume (t)" e "Participação (%)" e o selo do cartão mostra "t / %".
 
+## Clareza para quem não é da área (Parte F)
+
+Tudo nesta seção é calculado em código (`src/dashboard/renderer.py`, seção "Parte F") com textos fixos.
+A IA não escreve nenhum número nem nenhuma destas frases.
+
+- **Frase-conclusão** (`chart_conclusion`), logo abaixo do título de cada gráfico:
+  - linha, área ou barras por ano: "Volume subiu 71,6% entre 2011 e 2022: de 8,10 mi t para 13,9 mi t.
+    O pico foi em 2017 (…)". Compara dois anos e nunca soma anos. Em exposição e emissões, zero antes de
+    2015 é "sem dado" e não vira ponto de partida. Com mais de um valor por ano, não há frase.
+  - várias séries: "Em 2022, CERRADO teve o maior valor: …".
+  - ranking, pizza, rosca: "RIO VERDE lidera com 1,63 mi t, 24,1% do total mostrado." A participação só
+    aparece com um único ano e medida somável; com "Outros", diz "do total". Percentual e valor por
+    tonelada recebem só "tem o maior valor: …".
+  - variação por item: "Maior alta: … ; maior queda: …".
+- **"?" Como ler** (`how_to_read`): uma frase fixa por tipo de gráfico e as ressalvas que valem para a
+  medida, copiadas literalmente de `src/data_dictionary.CAVEATS` (`CAVEAT_FRAGMENTS`; só "NÃO" → "não"
+  e "0/NULL" → "zero ou vazio"). A ressalva de 2011–2014 só aparece quando os dados mostram esses anos
+  zerados ou vazios. Um teste garante que cada trecho continua existindo nas CAVEATS.
+- **Rodapé de publicação**: "Fonte: … [D1] · Período: 2011–2022 · Limite: janela de 5 anos, não some
+  anos; exposição ao desmatamento não é prova de ilegalidade". O período sai dos anos presentes nos
+  dados. Os indicadores mostram "Fonte: … [D1] · 2011–2022".
+- **Estados** (`render_status_page("loading" | "empty" | "error")`, textos em `messages.py`):
+  carregando com as etapas "Entendendo o pedido → Buscando os dados → Conferindo os números → Montando
+  os gráficos"; sem dados com "O que tentar"; erro sem nome técnico (o motivo fica no log e no trace).
+  No chat, o erro de painel agora é sempre `ERROR_MESSAGE`. A página de carregando está pronta, mas
+  ainda não é exibida pelo chat: isso exige mudar `web/index.html`, que está fora do escopo.
+- **Acessibilidade**: foco visível em tudo que é clicável; cada gráfico tem `aria-label` com título e
+  conclusão; "Ver dados" abre a tabela com as mesmas linhas do gráfico; movimento reduzido desliga
+  animações e transições.
+- **Impressão/PDF**: sempre no tema claro, sem menu, botões, "?" e "Ver dados"; cartões não quebram
+  entre páginas; os números impressos são os valores finais escritos no HTML.
+
+Prévia dos estados: `python scripts/preview_dashboard.py` também grava
+`_estado_<carregando|sem_dados|erro>_<claro|escuro>.html`.
+
 ## Como o pedido vira gráfico
 
 Quem usa o chat não precisa saber o nome dos gráficos. `src/dashboard/chart_intent.py` lê a frase e

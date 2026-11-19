@@ -17,7 +17,7 @@ import uuid
 import src.config as config_mod
 from src.agent import ToolCall, ask as agent_ask, tool_call_summary
 from src.dashboard.chart_intent import suggest_other_views
-from src.dashboard.messages import short_subtitle
+from src.dashboard.messages import ERROR_MESSAGE, short_subtitle
 from src.dashboard.orchestrator import build_dashboard_from_store
 from src.pipeline.orchestrator import MAP_UNAVAILABLE_MESSAGE, classify_intent
 from src.pipeline.session import ChatSession
@@ -96,9 +96,10 @@ def _friendly_error_message(intent: str, exc: BaseException) -> str:
             "Não foi possível consultar o modelo de linguagem: a chave OPENROUTER_API_KEY "
             "não está definida. Configure OPENROUTER_API_KEY no arquivo .env para usar o chat."
         )
-    reason = _sanitize_error_reason(exc)
     if intent in ("dashboard", "dashboard_edit", "mixed"):
-        return f"Não consegui montar o painel: {reason}"
+        # F4: sem nome de erro, tabela ou consulta na tela; o motivo técnico fica no trace.
+        return ERROR_MESSAGE
+    reason = _sanitize_error_reason(exc)
     return f"Não consegui concluir a resposta: {reason}"
 
 

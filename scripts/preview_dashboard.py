@@ -3,6 +3,7 @@
 Monta um painel com DADOS DE EXEMPLO (sintéticos) usando todos os tipos de componente e grava:
     outputs/dashboards/_preview_claro.html
     outputs/dashboards/_preview_escuro.html
+    outputs/dashboards/_estado_<carregando|sem_dados|erro>_<claro|escuro>.html  (estados da Parte F)
 
 Uso:
     python scripts/preview_dashboard.py            # Plotly embutido (funciona offline)
@@ -20,7 +21,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from src.dashboard.renderer import render_dashboard_html  # noqa: E402
+from src.dashboard.renderer import render_dashboard_html, render_status_page  # noqa: E402
 from src.dashboard.schemas import DatasetResult, parse_dashboard_spec  # noqa: E402
 
 SRC = "Trase — Soja, dados de exemplo"
@@ -140,6 +141,12 @@ def main() -> None:
                                      plotlyjs="cdn" if args.cdn else "inline", theme=theme)
         (out / name).write_text(page, encoding="utf-8")
         print(f"gravado: {out / name}")
+    estados = (("loading", "carregando"), ("empty", "sem_dados"), ("error", "erro"))
+    for state, nome in estados:
+        for theme, sufixo in (("light", "claro"), ("dark", "escuro")):
+            name = f"_estado_{nome}_{sufixo}.html"
+            (out / name).write_text(render_status_page(state, theme=theme), encoding="utf-8")
+            print(f"gravado: {out / name}")
 
 
 if __name__ == "__main__":

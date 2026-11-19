@@ -18,7 +18,20 @@ from dataclasses import replace
 import pandas as pd
 import plotly.graph_objects as go
 
-from src.dashboard.messages import NO_DATA_TITLE, SHOWN_AS_LIST, is_residual_label, plain_labels, short_subtitle, user_message
+from src.dashboard.messages import (
+    EMPTY_PAGE_TITLE,
+    EMPTY_SUGGESTIONS,
+    ERROR_MESSAGE,
+    ERROR_PAGE_TITLE,
+    NO_DATA_HINT,
+    NO_DATA_TITLE,
+    PROGRESS_STEPS,
+    SHOWN_AS_LIST,
+    is_residual_label,
+    plain_labels,
+    short_subtitle,
+    user_message,
+)
 from src.dashboard.reviewer_agent import validate_widget_deterministic
 from src.dashboard.schemas import (
     DashboardSpec,
@@ -312,7 +325,56 @@ td.has-bar { position: relative; }
 .card-warning { background: var(--warn-bg); border-color: var(--warn-border); }
 .badge-warn { display: inline-flex; align-items: center; gap: var(--s1); color: var(--warn-fg); border-color: var(--warn-border); margin-bottom: var(--s2); }
 .warn-text { margin: var(--s1) 0 2px; color: var(--warn-fg); font-size: var(--t-sm); }
-.empty-state { text-align: center; padding: var(--s8) var(--s4); color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: var(--r-md); margin-bottom: var(--s5); }
+.warn-hint { margin: 0; color: var(--warn-fg); font-size: var(--t-xs); }
+
+/* F1-F3: conclusão calculada, "Como ler" e rodapé de publicação */
+.card-titles { min-width: 0; }
+.conclusion { margin: var(--s1) 0 0; font-size: var(--t-md); line-height: 1.45; color: var(--fg); font-variant-numeric: tabular-nums; }
+.card-tools { display: flex; align-items: center; gap: var(--s2); flex-shrink: 0; }
+.card.is-compact .card-header .card-tools { position: absolute; right: 0; top: 0; }
+.help { position: relative; }
+.help summary {
+  list-style: none; cursor: pointer; width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line);
+  display: grid; place-items: center; font-size: var(--t-xs); font-weight: 700; color: var(--muted); user-select: none;
+}
+.help summary::-webkit-details-marker { display: none; }
+.help summary:hover, .help[open] summary { color: var(--fg); border-color: var(--muted); }
+.help-body {
+  position: absolute; right: 0; top: 28px; z-index: 4; width: min(320px, 80vw); text-align: left; text-transform: none;
+  letter-spacing: 0; background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: var(--r-md);
+  padding: var(--s3) var(--s4); font-size: var(--t-sm); font-weight: 400; line-height: 1.5;
+}
+.help-body ul { margin: var(--s1) 0 0; padding-left: var(--s4); }
+.help-body li + li { margin-top: var(--s1); }
+.card-footer { display: flex; flex-wrap: wrap; gap: 2px var(--s3); }
+.foot-period::before { content: "·"; margin-right: var(--s3); color: var(--muted); }
+.foot-limit { flex-basis: 100%; color: var(--muted); }
+details.data-view { margin-top: var(--s2); }
+details.data-view summary {
+  cursor: pointer; display: inline-block; font-size: var(--t-xs); font-weight: 600; color: var(--fg);
+  padding: 2px var(--s2); border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+details.data-view summary:hover { background: var(--panel-2); }
+details.data-view .table-wrap { margin-top: var(--s2); max-height: 280px; }
+
+/* F4: estados */
+.state { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s6) var(--s5); margin-bottom: var(--s5); color: var(--fg); }
+.empty-state, .error-state { text-align: center; }
+.state-title { margin: var(--s2) 0; font-size: var(--t-lg); font-weight: 650; display: flex; align-items: center; justify-content: center; gap: var(--s2); }
+.state-detail, .state-lead { margin: var(--s2) 0 0; color: var(--muted); font-size: var(--t-sm); }
+.state-tips { display: inline-block; text-align: left; margin: var(--s2) 0 0; padding-left: var(--s5); color: var(--fg); font-size: var(--t-sm); }
+.error-state .icon-lg { color: var(--warn-fg); }
+.error-state p { color: var(--muted); margin: 0 auto; max-width: 520px; }
+.state-loading .state-title { justify-content: flex-start; }
+.state-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.state-steps { list-style: none; margin: var(--s3) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); font-size: var(--t-sm); color: var(--muted); }
+.state-steps li { padding-left: var(--s5); position: relative; }
+.state-steps li::before { content: ""; position: absolute; left: 4px; top: 7px; width: 7px; height: 7px; border-radius: 50%; border: 1px solid var(--line); }
+.state-steps li.is-current { color: var(--fg); font-weight: 600; }
+.state-steps li.is-current::before { background: var(--accent); border-color: var(--accent); }
+.state-steps li.is-done::before { background: var(--brand); border-color: var(--brand); }
+.state-page main { max-width: 640px; margin: 0 auto; padding: var(--s7) var(--s4); }
 
 details.provenance { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s3) var(--s5); scroll-margin-top: var(--s4); }
 details.provenance summary { cursor: pointer; font-weight: 600; color: var(--fg); font-size: var(--t-sm); }
@@ -345,12 +407,33 @@ details.provenance summary { cursor: pointer; font-weight: 600; color: var(--fg)
   .kpi-value, .kpi.is-featured .kpi-value { font-size: var(--t-xl); }
   .span-2 { grid-column: auto; }
 }
-@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}
+/* F6: impressão e PDF — sempre no tema claro, sem controles, com os valores finais e o rodapé de cada cartão */
 @media print {
-  .sidebar, .theme-toggle, .btn-ghost, .skip { display: none !important; }
-  .shell { grid-template-columns: 1fr; }
-  body { background: #ffffff; }
-  .card, details.provenance, .kpi-strip { break-inside: avoid; }
+  @page { margin: 14mm; }
+  :root, :root[data-theme="dark"] {
+    --bg: #ffffff; --panel: #ffffff; --panel-2: #f4f3ee; --fg: #111411; --muted: #45493f; --border: #cfcabd;
+    --line: #bdb8aa; --chart-text: #33372f; --track: #e6e2d8; --icon: #2f6e48; --brand: #2f6e48; --accent: #8a6015;
+    --warn-bg: #ffffff; --warn-border: #bdb8aa; --warn-fg: #4f3608; color-scheme: light;
+  }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { background: #ffffff !important; color: var(--fg); }
+  .sidebar, .theme-toggle, .btn-ghost, .skip, .help, details.data-view, .modebar-container, .js-plotly-plot .modebar { display: none !important; }
+  .shell { display: block; }
+  main { padding: 0; max-width: none; }
+  .hero { margin-bottom: var(--s4); }
+  .dash-section { margin-bottom: var(--s5); }
+  .card, .kpi, .kpi-strip, details.provenance, .state { break-inside: avoid; page-break-inside: avoid; }
+  .section-title { break-after: avoid; page-break-after: avoid; }
+  .chart-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .span-2 { grid-column: 1 / -1; }
+  .kpi-value { white-space: normal; }
+  details.provenance:not([open]) { display: none; }
+  .table-wrap { max-height: none; overflow: visible; }
+  thead th { position: static; }
 }
 """
 FONT_STACK = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
@@ -936,7 +1019,7 @@ def _render_gauge_card(w: WidgetSpec, df: pd.DataFrame) -> str:
         f'    <p class="kpi-value"><span class="gauge-value" data-value="{pct:.4f}" '
         f'title="{html.escape(format_br_value(valor))}%">{txt}</span></p>\n'
         f'    {note}\n'
-        f'    <p class="kpi-source">Fonte: {html.escape(w.source)}</p>\n'
+        f'    <p class="kpi-source">{_kpi_source(w, df)}</p>\n'
         f'  </div>\n'
         f'</article>'
     )
@@ -957,6 +1040,321 @@ def build_widget_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     if w.kind == "table":
         return _build_table_figure(w, df)
     raise ValueError(f"Tipo de componente sem figura Plotly: '{w.kind}'.")
+
+
+# --- Parte F: leitura para leigos ------------------------------------------------------
+# Frase-conclusão, "Como ler" e rodapé saem do DataFrame e de textos fixos. O LLM não escreve
+# nenhum número nem nenhuma destas frases; nada aqui soma anos.
+
+_EXPOSURE_RE = re.compile(r"expos|deforest|desmat", re.IGNORECASE)
+_EMISSION_RE = re.compile(r"co2|emiss", re.IGNORECASE)
+_STABLE_PCT = 1.0  # variação menor que 1% conta como "ficou estável"
+
+
+def _is_exposure(col: str) -> bool:
+    return bool(_EXPOSURE_RE.search(col or ""))
+
+
+def _is_five_year(col: str) -> bool:
+    """Exposição e emissões do Trase usam janelas de 5 anos (ver CAVEATS)."""
+    return bool(_EXPOSURE_RE.search(col or "") or _EMISSION_RE.search(col or ""))
+
+
+def _is_ratio(w: WidgetSpec, col: str) -> bool:
+    """Percentual ou valor por tonelada: não pode ser somado entre itens."""
+    unit = (w.column_units.get(col) or w.unit or "").strip().lower()
+    low = (col or "").lower()
+    return (unit in ("%", "pct", "percentual") or "/" in unit or any(h in low for h in PCT_HINTS)
+            or "per_t" in low or "_por_" in low)
+
+
+def _measure_name(w: WidgetSpec, col: str) -> str:
+    return re.sub(r"\s*\([^)]*\)\s*$", "", _label(w, col)).strip() or "Valor"
+
+
+def _is_plural(name: str) -> bool:
+    first = (name.split() or [""])[0].lower()
+    return len(first) > 3 and first.endswith("s") and not first.endswith(("ís", "ês"))
+
+
+def _signed_pct(v: float) -> str:
+    return ("+" if v > 0 else "−" if v < 0 else "") + _br_number(abs(v), 1, strip_zeros=False) + "%"
+
+
+def _signed_value(v: float, unit: str) -> str:
+    return ("+" if v > 0 else "−" if v < 0 else "") + format_compact_br(abs(v), unit)
+
+
+def _time_column(df: pd.DataFrame, w: WidgetSpec) -> str | None:
+    if w.x and _is_time(w.x) and w.x in df.columns:
+        return w.x
+    return next((c for c in df.columns if _is_time(c)), None)
+
+
+def _years(df: pd.DataFrame, w: WidgetSpec) -> list[int]:
+    col = _time_column(df, w)
+    if col is None:
+        return []
+    return sorted({int(v) for v in pd.to_numeric(df[col], errors="coerce").dropna()})
+
+
+def _clean_series(df: pd.DataFrame, x: str, y: str) -> pd.DataFrame:
+    """Um valor por período. Em exposição e emissões, zero antes de 2015 significa "sem dado"."""
+    t = df[[x, y]].copy()
+    t[y] = pd.to_numeric(t[y], errors="coerce")
+    t = t.dropna()
+    if _is_five_year(y) and _is_time(x):
+        t = t[~((t[y] == 0) & (pd.to_numeric(t[x], errors="coerce") < 2015))]
+    return t.sort_values(x)
+
+
+def _trend_sentence(w: WidgetSpec, series: pd.DataFrame, x: str, y: str) -> str | None:
+    if len(series) < 2 or series[x].duplicated().any():
+        return None  # mais de um valor por período: não agrega (poderia somar janelas ou regiões)
+    unit = w.column_units.get(y) or w.unit or ""
+    name = _measure_name(w, y)
+    plural = _is_plural(name)
+    x0, xn = _fmt_axis_value(series[x].iloc[0]), _fmt_axis_value(series[x].iloc[-1])
+    a, b = float(series[y].iloc[0]), float(series[y].iloc[-1])
+    de_para = f"de {format_compact_br(a, unit)} para {format_compact_br(b, unit)}"
+    if a > 0 and b >= 0:
+        pct = (b - a) / a * 100
+        if abs(pct) < _STABLE_PCT:
+            verbo = "ficaram estáveis" if plural else "ficou estável"
+            frase = f"{name} {verbo} entre {x0} e {xn}: {de_para}."
+        else:
+            verbo = ("subiram" if plural else "subiu") if pct > 0 else ("caíram" if plural else "caiu")
+            frase = f"{name} {verbo} {_br_number(abs(pct), 1, strip_zeros=False)}% entre {x0} e {xn}: {de_para}."
+    else:
+        frase = f"{name}: {de_para} entre {x0} e {xn}."
+    pico = series[y].idxmax()
+    if pico not in (series.index[0], series.index[-1]) and series[y].max() > max(a, b):
+        frase += (f" O pico foi em {_fmt_axis_value(series.loc[pico, x])} "
+                  f"({format_compact_br(series.loc[pico, y], unit)}).")
+    return frase
+
+
+def _leader_sentence(w: WidgetSpec, df: pd.DataFrame) -> str | None:
+    x, y = w.x or "", w.y[0]
+    work = _prepare_slice(df, w)
+    vals = pd.to_numeric(work[y], errors="coerce")
+    residual = work[x].map(is_residual_label)
+    ranked = vals[~residual].dropna()
+    if ranked.empty:
+        return None
+    top = ranked.idxmax()
+    nome = display_label(work.loc[top, x], x)
+    unit = w.column_units.get(y) or w.unit or ""
+    valor = format_compact_br(ranked[top], unit)
+    years = _years(df, w)
+    aditivo = (not _is_ratio(w, y) and bool((vals.dropna() >= 0).all()) and len(years) <= 1
+               and len(vals.dropna()) >= 2 and w.kind != "progress")
+    total = float(vals.dropna().sum())
+    if not aditivo or total <= 0:
+        return f"{nome} tem o maior valor: {valor}."
+    share = _pct_br(float(ranked[top]) / total * 100)
+    escopo = "do total" if residual.any() else "do total mostrado"
+    if w.kind in ("pie", "donut"):
+        return f"{nome} responde por {share} {escopo}."
+    return f"{nome} lidera com {valor}, {share} {escopo}."
+
+
+def _waterfall_sentence(w: WidgetSpec, df: pd.DataFrame) -> str | None:
+    work = _prepare_slice(df, w)
+    x, y = w.x or "", w.y[0]
+    vals = pd.to_numeric(work[y], errors="coerce")
+    partes = []
+    if (vals > 0).any():
+        i = vals.idxmax()
+        partes.append(f"Maior alta: {display_label(work.loc[i, x], x)} ({_signed_value(vals[i], w.unit)})")
+    if (vals < 0).any():
+        i = vals.idxmin()
+        partes.append(f"maior queda: {display_label(work.loc[i, x], x)} ({_signed_value(vals[i], w.unit)})")
+    if not partes:
+        return None
+    frase = "; ".join(partes) + "."
+    return frase[:1].upper() + frase[1:]
+
+
+def chart_conclusion(w: WidgetSpec, df: pd.DataFrame) -> str | None:
+    """F1: uma frase de conclusão calculada do DataFrame, com modelo de texto fixo.
+
+    Não soma anos: variação compara dois períodos; participação só quando há um único período e a
+    medida pode ser somada entre itens (nunca percentuais ou valores por tonelada)."""
+    try:
+        if df is None or df.empty or not w.y or w.y[0] not in df.columns:
+            return None
+        if w.kind == "waterfall":
+            return _waterfall_sentence(w, df)
+        x = w.x or ""
+        if x not in df.columns:
+            return None
+        if w.kind in ("line", "area") or (w.kind == "bar" and _is_time(x)):
+            work = _prepare_slice(df, w)
+            series_cols = [c for c in w.y if c in work.columns]
+            if w.color and w.color in work.columns and len(series_cols) == 1:
+                y = series_cols[0]
+                ultimo = work[x].max()
+                ref = work[work[x] == ultimo].assign(_v=lambda d: pd.to_numeric(d[y], errors="coerce")).dropna(subset=["_v"])
+                if ref[w.color].nunique() < 2 or ref[w.color].duplicated().any():
+                    return None
+                top = ref["_v"].idxmax()
+                unit = w.column_units.get(y) or w.unit or ""
+                return (f"Em {_fmt_axis_value(ultimo)}, {display_label(ref.loc[top, w.color], w.color)} "
+                        f"teve o maior valor: {format_compact_br(ref.loc[top, '_v'], unit)}.")
+            if len(series_cols) != 1:
+                return None
+            return _trend_sentence(w, _clean_series(work, x, series_cols[0]), x, series_cols[0])
+        if w.kind in ("bar", "pie", "donut", "progress") and not w.color and len(w.y) == 1:
+            return _leader_sentence(w, df)
+    except Exception:  # a frase é um extra: nunca derruba o cartão
+        logger.exception("Falha ao calcular a conclusão de %s", w.id)
+    return None
+
+
+# F2: trechos LITERAIS das ressalvas do dicionário de dados (src/data_dictionary.CAVEATS). Se uma
+# ressalva mudar e o trecho deixar de existir, ele some do "Como ler" (e o teste avisa).
+CAVEAT_FRAGMENTS = {
+    "janela": "Exposição e emissões com janela de 5 anos: NÃO some entre anos (as janelas se sobrepõem e "
+              "contam o mesmo desmatamento várias vezes)",
+    "antes_2015": "exposição e emissões só existem de 2015 em diante; 2011-2014 aparecem como 0/NULL e "
+                  "significam 'sem dado', não 'zero desmatamento'",
+    "estimativa": "Exposição ao desmatamento é uma estimativa de associação da cadeia, não prova de "
+                  "ilegalidade nem de responsabilidade direta de uma empresa",
+    "razao": "Métricas por tonelada e percentuais não podem ser somados nem tirada média simples entre regiões",
+    "origem": "o consumo interno não é rastreado até o município",
+}
+_CAVEAT_PLAIN = (("NÃO ", "não "), ("0/NULL", "zero ou vazio"))
+
+HOW_TO_READ = {
+    "line": "Cada ponto é o valor de um período; a linha só liga os pontos.",
+    "area": "Cada ponto é o valor de um período; a área só preenche até a linha.",
+    "area_stacked": "As faixas ficam empilhadas: a altura de cada faixa é o seu valor no período.",
+    "bar": "Cada barra é um item e o comprimento é o valor. Passe o mouse para ver o número exato.",
+    "bar_time": "Cada barra é o valor de um período. Passe o mouse para ver o número exato.",
+    "pie": "Cada fatia é a parte de um item na soma dos itens mostrados.",
+    "waterfall": "Cada barra mostra quanto um item somou (para cima) ou tirou (para baixo) da variação; "
+                 "a última barra é a variação total.",
+    "progress": "Cada barra mostra a participação do item, em porcentagem.",
+    "table": "Cada linha é um registro da consulta, sem somas extras.",
+}
+
+
+def caveat_text(key: str) -> str | None:
+    """Ressalva do dicionário de dados em texto simples, ou None se o trecho não existir mais."""
+    from src.data_dictionary import CAVEATS
+
+    frag = CAVEAT_FRAGMENTS[key]
+    if not any(frag in c for c in CAVEATS):
+        logger.warning("Ressalva '%s' não encontrada em CAVEATS; fora do 'Como ler'.", key)
+        return None
+    for old, new in _CAVEAT_PLAIN:
+        frag = frag.replace(old, new)
+    return frag[:1].upper() + frag[1:] + "."
+
+
+def _empty_before_2015(df: pd.DataFrame, w: WidgetSpec, cols: list[str]) -> bool:
+    """Os dados trazem anos antes de 2015 com a medida zerada ou vazia (= sem dado, não zero)."""
+    tcol = _time_column(df, w)
+    if tcol is None:
+        return False
+    antes = df[pd.to_numeric(df[tcol], errors="coerce") < 2015]
+    for c in cols:
+        if c in antes.columns and not antes.empty:
+            v = pd.to_numeric(antes[c], errors="coerce")
+            if (v.isna() | (v == 0)).any():
+                return True
+    return False
+
+
+def how_to_read(w: WidgetSpec, df: pd.DataFrame | None) -> list[str]:
+    """F2: como ler o gráfico (texto fixo por tipo) e as ressalvas do dicionário que valem para a medida."""
+    if w.kind in ("area",) and w.stacked:
+        chave = "area_stacked"
+    elif w.kind == "bar" and _is_time(w.x):
+        chave = "bar_time"
+    elif w.kind == "donut":
+        chave = "pie"
+    else:
+        chave = w.kind
+    itens = [HOW_TO_READ[chave]] if chave in HOW_TO_READ else []
+    cols = [c for c in [*w.y, *(w.columns if w.kind == "table" else [])] if c]
+    chaves = []
+    if any(_is_five_year(c) for c in cols):
+        chaves.append("janela")
+        if df is not None and _empty_before_2015(df, w, [c for c in cols if _is_five_year(c)]):
+            chaves.append("antes_2015")
+    if any(_is_exposure(c) for c in cols):
+        chaves.append("estimativa")
+    if any(_is_ratio(w, c) for c in cols):
+        chaves.append("razao")
+    if df is not None:
+        cat = w.x if w.kind != "table" else next((c for c in df.columns if df[c].dtype == object), None)
+        if cat and cat in df.columns and df[cat].astype(str).str.upper().str.startswith("UNKNOWN").any():
+            chaves.append("origem")
+    itens += [t for t in (caveat_text(k) for k in dict.fromkeys(chaves)) if t]
+    return itens
+
+
+def measure_limit(w: WidgetSpec) -> str | None:
+    """F3: o limite da medida, curto, para o rodapé do cartão."""
+    cols = [c for c in [*w.y, w.column, *(w.columns if w.kind == "table" else [])] if c]
+    partes = []
+    if any(_is_five_year(c) for c in cols):
+        partes.append("janela de 5 anos, não some anos")
+    if any(_is_exposure(c) for c in cols):
+        partes.append("exposição ao desmatamento não é prova de ilegalidade")
+    if any(_is_ratio(w, c) for c in cols):
+        partes.append("percentuais e valores por tonelada não se somam")
+    return "; ".join(partes) or None
+
+
+def period_text(w: WidgetSpec, df: pd.DataFrame | None) -> str | None:
+    """F3: período coberto pelos dados do cartão (dos anos presentes, sem inventar nenhum)."""
+    anos = _years(df, w) if df is not None else []
+    if not anos:
+        return None
+    return str(anos[0]) if len(anos) == 1 else f"{anos[0]}–{anos[-1]}"
+
+
+def _source_with_id(w: WidgetSpec) -> str:
+    tag = f"[{w.dataset_id}]"
+    return w.source if tag in (w.source or "") else f"{w.source} {tag}".strip()
+
+
+def _card_footer(w: WidgetSpec, df: pd.DataFrame | None) -> str:
+    partes = [f'<span class="foot-src">Fonte: {html.escape(_source_with_id(w))}</span>']
+    periodo = period_text(w, df)
+    if periodo:
+        partes.append(f'<span class="foot-period">Período: {periodo}</span>')
+    limite = measure_limit(w)
+    if limite:
+        partes.append(f'<span class="foot-limit">Limite: {html.escape(limite)}</span>')
+    return f'<footer class="card-footer">{"".join(partes)}</footer>'
+
+
+def _help_html(w: WidgetSpec, df: pd.DataFrame | None) -> str:
+    itens = how_to_read(w, df)
+    if not itens:
+        return ""
+    lis = "".join(f"<li>{html.escape(t)}</li>" for t in itens)
+    return (f'<details class="help"><summary aria-label="Como ler este gráfico" title="Como ler">?</summary>'
+            f'<div class="help-body"><strong>Como ler</strong><ul>{lis}</ul></div></details>')
+
+
+def _data_view(w: WidgetSpec, df: pd.DataFrame) -> str:
+    """F5: a mesma informação do gráfico em tabela ("ver dados"), com as linhas que o gráfico usa."""
+    work = _prepare_slice(df, w)
+    cols = [c for c in dict.fromkeys([w.x, w.color, *w.y]) if c and c in work.columns]
+    if not cols or work.empty:
+        return ""
+    unidades = {c: w.column_units.get(c) or w.unit for c in w.y if w.column_units.get(c) or w.unit}
+    lista = replace(w, kind="table", columns=cols, sort_by=None, top_n=max(len(work), 1),
+                    column_units={**w.column_units, **unidades})
+    tabela = _render_table_html(lista, work).replace(
+        f'aria-label="{html.escape(pt_text(w.title))}"',
+        f'aria-label="Dados do gráfico: {html.escape(pt_text(w.title))}"', 1)
+    return f'<details class="data-view"><summary>Ver dados</summary>{tabela}</details>'
 
 
 # --- Componentes em HTML -------------------------------------------------------------
@@ -984,13 +1382,15 @@ def _uid(w: WidgetSpec) -> str:
     return re.sub(r"[^A-Za-z0-9_-]", "", w.id) or "w"
 
 
-def _card_header(w: WidgetSpec) -> str:
+def _card_header(w: WidgetSpec, df: pd.DataFrame | None = None, conclusion: str | None = None) -> str:
     subtitle = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
+    lead = f'<p class="conclusion">{html.escape(conclusion)}</p>' if conclusion else ""
     units = list(dict.fromkeys(u for u in w.column_units.values() if u)) if w.kind == "table" else []
     unit_txt = " / ".join(units) if len(units) > 1 else w.unit
     badge = f'<span class="badge">{html.escape(unit_txt)}</span>' if unit_txt else ""
-    return (f'<div class="card-header"><div><h3>{html.escape(pt_text(w.title))}</h3>{subtitle}</div>'
-            f'{badge}</div>')
+    tools = f'<div class="card-tools">{badge}{_help_html(w, df)}</div>'
+    return (f'<div class="card-header"><div class="card-titles"><h3>{html.escape(pt_text(w.title))}</h3>'
+            f'{lead}{subtitle}</div>{tools}</div>')
 
 
 COMPACT_KINDS = ("pie", "donut", "progress")
@@ -1002,15 +1402,16 @@ def _is_compact(w: WidgetSpec) -> bool:
     return w.span != 2 and (w.kind in COMPACT_KINDS or (w.kind == "bar" and w.orientation == "h"))
 
 
-def _render_valid_card(w: WidgetSpec, inner_html: str) -> str:
+def _render_valid_card(w: WidgetSpec, inner_html: str, df: pd.DataFrame | None = None,
+                       conclusion: str | None = None, extra_html: str = "") -> str:
     span_cls = " span-2" if w.span == 2 else ""
     span_cls += " is-compact" if _is_compact(w) else ""
     return (
         f'<article class="card chart-card{span_cls}" data-widget-id="{html.escape(w.id)}" '
         f'data-widget-kind="{html.escape(w.kind)}">\n'
-        f'  {_card_header(w)}\n'
+        f'  {_card_header(w, df, conclusion)}\n'
         f'  <div class="card-body">{inner_html}</div>\n'
-        f'  <footer class="card-footer">Fonte: {html.escape(w.source)}</footer>\n'
+        f'  {extra_html}{_card_footer(w, df)}\n'
         f'</article>'
     )
 
@@ -1047,10 +1448,15 @@ def _render_kpi_card(w: WidgetSpec, df: pd.DataFrame, featured: bool = False) ->
         f'    <h3 class="kpi-label">{html.escape(rotulo)}</h3>\n'
         f'    <p class="kpi-value" title="{html.escape(exact)}" data-value="{actual}">{html.escape(value_txt)}</p>\n'
         f'    {delta}{note}\n'
-        f'    <p class="kpi-source">Fonte: {html.escape(w.source)}</p>\n'
+        f'    <p class="kpi-source">{_kpi_source(w, df)}</p>\n'
         f'  </div>\n'
         f'</article>'
     )
+
+
+def _kpi_source(w: WidgetSpec, df: pd.DataFrame) -> str:
+    periodo = period_text(w, df)
+    return f"Fonte: {html.escape(_source_with_id(w))}" + (f" · {periodo}" if periodo else "")
 
 
 def _column_header(w: WidgetSpec, col: str) -> str:
@@ -1143,6 +1549,7 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
         f'    </div>\n'
         f'  </div>\n'
         f'  <p class="warn-text">{html.escape(reason)}</p>\n'
+        f'  <p class="warn-hint">{NO_DATA_HINT}</p>\n'
         f'</article>'
     )
 
@@ -1231,7 +1638,77 @@ def _render_fallback(w: WidgetSpec, by_id: dict[str, DatasetResult], codes: list
     lista = replace(w, kind="table", columns=cols, sort_by=w.sort_by if w.sort_by in df.columns else None,
                     valid=True, validation_error=None, validation_codes=[])
     note = f'<p class="fallback-note">{html.escape(reason)} {SHOWN_AS_LIST}</p>'
-    return _render_valid_card(lista, note + _render_table_html(lista, df))
+    return _render_valid_card(lista, note + _render_table_html(lista, df), df)
+
+
+# --- F4: estados do painel (carregando, sem dados, erro) ---------------------------------
+
+_THEME_BOOT_JS = """
+(function () {
+  var d = document.documentElement, t = null;
+  if (d.getAttribute("data-theme")) return;
+  try { t = localStorage.getItem("trase-dash-theme"); } catch (e) {}
+  if (t !== "light" && t !== "dark") {
+    t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  }
+  d.setAttribute("data-theme", t);
+})();
+"""
+
+_LOADING_JS = """
+(function () {
+  var box = document.querySelector(".state-loading");
+  if (!box) return;
+  var steps = box.querySelectorAll(".state-steps li"), now = box.querySelector(".state-now"), i = 0;
+  function show() {
+    steps.forEach(function (li, k) {
+      li.className = k < i ? "is-done" : (k === i ? "is-current" : "");
+      if (k === i) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+    });
+    now.textContent = steps[i].textContent + "…";
+  }
+  show();
+  var timer = setInterval(function () { if (i >= steps.length - 1) { clearInterval(timer); return; } i += 1; show(); }, 1800);
+})();
+"""
+
+
+def _state_block(state: str, detail: str | None = None) -> str:
+    """Bloco de estado com o mesmo sistema de design do painel, em frases simples."""
+    extra = f'<p class="state-detail">{html.escape(detail)}</p>' if detail else ""
+    if state == "loading":
+        steps = "".join(f"<li>{html.escape(t)}</li>" for t in PROGRESS_STEPS)
+        return (f'<section class="state state-loading" role="status" aria-live="polite">'
+                f'<p class="state-title"><span class="state-dot" aria-hidden="true"></span>'
+                f'<span class="state-now">{html.escape(PROGRESS_STEPS[0])}…</span></p>{extra}'
+                f'<ol class="state-steps">{steps}</ol></section>')
+    if state == "empty":
+        tips = "".join(f"<li>{html.escape(t)}</li>" for t in EMPTY_SUGGESTIONS)
+        return (f'<section class="state empty-state" role="status">{_icon("visao-geral", "icon-lg")}'
+                f'<h2 class="state-title">{html.escape(EMPTY_PAGE_TITLE)}</h2>{extra}'
+                f'<p class="state-lead">O que tentar:</p><ul class="state-tips">{tips}</ul></section>')
+    if state == "error":
+        return (f'<section class="state error-state" role="alert">{_icon("aviso", "icon-lg")}'
+                f'<h2 class="state-title">{html.escape(ERROR_PAGE_TITLE)}</h2>'
+                f'<p>{html.escape(ERROR_MESSAGE.split(". ", 1)[1])}</p></section>')
+    raise ValueError(f"Estado desconhecido: {state!r}")
+
+
+def render_status_page(state: str, *, detail: str | None = None, theme: str | None = None) -> str:
+    """Página só de estado ("loading", "empty" ou "error"), para a tela que espera o painel.
+
+    O texto técnico de um erro nunca entra aqui: ele vai para o log e para o trace."""
+    titulos = {"loading": "Montando o painel", "empty": EMPTY_PAGE_TITLE, "error": ERROR_PAGE_TITLE}
+    if state not in titulos:
+        raise ValueError(f"Estado desconhecido: {state!r}")
+    bloco = _state_block(state, None if state == "error" else detail)
+    theme_attr = f' data-theme="{theme}"' if theme in ("light", "dark") else ""
+    script = f"<script>{_LOADING_JS}</script>" if state == "loading" else ""
+    return (f'<!doctype html>\n<html lang="pt-BR"{theme_attr}>\n<head>\n<meta charset="utf-8">\n'
+            f'<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+            f'<title>{html.escape(titulos[state])}</title>\n<script>{_THEME_BOOT_JS}</script>\n'
+            f'<style>\n{PAGE_CSS}\n</style>\n</head>\n'
+            f'<body class="state-page">\n<main id="conteudo">\n{bloco}\n</main>\n{script}\n</body>\n</html>')
 
 
 # --- Página --------------------------------------------------------------------------
@@ -1302,9 +1779,10 @@ def render_dashboard_html(
             elif w.kind == "gauge":
                 cards[section].append(_render_gauge_card(w, df))
             elif w.kind == "table":
-                cards[section].append(_render_valid_card(w, _render_table_html(w, df)))
+                cards[section].append(_render_valid_card(w, _render_table_html(w, df), df))
             elif w.kind == "progress":
-                cards[section].append(_render_valid_card(w, _render_progress_html(w, df)))
+                cards[section].append(_render_valid_card(w, _render_progress_html(w, df), df,
+                                                         chart_conclusion(w, df)))
             else:
                 fig = build_widget_figure(w, df)
                 if w.group in group_ranges:  # mesmo intervalo de tempo nos gráficos do par
@@ -1316,9 +1794,12 @@ def render_dashboard_html(
                             "modeBarButtons": [["toImage"]], "toImageButtonOptions": {"scale": 2}},
                 )
                 needs_plotly = True
-                aria = html.escape(pt_text(w.title) + (f". {pt_text(w.subtitle)}" if w.subtitle else ""))
+                conclusao = chart_conclusion(w, df)
+                aria = html.escape(". ".join(t.rstrip(".") for t in (pt_text(w.title), conclusao, pt_text(w.subtitle)) if t)
+                                   + ". A tabela em Ver dados traz os mesmos números.")
                 cards[section].append(_render_valid_card(
-                    w, f'{note}<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>'))
+                    w, f'{note}<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>',
+                    df, conclusao, _data_view(w, df)))
         except Exception:
             logger.exception("Falha ao desenhar o componente %s", w.id)
             cards[section].append(_render_fallback(w, by_id, []))
@@ -1354,8 +1835,7 @@ def render_dashboard_html(
     nav_items.append(f'<a href="#rastreabilidade" data-section="rastreabilidade">{_icon("rastreabilidade")}'
                      f'<span>Rastreabilidade</span></a>')
     if not sections_html:
-        sections_html.append('<section class="empty-state">' + _icon("visao-geral", "icon-lg")
-                             + '<p>Nenhum componente visual pôde ser gerado para esta consulta.</p></section>')
+        sections_html.append(_state_block("empty"))
 
     queries_items = []
     for d in datasets:
