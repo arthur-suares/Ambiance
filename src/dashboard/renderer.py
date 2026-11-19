@@ -418,9 +418,29 @@ def _prepare_slice(df: pd.DataFrame, w: WidgetSpec, default_top_n: int | None = 
         key = pd.to_numeric(out[w.y[0]], errors="coerce")
         out = out.assign(_ordem=key).sort_values("_ordem", ascending=False, na_position="last").drop(columns="_ordem")
     limit = w.top_n or default_top_n
+    if limit and w.kind in ("line", "area") and w.x in out.columns:
+        return _limit_time_series(out, w, limit)
     if limit:
         out = out.head(limit)
     return out
+
+
+def _limit_time_series(out: pd.DataFrame, w: WidgetSpec, limit: int) -> pd.DataFrame:
+    """`top_n` numa série temporal limita séries ou períodos, nunca linhas soltas da tabela.
+
+    Com `color`, mantém as N séries de maior valor no período mais recente (sem somar anos:
+    janelas de 5 anos não podem ser somadas). Sem `color`, mantém os N períodos mais recentes.
+    """
+    if not w.color:
+        periodos = sorted(out[w.x].dropna().unique())[-limit:]
+        return out[out[w.x].isin(periodos)]
+    if w.color not in out.columns or len(w.y) != 1 or w.y[0] not in out.columns:
+        return out
+    ultimo = out[w.x].max()
+    ref = out[out[w.x] == ultimo]
+    valores = pd.to_numeric(ref[w.y[0]], errors="coerce").groupby(ref[w.color]).max()
+    manter = valores.nlargest(limit).index
+    return out[out[w.color].isin(manter)]
 
 
 # --- Figuras Plotly ------------------------------------------------------------------

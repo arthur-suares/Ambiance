@@ -183,6 +183,30 @@ def test_plotly_carrega_antes_de_todo_grafico_mesmo_com_barra_antes_da_linha(mod
     assert all(pos > carga[0] for pos in desenhos)
 
 
+def _serie_municipios(n_munis=5, anos=range(2020, 2023)):
+    linhas = [{"year": a, "municipality": f"M{i}", "volume_t": float((i + 1) * 100 + (a - 2020))}
+              for i in range(n_munis) for a in anos]
+    # Ordem embaralhada por volume, como sai de um ORDER BY volume DESC.
+    return pd.DataFrame(linhas).sort_values("volume_t", ascending=False)
+
+
+def test_top_n_em_linha_com_color_limita_series_e_nao_linhas():
+    """Regressão: top_n=3 cortava as 3 primeiras linhas da tabela (um único ano), e cada
+    município ficava com um ponto só, deixando o gráfico praticamente vazio."""
+    df = _serie_municipios()
+    df.loc[(df.municipality == "M0") & (df.year == 2022), "volume_t"] = 9999.0  # maior só no último ano
+    w = _w(kind="line", x="year", y=["volume_t"], color="municipality", top_n=3)
+    fig = build_widget_figure(w, df)
+    assert sorted(t.name for t in fig.data) == ["M0", "M3", "M4"]  # ranking pelo ano mais recente
+    assert all(len(t.x) == 3 for t in fig.data)  # todos os anos de cada município
+
+
+def test_top_n_em_linha_sem_color_mantem_periodos_mais_recentes():
+    w = _w(kind="line", x="year", y=["volume_t"], top_n=2)
+    fig = build_widget_figure(w, SERIE)
+    assert sorted(fig.data[0].x) == [2021, 2022]
+
+
 def test_pagina_sem_grafico_plotly_nao_carrega_plotly():
     page = _page([{"id": "t", "kind": "table", "title": "T", "dataset_id": "D1", "unit": "t",
                    "source": "Trase [D1]"}], [_ds("D1", SERIE)])
