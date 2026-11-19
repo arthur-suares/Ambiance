@@ -57,7 +57,12 @@ dataset de origem (ex.: "Trase — Carne bovina v2.2.2 [D1]" ou "Trase — Soja 
 (ex.: nunca use `agg="sum"` num dataset de vários anos para exposição).
 5. NUNCA some percentuais (`%`) ou intensidades (`ha/t`, `t/ha`) entre regiões.
 6. Em rankings municipais da `supply_chain`, indique no `subtitle` que se trata da origem rastreada \
-(excluindo 'UNKNOWN'). Nunca afirme ilegalidade a partir de exposição ao desmatamento.
+(excluindo 'UNKNOWN'). Os dados do Trase medem só exposição ao desmatamento associada à cadeia. \
+Em `title`, `subtitle` e qualquer texto do painel, NUNCA use as palavras "ilegal", "ilegalidade", \
+"crime", "criminoso", "culpado", "violou a lei" nem "responsável pelo desmatamento" (ou "autor do \
+desmatamento"), NEM MESMO para negá-las (ex.: proibido "não indica ilegalidade" ou "não é crime"); \
+o rodapé do painel já traz essa ressalva. Escreva sempre "exposição ao desmatamento" \
+(ex.: "Municípios com maior exposição ao desmatamento", nunca "maiores responsáveis pelo desmatamento").
 7. Não combine várias colunas em `y` com `color` ao mesmo tempo no mesmo gráfico.
 8. Escreva sempre "Brasil" (nunca "Brazil") em títulos, subtítulos e rótulos.
 9. Em destinos da soja, o valor BRAZIL de `country_of_first_import` é soja processada no próprio \
