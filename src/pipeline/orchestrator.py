@@ -121,6 +121,21 @@ _LAW_TERMS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# G3: termos de lei que, junto com um pedido de painel/gráfico/tabela, pedem um painel sobre as normas.
+_LAW_DASH_RE = re.compile(
+    r"\b(?:codigo\s+florestal|reserva\s+legal|leis?\b|legisla\w*|normas?\s+(?:ambienta\w*|legais|juridic\w*)"
+    r"|decretos?|artigos?\s+d[aeo]s?\s+(?:lei|codigo|decreto)|multas?|penalidad\w*|sancoes|infracoes?"
+    r"|crimes?\s+ambienta\w*|snuc)\b",
+    re.IGNORECASE,
+)
+# Dados do Trase (cadeia, volume, exposição, lugares): com eles, o pedido de leis vira painel misto.
+_TRASE_DATA_RE = re.compile(
+    r"\b(?:soja|soy|carne|bovin\w*|gado|beef|cattle|export\w*|import\w*|volume\w*|tonelad\w*|fob"
+    r"|exposic\w*|municip\w*|destin\w*|trading\w*|frigorific\w*|trase|cadeia)\b",
+    re.IGNORECASE,
+)
+_TABLE_WORD_RE = re.compile(r"\btabelas?\b", re.IGNORECASE)
+
 _MIXED_QUESTION_CONJ_RE = re.compile(
     r"\b(?:quais?|qual|quanto\w*|como|explique|analise|responda|compare)\b"
     r".+\b(?:e\s+(?:monte|monta|faca|faz|crie|cria|gere|gera|mostre|exiba)|alem\s+disso|acompanhad[oa]\s+de)\b",
@@ -399,6 +414,29 @@ def classify_intent_deterministic(
 
     # 1b. A1: com painel aberto, pedir outra dimensão (município, empresa, porto, destino...) é painel
     # NOVO, com dados novos: nunca reaproveitar datasets agrupados por outra coluna.
+    # 1c. G3: painel/gráfico/pizza/tabela sobre LEIS. Sem dado do Trase -> painel de leis (domínio "law");
+    # com dado do Trase -> misto (agente de leis + agente de dados). Pergunta de lei sem pedido de painel
+    # continua em texto (passo 5).
+    pede_visual = has_dash_noun or bool(_TABLE_WORD_RE.search(norm))
+    if pede_visual and _LAW_DASH_RE.search(norm) and not has_edit_verb:
+        sem_lei = _LAW_DASH_RE.sub(" ", norm)
+        if _TRASE_DATA_RE.search(sem_lei) or _MIXED_QUESTION_CONJ_RE.search(norm):
+            return OrchestrationDecision(
+                intent="mixed",
+                domain="mixed",
+                use_previous_results=True,
+                needs_new_data=False,
+                assumption=_build_assumption(norm, resolved_domain),
+                decided_by="rules",
+            )
+        return OrchestrationDecision(
+            intent="dashboard",
+            domain="law",
+            use_previous_results=False,
+            needs_new_data=True,
+            decided_by="rules",
+        )
+
     # "Adicione um gráfico por estado" continua edição: acrescenta ao painel, com dados novos.
     if has_spec and has_dash_noun and _new_dimension(norm, panel_columns) and not _ADD_VERB_RE.search(norm):
         return OrchestrationDecision(

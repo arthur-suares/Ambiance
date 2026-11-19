@@ -128,6 +128,63 @@ def build_example() -> tuple:
     return spec, datasets
 
 
+def build_law_example() -> tuple:
+    """Painel de leis de exemplo (G): trechos fixos, extração simulada e conferência real em código."""
+    from src.dashboard.law_agent import build_law_widgets, catalog_frames, run_law_agent  # noqa: E402
+    from src.dashboard.schemas import DashboardSpec  # noqa: E402
+
+    trechos = [
+        {"content": "Art. 50. Destruir ou danificar florestas nativas ou plantadas ou vegetação nativa: "
+                    "Multa de R$ 5.000,00 (cinco mil reais), por hectare ou fração.",
+         "title": "Decreto nº 6.514/2008 — Infrações ambientais",
+         "url": "https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2008/decreto/d6514.htm", "metadata": {"artigo": "50"}},
+        {"content": "Art. 75. O valor da multa de que trata este Capítulo será fixado no regulamento desta Lei, "
+                    "sendo o mínimo de R$ 50,00 (cinqüenta reais) e o máximo de R$ 50.000.000,00 (cinqüenta milhões de reais).",
+         "title": "Lei nº 9.605/1998 — Lei de Crimes Ambientais",
+         "url": "https://www.planalto.gov.br/ccivil_03/leis/l9605.htm", "metadata": {"artigo": "75"}},
+        {"content": "Art. 51. Destruir, desmatar, danificar ou explorar floresta ou qualquer tipo de vegetação "
+                    "nativa em área de reserva legal: Multa de R$ 5.000,00 (cinco mil reais) a R$ 50.000,00 "
+                    "(cinquenta mil reais), por hectare ou fração.",
+         "title": "Decreto nº 6.514/2008 — Infrações ambientais",
+         "url": "https://www.planalto.gov.br/ccivil_03/_ato2007-2010/2008/decreto/d6514.htm", "metadata": {"artigo": "51"}},
+        {"content": "Art. 12. Todo imóvel rural deve manter área com cobertura de vegetação nativa, a título de "
+                    "Reserva Legal: I - localizado na Amazônia Legal: a) 80% (oitenta por cento), no imóvel situado "
+                    "em área de florestas; b) 35% (trinta e cinco por cento), no imóvel situado em área de cerrado;",
+         "title": "Lei nº 12.651/2012 — Código Florestal",
+         "url": "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2012/lei/l12651.htm", "metadata": {"artigo": "12"}},
+    ]
+    linhas = [
+        {"trecho": 2, "tipo": "penalidade", "valor_min": 50, "valor_max": 50000000, "unidade": "R$",
+         "citacao_literal": "sendo o mínimo de R$ 50,00 (cinqüenta reais) e o máximo de R$ 50.000.000,00"},
+        {"trecho": 1, "tipo": "penalidade", "valor_min": 5000, "valor_max": 5000, "unidade": "R$ por hectare",
+         "citacao_literal": "Multa de R$ 5.000,00 (cinco mil reais), por hectare ou fração"},
+        {"trecho": 3, "tipo": "penalidade", "valor_min": 5000, "valor_max": 50000, "unidade": "R$ por hectare",
+         "citacao_literal": "Multa de R$ 5.000,00 (cinco mil reais) a R$ 50.000,00 (cinquenta mil reais), por hectare ou fração"},
+        {"trecho": 4, "tipo": "percentual", "valor_min": 80, "valor_max": 80, "unidade": "%",
+         "citacao_literal": "80% (oitenta por cento), no imóvel situado em área de florestas"},
+        {"trecho": 4, "tipo": "percentual", "valor_min": 35, "valor_max": 35, "unidade": "%",
+         "citacao_literal": "35% (trinta e cinco por cento), no imóvel situado em área de cerrado"},
+        # Linha com número inventado: a conferência em código descarta e o painel avisa.
+        {"trecho": 2, "tipo": "penalidade", "valor_min": 100, "valor_max": 50000000, "unidade": "R$",
+         "citacao_literal": "sendo o mínimo de R$ 50,00 (cinqüenta reais) e o máximo de R$ 50.000.000,00"},
+    ]
+    acervo = [
+        {"title": t, "url": "https://www.planalto.gov.br/", "enacted_at": d, "artigos": n} for t, d, n in (
+            ("Lei nº 4.829/1965 — Crédito rural", "1965-11-05", 37), ("Lei nº 6.938/1981 — Política Nacional do Meio Ambiente", "1981-08-31", 21),
+            ("Lei nº 9.605/1998 — Lei de Crimes Ambientais", "1998-02-12", 82), ("Lei nº 9.985/2000 — SNUC", "2000-07-18", 60),
+            ("Decreto nº 6.514/2008 — Infrações ambientais", "2008-07-22", 153), ("Lei nº 12.651/2012 — Código Florestal", "2012-05-25", 84),
+            ("Lei nº 14.944/2024 — Manejo integrado do fogo", "2024-07-31", 50))
+    ]
+    res = run_law_agent("painel das multas e do acervo de leis por ano", available=True,
+                        retriever=lambda q, k: trechos, extractor=lambda q, c: (linhas, 0, 0),
+                        catalog_fetch=lambda: acervo)
+    widgets, extra = build_law_widgets(res)
+    spec = DashboardSpec(title="Legislação ambiental: o que dizem as normas (exemplo)", widgets=widgets,
+                         warnings=[res.notes] if res.notes else [])
+    _ = catalog_frames  # documenta a origem das tabelas do acervo
+    return spec, [*res.datasets, *extra]
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--cdn", action="store_true", help="carrega o Plotly pelo CDN em vez de embutir")
@@ -138,6 +195,12 @@ def main() -> None:
     spec, datasets = build_example()
     for theme, name in (("light", "_preview_claro.html"), ("dark", "_preview_escuro.html")):
         page = render_dashboard_html(spec, datasets, question="Panorama da soja em Goiás",
+                                     plotlyjs="cdn" if args.cdn else "inline", theme=theme)
+        (out / name).write_text(page, encoding="utf-8")
+        print(f"gravado: {out / name}")
+    lspec, ldatasets = build_law_example()
+    for theme, name in (("light", "_preview_leis_claro.html"), ("dark", "_preview_leis_escuro.html")):
+        page = render_dashboard_html(lspec, ldatasets, question="Painel das multas e do acervo de leis",
                                      plotlyjs="cdn" if args.cdn else "inline", theme=theme)
         (out / name).write_text(page, encoding="utf-8")
         print(f"gravado: {out / name}")

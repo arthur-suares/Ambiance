@@ -16,7 +16,7 @@ import re
 import unicodedata
 
 from src.dashboard.schemas import DashboardSpec
-from src.dashboard.validator import find_illegality_claim
+from src.dashboard.validator import find_illegality_claim, is_law_sourced, spec_has_law_source
 
 logger = logging.getLogger("ambiance.monitor")
 
@@ -241,8 +241,9 @@ class OutputMonitor:
             )
 
         # R5-e na saída: nenhuma alegação de ilegalidade/autoria em títulos, subtítulos ou avisos
+        law_panel = spec_has_law_source(spec)  # G5: só o nome oficial da norma, só com fonte de leis
         for label, txt in (("título", spec.title), ("subtítulo", spec.subtitle)):
-            claim = find_illegality_claim(txt)
+            claim = find_illegality_claim(txt, law_source=law_panel)
             if claim:
                 logger.warning("Saída de dashboard bloqueada por alegação indevida (%s) no %s.", claim, label)
                 return OutputVerdict(
@@ -257,7 +258,7 @@ class OutputMonitor:
                 )
 
         for warn_msg in spec.warnings:
-            claim = find_illegality_claim(warn_msg)
+            claim = find_illegality_claim(warn_msg, law_source=law_panel)
             if claim:
                 logger.warning("Saída de dashboard bloqueada por alegação indevida (%s) em warnings.", claim)
                 return OutputVerdict(
@@ -285,7 +286,7 @@ class OutputMonitor:
 
         for w in valid_widgets:
             for field_name, txt in (("título", w.title), ("subtítulo", w.subtitle)):
-                claim = find_illegality_claim(txt)
+                claim = find_illegality_claim(txt, law_source=is_law_sourced(w))
                 if claim:
                     logger.warning("Componente %s bloqueado na saída por alegação '%s'.", w.id, claim)
                     return OutputVerdict(

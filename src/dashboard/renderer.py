@@ -32,8 +32,11 @@ from src.dashboard.messages import (
     short_subtitle,
     user_message,
 )
+from src.dashboard.law_agent import LAW_FOOTER
 from src.dashboard.reviewer_agent import validate_widget_deterministic
 from src.dashboard.schemas import (
+    LAWS_DATABASE,
+    LAWS_SOURCE,
     DashboardSpec,
     DatasetResult,
     WidgetSpec,
@@ -357,6 +360,14 @@ details.data-view summary {
 details.data-view summary:hover { background: var(--panel-2); }
 details.data-view .table-wrap { margin-top: var(--s2); max-height: 280px; }
 
+/* G4: artigos-chave (citação literal + fonte) */
+.quote-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s3); }
+.quote { margin: 0; padding: var(--s3) var(--s4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--panel-2); }
+.quote blockquote { margin: 0; font-size: var(--t-sm); line-height: 1.55; color: var(--fg); }
+.quote figcaption { margin-top: var(--s2); font-size: var(--t-xs); color: var(--muted); }
+.quote a, td a { color: var(--fg); text-underline-offset: 2px; }
+.law-note { color: var(--muted); }
+
 /* F4: estados */
 .state { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s6) var(--s5); margin-bottom: var(--s5); color: var(--fg); }
 .empty-state, .error-state { text-align: center; }
@@ -452,6 +463,7 @@ SECTIONS = (
     ("evolucao", "Evolução"),
     ("rankings", "Rankings"),
     ("detalhamento", "Detalhamento"),
+    ("base-legal", "Base legal"),  # G6: leis em seção própria, separada dos dados do Trase
 )
 SECTION_OF = {
     "kpi": "visao-geral",
@@ -473,6 +485,8 @@ ICONS = {
     "evolucao": '<path d="M4 17l5-5 4 3 7-8"/><path d="M15 7h5v5"/>',
     "rankings": '<path d="M5 20V10"/><path d="M12 20V4"/><path d="M19 20v-7"/>',
     "detalhamento": '<rect x="4" y="5" width="16" height="14" rx="2"/><path d="M4 10h16M10 10v9"/>',
+    "base-legal": '<path d="M12 4v16M7 20h10"/><path d="M5 8h14"/><path d="M5 8l-2.5 6a3 3 0 0 0 5 0L5 8Z"/>'
+                  '<path d="M19 8l-2.5 6a3 3 0 0 0 5 0L19 8Z"/>',
     "rastreabilidade": '<path d="M9 7 4 12l5 5M15 7l5 5-5 5"/>',
     "tema": '<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/>',
     "aviso": '<path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4M12 17h.01"/>',
@@ -546,6 +560,9 @@ def format_compact_br(value, unit: str = "", *, with_unit: bool = True) -> str:
     text = f"{num} {suffix}".strip()
     if not with_unit or not u or ul in ("múltiplas", "multiplas"):
         return text
+    if ul.startswith("r$"):
+        resto = u[2:].strip()
+        return f"R$ {text}" + (f" {resto}" if resto else "")
     if ul in ("us$", "usd"):
         return f"US$ {text}"
     return f"{text} {u}"
@@ -972,6 +989,66 @@ def _share_note(w: WidgetSpec, df: pd.DataFrame) -> str:
             "não sobre o total geral.</p>")
 
 
+def _safe_url(url) -> str | None:
+    u = str(url or "").strip()
+    return u if re.match(r"https?://[^\s\"'<>]+$", u) else None
+
+
+def _source_link(url) -> str:
+    """Link da norma (só http/https); o texto diz o site, nunca o endereço cru."""
+    u = _safe_url(url)
+    if u is None:
+        return "—"
+    site = "Planalto" if "planalto.gov.br" in u else re.sub(r"^https?://(?:www\.)?([^/]+).*$", r"\1", u)
+    return (f'<a href="{html.escape(u)}" target="_blank" rel="noopener noreferrer">'
+            f'ver no {html.escape(site)}</a>')
+
+
+def _render_quote_html(w: WidgetSpec, df: pd.DataFrame) -> str:
+    """G4: cartões de "artigo-chave": a citação literal (conferida no texto), a norma, o artigo e o link."""
+    itens = []
+    for _, row in df.head(8).iterrows():
+        cit = str(row.get("citacao_literal") or "").strip()
+        if not cit:
+            continue
+        ref = ", ".join(t for t in (str(row.get("lei") or ""), str(row.get("artigo") or "")) if t)
+        itens.append(f'<figure class="quote"><blockquote>“{html.escape(cit)}”</blockquote>'
+                     f'<figcaption>{html.escape(ref)} · {_source_link(row.get("url_fonte"))}</figcaption></figure>')
+    return f'<div class="quote-list">{"".join(itens)}</div>'
+
+
+def _build_range_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
+    """G4: faixa de valor de cada artigo (do mínimo ao máximo), numa única unidade. Nada é somado."""
+    lo_col, hi_col = w.y[0], w.y[-1]
+    work = df.copy()
+    lo = pd.to_numeric(work[lo_col], errors="coerce")
+    hi = pd.to_numeric(work[hi_col], errors="coerce")
+    lo, hi = lo.fillna(hi), hi.fillna(lo)
+    labels = work[w.x].astype(str).tolist()
+    # A unidade já está no selo e no eixo: o rótulo da barra traz só os números.
+    textos = [_short_num(a) if a == b else f"{_short_num(a)} a {_short_num(b)}" for a, b in zip(lo, hi)]
+    usa_log = bool((lo > 0).all() and hi.max() / max(lo.min(), 1e-9) > 1000)
+    largura = [max(b - a, (b * 0.02 if b else 1)) for a, b in zip(lo, hi)]
+    fig = go.Figure(go.Bar(
+        y=labels, x=largura, base=lo.tolist(), orientation="h", marker={"color": PALETTE[2]},
+        text=textos, textposition="outside", cliponaxis=False,
+        hovertemplate="<b>%{y}</b><br>%{text}<extra></extra>",
+    ))
+    fig.update_layout(**_base_layout(height=max(220, 64 + 44 * len(labels)),
+                                     margin={"l": 8, "r": 120, "t": 8, "b": 40}), showlegend=False)
+    _style_axes(fig, value_axis="x")
+    fig.update_yaxes(autorange="reversed")
+    fig.update_xaxes(title_text=w.unit + (" (escala logarítmica)" if usa_log else ""),
+                     type="log" if usa_log else "linear")
+    if usa_log:  # só as potências de 10, em pt-BR ("100", "10 mil", "1 mi")
+        k0, k1 = int(math.floor(math.log10(lo.min()))), int(math.ceil(math.log10(hi.max())))
+        vals = [10 ** k for k in range(k0, k1 + 1)]
+        fig.update_xaxes(tickvals=vals, ticktext=[_short_num(v) for v in vals])
+    else:
+        _br_ticks(fig, "x", [*lo.tolist(), *hi.tolist(), 0])
+    return fig
+
+
 def _build_waterfall_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     """Variação por item: contribuição de cada item para a variação entre dois períodos.
 
@@ -1035,6 +1112,8 @@ def build_widget_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         return _build_pie_figure(w, df)
     if w.kind == "waterfall":
         return _build_waterfall_figure(w, df)
+    if w.kind == "range":
+        return _build_range_figure(w, df)
     if w.kind in ("line", "area"):
         return _build_line_figure(w, df)
     if w.kind == "table":
@@ -1237,6 +1316,9 @@ HOW_TO_READ = {
                  "a última barra é a variação total.",
     "progress": "Cada barra mostra a participação do item, em porcentagem.",
     "table": "Cada linha é um registro da consulta, sem somas extras.",
+    "range": "Cada barra vai do valor mínimo ao máximo previsto no artigo, sempre na mesma unidade. "
+             "Valores de leis diferentes não são somados.",
+    "quote": "Trechos copiados do texto da norma e conferidos no acervo, com o link para a fonte.",
 }
 
 
@@ -1298,6 +1380,8 @@ def how_to_read(w: WidgetSpec, df: pd.DataFrame | None) -> list[str]:
 
 def measure_limit(w: WidgetSpec) -> str | None:
     """F3: o limite da medida, curto, para o rodapé do cartão."""
+    if LAWS_SOURCE in (w.source or ""):
+        return "texto conforme o acervo consolidado; confirme a vigência; não é aconselhamento jurídico"
     cols = [c for c in [*w.y, w.column, *(w.columns if w.kind == "table" else [])] if c]
     partes = []
     if any(_is_five_year(c) for c in cols):
@@ -1486,6 +1570,9 @@ def _render_table_html(w: WidgetSpec, df: pd.DataFrame) -> str:
     for _, row in work.iterrows():
         cells = []
         for c in cols:
+            if c == "url_fonte":
+                cells.append(f"<td>{_source_link(row[c])}</td>")
+                continue
             txt = html.escape(format_br_value(row[c], c))
             if c == bar_col and max_v:
                 v = pd.to_numeric(pd.Series([row[c]]), errors="coerce").iloc[0]
@@ -1560,26 +1647,39 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
 MAIN_KINDS = ("line", "area", "bar", "waterfall")
 
 
-def _main_chart_ids(widgets, group_section) -> set[str]:
+def _is_law(w: WidgetSpec, by_id=None) -> bool:
+    ds = (by_id or {}).get(w.dataset_id)
+    if ds is not None:
+        return getattr(ds, "database", "") == LAWS_DATABASE
+    return LAWS_SOURCE in (w.source or "")
+
+
+def _section_of(w: WidgetSpec, group_section, by_id=None) -> str:
+    if _is_law(w, by_id):
+        return "base-legal"
+    return group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
+
+
+def _main_chart_ids(widgets, group_section, by_id=None) -> set[str]:
     """E5: em cada seção de gráficos, o primeiro de linha/área/barras/variação é o principal
     (largura total); os demais ficam em meia largura, alinhados à grade."""
     seen: set[str] = set()
     out: set[str] = set()
     for w in widgets:
-        sec = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
-        if sec in ("visao-geral", "detalhamento") or sec in seen or w.kind not in MAIN_KINDS:
+        sec = _section_of(w, group_section, by_id)
+        if sec in ("visao-geral", "detalhamento", "base-legal") or sec in seen or w.kind not in MAIN_KINDS:
             continue
         seen.add(sec)
         out.add(w.id)
     return out
 
 
-def _final_spans(widgets, group_section, main_ids) -> dict[str, int]:
+def _final_spans(widgets, group_section, main_ids, by_id=None) -> dict[str, int]:
     """Largura final de cada cartão de gráfico: o principal da seção ocupa a largura toda e um cartão
     de meia largura que ficaria sozinho na linha (seguido de um de largura toda, ou no fim) também."""
     por_secao: dict[str, list] = {}
     for w in widgets:
-        sec = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
+        sec = _section_of(w, group_section, by_id)
         if sec != "visao-geral":
             por_secao.setdefault(sec, []).append(w)
     spans: dict[str, int] = {}
@@ -1753,11 +1853,11 @@ def render_dashboard_html(
     first_kpi = True
 
     ordered, group_ranges, group_section = _plan_groups(spec.widgets, by_id)
-    spans = _final_spans(ordered, group_section, _main_chart_ids(ordered, group_section))
+    spans = _final_spans(ordered, group_section, _main_chart_ids(ordered, group_section, by_id), by_id)
     for w in ordered:
         if spans.get(w.id, w.span) != w.span:
             w = replace(w, span=spans[w.id])  # E5: principal na largura toda; nenhum cartão sozinho pela metade
-        section = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
+        section = _section_of(w, group_section, by_id)
         note = ""
         if w.kind in ("pie", "donut") and w.valid and w.dataset_id in by_id and w.x in by_id[w.dataset_id].df.columns:
             n_partes = len(_prepare_slice(by_id[w.dataset_id].df, w))
@@ -1782,6 +1882,8 @@ def render_dashboard_html(
                 cards[section].append(_render_gauge_card(w, df))
             elif w.kind == "table":
                 cards[section].append(_render_valid_card(w, _render_table_html(w, df), df))
+            elif w.kind == "quote":
+                cards[section].append(_render_valid_card(w, _render_quote_html(w, df), df))
             elif w.kind == "progress":
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df), df,
                                                          chart_conclusion(w, df)))
@@ -1796,7 +1898,7 @@ def render_dashboard_html(
                             "modeBarButtons": [["toImage"]], "toImageButtonOptions": {"scale": 2}},
                 )
                 needs_plotly = True
-                conclusao = chart_conclusion(w, df)
+                conclusao = None if _is_law(w, by_id) else chart_conclusion(w, df)
                 aria = html.escape(". ".join(t.rstrip(".") for t in (pt_text(w.title), conclusao, pt_text(w.subtitle)) if t)
                                    + ". A tabela em Ver dados traz os mesmos números.")
                 cards[section].append(_render_valid_card(
@@ -1851,6 +1953,8 @@ def render_dashboard_html(
         )
     queries_html = "\n".join(queries_items) or "<p class='meta'>Nenhuma consulta registrada.</p>"
     theme_attr = f' data-theme="{theme}"' if theme in ("light", "dark") else ""
+    law_note = (f'<br><span class="law-note">{html.escape(LAW_FOOTER)}</span>'
+                if any(getattr(d, "database", "") == LAWS_DATABASE for d in datasets) else "")
     plotly_head = _plotly_loader(plotlyjs) if needs_plotly else ""
 
     return f"""<!doctype html>
@@ -1906,7 +2010,7 @@ def render_dashboard_html(
       {queries_html}
     </details>
     <footer class="page-footer">
-      Dados: Trase (CC BY 4.0). Exposição ao desmatamento é uma associação estatística e não prova ilegalidade.
+      Dados: Trase (CC BY 4.0). Exposição ao desmatamento é uma associação estatística e não prova ilegalidade.{law_note}
     </footer>
   </main>
 </div>

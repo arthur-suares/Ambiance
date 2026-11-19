@@ -140,6 +140,32 @@ A IA não escreve nenhum número nem nenhuma destas frases.
 Prévia dos estados: `python scripts/preview_dashboard.py` também grava
 `_estado_<carregando|sem_dados|erro>_<claro|escuro>.html`.
 
+## Painéis de leis (Parte G)
+
+- **Quando**: pedido de painel, gráfico ou tabela com termo de lei ("monte um painel das multas do Código
+  Florestal") vira painel de leis (domínio `law`). Com dados do Trase na mesma mensagem, vira misto
+  (dados + leis). Pergunta de lei sem pedido de painel continua em texto.
+- **Agente de leis** (`src/dashboard/law_agent.py`), com fonte "Legislação — Planalto [Dn]":
+  - metadados do acervo por SQL somente-leitura: normas, tipo, ano, artigos, temas (pelo título, regra
+    fixa), linha do tempo por ano e matriz leis × tema;
+  - fatos dos trechos recuperados pela busca existente (`src.rag.retrieve`, só importada): lei, artigo,
+    tipo, valor mínimo e máximo, unidade por linha, prazo, citação literal e link.
+- **Conferência em código**: a IA só extrai. Cada número e cada citação precisam estar no texto do
+  trecho de onde vieram; lei, artigo e link vêm do trecho, não da IA. O que não passa é descartado e o
+  painel diz quantas informações ficaram de fora. Nada é somado entre leis; nenhuma multa total é calculada.
+- **Visuais** (montados em código, a IA não escolhe): comparativo das normas, faixa de valores por
+  artigo (do mínimo ao máximo, um gráfico por unidade, escala logarítmica quando os valores vão de
+  dezenas a milhões), valores por artigo, normas por ano, leis × tema e cartões de artigo-chave com a
+  citação e o link do Planalto.
+- **Seção "Base legal"** separada dos dados do Trase; rodapé "Texto das normas conforme o acervo
+  consolidado; confirme a vigência. Isto não é aconselhamento jurídico."
+- **Regras**: toda linha com link e citação; unidade em cada linha com valor; a faixa só compara a mesma
+  unidade. Texto que liga exposição ao desmatamento a infração, multa ou sanção é bloqueado.
+- **Termos jurídicos (R5-e)**: o nome oficial "Lei de Crimes Ambientais" passa só em componente com fonte
+  no acervo de leis; "crime", "ilegal" etc. em qualquer outro uso continuam bloqueados.
+- **Sem acervo** (Postgres desligado): o painel de leis explica em uma frase; o misto entrega os dados.
+- Prévia: `_preview_leis_claro.html` e `_preview_leis_escuro.html`.
+
 ## Por qual coluna agrupar (A4, itens 1 a 3)
 
 - **Glossário** (`src/dashboard/dimensions.py`): "município", "municípios exportadores", "de onde vem",

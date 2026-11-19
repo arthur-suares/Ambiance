@@ -111,7 +111,7 @@ def base_phrase(base: DataBase) -> str | None:
 
 
 def _widget_bases(spec: DashboardSpec, datasets: list[DatasetResult]) -> dict[str, DataBase]:
-    by_id = {d.dataset_id: d for d in datasets}
+    by_id = {d.dataset_id: d for d in datasets if d.database != "laws"}  # leis não têm base do Trase
     return {w.id: infer_base(by_id[w.dataset_id]) for w in spec.widgets
             if w.valid and w.dataset_id in by_id}
 

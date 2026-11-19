@@ -18,7 +18,14 @@ import pandas as pd
 ALLOWED_WIDGET_KINDS = ("kpi", "bar", "line", "area", "progress", "table", "pie", "donut", "gauge", "waterfall")
 # Tipos novos herdam as regras de um tipo existente (colunas e metodologia), sem duplicar o validador.
 # Nomes técnicos ficam no código; a tela diz pizza, rosca, medidor, variação por item.
-BASE_KIND = {"area": "line", "progress": "bar", "pie": "bar", "donut": "bar", "waterfall": "bar", "gauge": "kpi"}
+BASE_KIND = {"area": "line", "progress": "bar", "pie": "bar", "donut": "bar", "waterfall": "bar", "gauge": "kpi",
+             "range": "bar", "quote": "table"}
+# G4: tipos só dos painéis de leis. São montados pelo código (src/dashboard/law_agent.py), nunca pela IA,
+# por isso ficam fora de ALLOWED_WIDGET_KINDS (a lista que os prompts mostram).
+LAW_WIDGET_KINDS = ("range", "quote")
+WIDGET_KINDS = (*ALLOWED_WIDGET_KINDS, *LAW_WIDGET_KINDS)
+LAWS_DATABASE = "laws"
+LAWS_SOURCE = "Legislação — Planalto"
 ALLOWED_KPI_AGGS = ("first", "sum", "mean", "max", "min", "count")
 MAX_REVISIONS = 2
 MAX_ROWS_TO_LLM = 60

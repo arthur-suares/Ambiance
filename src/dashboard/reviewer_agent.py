@@ -27,6 +27,10 @@ from src.dashboard.schemas import BASE_KIND
 from src.dashboard.schemas import (
     ALLOWED_KPI_AGGS,
     ALLOWED_WIDGET_KINDS,
+    LAW_WIDGET_KINDS,
+    LAWS_DATABASE,
+    LAWS_SOURCE,
+    WIDGET_KINDS,
     DashboardSpec,
     DatasetResult,
     MAX_ROWS_TO_LLM,
@@ -124,6 +128,41 @@ def _check_new_kind(w: WidgetSpec, datasets_by_id: dict[str, DatasetResult]) -> 
     return []
 
 
+def validate_law_widget(w: WidgetSpec, ds: DatasetResult) -> list[WidgetIssue]:
+    """G7 (R5 para leis): fonte do acervo com [Dn]; toda linha com url_fonte (e citação literal, nos fatos);
+    unidade em cada linha com valor; faixa de multa só compara linhas da MESMA unidade."""
+    import re as _re
+
+    issues: list[WidgetIssue] = []
+    if LAWS_SOURCE not in w.source or not _re.search(rf"\[{_re.escape(w.dataset_id)}\]", w.source):
+        issues.append(WidgetIssue(w.id, "deterministic",
+                                  f"A fonte de um componente de leis deve ser '{LAWS_SOURCE} [{w.dataset_id}]'.",
+                                  code="lei_fonte"))
+    df = ds.df
+
+    def _vazios(col: str) -> int:
+        return int(df[col].isna().sum() + (df[col].astype(str).str.strip() == "").sum())
+
+    if "url_fonte" not in df.columns or _vazios("url_fonte"):
+        issues.append(WidgetIssue(w.id, "deterministic", "Linha de lei sem url_fonte.", code="lei_fonte"))
+    elif not df["url_fonte"].astype(str).str.match(r"https?://").all():
+        issues.append(WidgetIssue(w.id, "deterministic", "url_fonte inválida.", code="lei_fonte"))
+    if "citacao_literal" in df.columns and _vazios("citacao_literal"):
+        issues.append(WidgetIssue(w.id, "deterministic", "Linha de lei sem citação literal.", code="lei_fonte"))
+    tem_valor = [c for c in ("valor_min", "valor_max") if c in df.columns]
+    if tem_valor:
+        com_valor = df[tem_valor].notna().any(axis=1)
+        if "unidade" not in df.columns or (df.loc[com_valor, "unidade"].astype(str).str.strip().isin(["", "None", "nan"])).any():
+            issues.append(WidgetIssue(w.id, "deterministic", "Valor de lei sem unidade na linha.",
+                                      code="lei_unidade"))
+    if w.kind == "range":
+        if "unidade" not in df.columns or df["unidade"].nunique(dropna=False) != 1:
+            issues.append(WidgetIssue(w.id, "deterministic",
+                                      "Faixa de multa com unidades diferentes no mesmo gráfico.",
+                                      code="lei_unidade"))
+    return issues
+
+
 def validate_widget_deterministic(
     w: WidgetSpec,
     datasets_by_id: dict[str, DatasetResult],
@@ -133,6 +172,7 @@ def validate_widget_deterministic(
 
     # `area` e `progress` herdam todas as checagens (colunas e metodologia) de `line` e `bar`.
     issues.extend(_check_new_kind(w, datasets_by_id))
+    original_kind = w.kind
     if w.kind in BASE_KIND:
         w = _replace(w, kind=BASE_KIND[w.kind])
     if w.kind == "kpi" and (w.trend_x or w.trend_y) and w.dataset_id in datasets_by_id:
@@ -149,7 +189,7 @@ def validate_widget_deterministic(
         issues.append(WidgetIssue(w.id, "deterministic", w.validation_error))
         return issues
 
-    if w.kind not in ALLOWED_WIDGET_KINDS:
+    if w.kind not in WIDGET_KINDS:
         issues.append(WidgetIssue(
             w.id, "deterministic",
             f"Tipo '{w.kind}' inválido. Use apenas: {', '.join(ALLOWED_WIDGET_KINDS)}.",
@@ -161,10 +201,19 @@ def validate_widget_deterministic(
     if not w.unit.strip():
         issues.append(WidgetIssue(w.id, "deterministic", "Unidade ausente no componente."))
 
+    ds_law = datasets_by_id.get(w.dataset_id)
+    law_widget = ds_law is not None and ds_law.database == LAWS_DATABASE
     src_lower = w.source.lower()
     if not w.source.strip():
         issues.append(WidgetIssue(w.id, "deterministic", "Fonte de dados ausente no componente."))
+    elif law_widget:
+        issues.extend(validate_law_widget(w, ds_law))
     else:
+        if original_kind in LAW_WIDGET_KINDS or LAWS_SOURCE.lower() in src_lower:
+            issues.append(WidgetIssue(
+                w.id, "deterministic",
+                "Componente de leis precisa usar um dataset do acervo de leis.",
+            ))
         if "trase" not in src_lower:
             issues.append(WidgetIssue(
                 w.id, "deterministic",

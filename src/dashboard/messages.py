@@ -20,6 +20,8 @@ USER_MESSAGES = {
     "sem_dados": "Não há dados para este recorte.",
     "medidor": "O medidor só mostra um percentual calculado dos dados.",
     "estrutura": "Os dados encontrados não têm todas as informações que este gráfico precisa.",
+    "lei_fonte": "Faltou a fonte ou a citação da lei em uma linha, então ela não aparece.",
+    "lei_unidade": "Valores de leis com unidades diferentes não podem ser comparados no mesmo gráfico.",
 }
 DEFAULT_MESSAGE = "Não consegui mostrar este gráfico como planejado."
 SHOWN_AS_LIST = "Mostrei os mesmos dados como lista."

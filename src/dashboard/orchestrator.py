@@ -33,6 +33,7 @@ from src.dashboard.dashboard_agent import (
 )
 from src.dashboard.data_agent import run_data_agent
 from src.dashboard.data_base import declare_bases
+from src.dashboard.law_agent import build_law_widgets, run_law_agent
 from src.dashboard.dimensions import (
     DIMENSIONS,
     GLOSSARY_PROMPT,
@@ -43,7 +44,7 @@ from src.dashboard.dimensions import (
 )
 from src.dashboard.reviewer_agent import review_dashboard
 from src.dashboard.messages import user_message
-from src.dashboard.validator import find_illegality_claim
+from src.dashboard.validator import find_illegality_claim, is_law_sourced, spec_has_law_source
 from src.dashboard.schemas import (
     ALLOWED_WIDGET_KINDS,
     DashboardRunResult,
@@ -256,23 +257,26 @@ def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
     O monitor de saída continua com as mesmas regras e bloqueia o que escapar.
     """
     rewritten = False
-    if find_illegality_claim(spec.title):
+    law_panel = spec_has_law_source(spec)  # G5: só o nome oficial da norma, só com fonte de leis
+    if find_illegality_claim(spec.title, law_source=law_panel):
         fallback = f"Dashboard — {question}" if question else ""
-        spec.title = fallback if fallback and not find_illegality_claim(fallback) else "Painel Trase"
+        spec.title = (fallback if fallback and not find_illegality_claim(fallback, law_source=law_panel)
+                      else "Painel Trase")
         rewritten = True
-    if find_illegality_claim(spec.subtitle):
+    if find_illegality_claim(spec.subtitle, law_source=law_panel):
         spec.subtitle = ""
         rewritten = True
     for w in spec.widgets:
-        if find_illegality_claim(w.title):
+        law_w = is_law_sourced(w)
+        if find_illegality_claim(w.title, law_source=law_w):
             w.title = _neutral_widget_title(w)
             rewritten = True
-        if find_illegality_claim(w.subtitle):
+        if find_illegality_claim(w.subtitle, law_source=law_w):
             w.subtitle = ""
             rewritten = True
         if w.validation_error and find_illegality_claim(w.validation_error):
             w.validation_error = user_message(w.validation_codes)
-    dropped = [msg for msg in spec.warnings if find_illegality_claim(msg)]
+    dropped = [msg for msg in spec.warnings if find_illegality_claim(msg, law_source=law_panel)]
     for msg in dropped:
         logger.info("Aviso descartado por conter termo proibido: %s", msg)
     kept = [msg for msg in spec.warnings if msg not in dropped]
@@ -308,6 +312,29 @@ def _finish_dimension(spec: DashboardSpec, plan: OrchestratorPlan, question: str
             w.subtitle = f"{frase} {w.subtitle}".strip() if w.subtitle else frase
 
 
+LAW_PANEL_TITLE = "Legislação ambiental: o que dizem as normas"
+NO_LAW_FACTS_MESSAGE = "Não encontrei nas leis do acervo um trecho com essa informação."
+
+
+def _attach_law_part(spec: DashboardSpec, question: str, datasets: list, start_index: int) -> tuple[int, int]:
+    """G1/G6/G8: acrescenta a parte das leis (seção "Base legal") ao painel. Os widgets são montados em
+    código; sem acervo, o painel diz isso em português simples e mantém o resto."""
+    usados = [int(d.dataset_id[1:]) for d in datasets if str(d.dataset_id)[1:].isdigit()]
+    inicio = max([start_index - 1, *usados]) + 1
+    res = run_law_agent(question, start_index=inicio)
+    widgets, extra = build_law_widgets(res)
+    datasets.extend([*res.datasets, *extra])
+    spec.widgets.extend(widgets)
+    if not res.available:
+        spec.warnings.append(res.notes)
+    else:
+        if res.notes:
+            spec.warnings.append(res.notes)
+        if not widgets:
+            spec.warnings.append(NO_LAW_FACTS_MESSAGE)
+    return res.input_tokens, res.output_tokens
+
+
 def _parse_common_base(raw) -> dict:
     if not isinstance(raw, dict):
         return {}
@@ -336,20 +363,29 @@ def generate_dashboard(
     resolved_domain = resolve_domain(question, domain)
 
     chart, c_in, c_out = interpret_chart(question)
-    plan = create_plan(question, resolved_domain, chart)
-    total_in = plan.input_tokens + c_in
-    total_out = plan.output_tokens + c_out
-
-    data_res = run_data_agent(question, plan)
-    total_in += data_res.input_tokens
-    total_out += data_res.output_tokens
-    datasets = data_res.datasets
+    law_only = resolved_domain == "law"
+    if law_only:
+        plan = OrchestratorPlan(question=question, domain="law", dashboard_goal=LAW_PANEL_TITLE,
+                                requested_chart=chart)
+        total_in, total_out = c_in, c_out
+        datasets = []
+        data_res = None
+    else:
+        plan = create_plan(question, resolved_domain, chart)
+        total_in = plan.input_tokens + c_in
+        total_out = plan.output_tokens + c_out
+        data_res = run_data_agent(question, plan)
+        total_in += data_res.input_tokens
+        total_out += data_res.output_tokens
+        datasets = list(data_res.datasets)
 
     reviews: list[ReviewResult] = []
     revisions_used = 0
 
-    if not datasets:
-        reason = data_res.notes or "Nenhum conjunto de dados retornou linhas para esta pergunta."
+    if law_only:
+        spec = DashboardSpec(title=LAW_PANEL_TITLE, widgets=[], warnings=[])
+    elif not datasets:
+        reason = (data_res.notes if data_res else "") or "Nenhum conjunto de dados retornou linhas para esta pergunta."
         spec = DashboardSpec(
             title=f"Dashboard — {question}",
             subtitle=plan.dashboard_goal,
@@ -379,6 +415,10 @@ def generate_dashboard(
             else:
                 _apply_final_review_isolation(spec, review, question)
 
+    if law_only or resolved_domain == "mixed":  # G3: leis -> agente de leis; misto -> os dois
+        l_in, l_out = _attach_law_part(spec, question, datasets, 1)
+        total_in += l_in
+        total_out += l_out
     declare_bases(spec, datasets)  # A4: bases diferentes -> cada widget diz a base que usou
     _finish_dimension(spec, plan, question, datasets)
     _finish_chart_choice(spec, plan, datasets)
@@ -449,7 +489,12 @@ def build_dashboard_from_store(
     chart, total_in, total_out = interpret_chart(question, current_kind=main_kind)
     data_notes = ""
 
-    if can_reuse_store:
+    law_only = resolved_domain == "law" and not is_edit
+    if law_only:
+        plan = OrchestratorPlan(question=question, domain="law", dashboard_goal=LAW_PANEL_TITLE,
+                                data_requests=[], requested_chart=chart)
+        datasets = []
+    elif can_reuse_store:
         goal_txt = goal_hint or (current_spec.title if is_edit and current_spec else question)
         plan = OrchestratorPlan(
             question=question,
@@ -459,7 +504,7 @@ def build_dashboard_from_store(
             requested_chart=chart,
             requested_dimension=dim.key if dim is not None else None,
         )
-        datasets = stored_datasets
+        datasets = list(stored_datasets)
     else:
         t_data = time.perf_counter()
         plan = create_plan(question, resolved_domain, chart)
@@ -496,7 +541,9 @@ def build_dashboard_from_store(
     reviews: list[ReviewResult] = []
     revisions_used = 0
 
-    if not datasets:
+    if law_only:
+        spec = DashboardSpec(title=LAW_PANEL_TITLE, widgets=[], warnings=[])
+    elif not datasets:
         reason = data_notes or "Nenhum conjunto de dados retornou linhas para esta pergunta."
         spec = DashboardSpec(
             title=f"Dashboard — {question}",
@@ -558,6 +605,15 @@ def build_dashboard_from_store(
                     })
             else:
                 _apply_final_review_isolation(spec, review, question)
+
+    if law_only or resolved_domain == "mixed":  # G3: leis -> agente de leis; misto -> os dois
+        t_law = time.perf_counter()
+        l_in, l_out = _attach_law_part(spec, question, datasets, store.last_index(sid) + 1)
+        total_in += l_in
+        total_out += l_out
+        if trace_hook is not None:
+            trace_hook("law_agent", {"latency_s": round(time.perf_counter() - t_law, 3), "input_tokens": l_in,
+                                     "output_tokens": l_out, "tool": "run_law_agent", "verdict": "ok"})
 
     used_ids = {w.dataset_id for w in spec.widgets if w.dataset_id}
     render_datasets = [d for d in datasets if d.dataset_id in used_ids] or datasets

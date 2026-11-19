@@ -12,7 +12,14 @@ import re
 
 import pandas as pd
 
-from src.dashboard.schemas import DashboardSpec, DatasetResult, WidgetIssue, WidgetSpec
+from src.dashboard.schemas import (
+    LAWS_DATABASE,
+    LAWS_SOURCE,
+    DashboardSpec,
+    DatasetResult,
+    WidgetIssue,
+    WidgetSpec,
+)
 from src.data_dictionary import METRICS, TABLES
 from src.soy.catalog import DEFAULT_SOY_MANIFEST
 from src.soy.territorial import SOY_METRICS
@@ -107,6 +114,16 @@ _NEGATED_DISCLAIMER_RE = re.compile(
 )
 
 _ILLEGALITY_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # G6: nenhum texto liga causalmente exposição/desmatamento a infração, multa ou sanção.
+    (
+        re.compile(
+            r"\b(?:exposi\w*|desmat\w*)\b[^.;]{0,80}?\b(?:configura\w*|caracteriza\w*|constitu[ei]\w*|gera\w*"
+            r"|resulta\w*\s+em|implica\w*|sujeit\w*\s+a|passive(?:l|is)\s+de)\b[^.;]{0,40}?"
+            r"\b(?:infra[cç]\w*|crimes?\b|multas?\b|penalidad\w*|san[cç](?:[aã]o|[oõ]es))",
+            re.IGNORECASE,
+        ),
+        "liga exposição a infração",
+    ),
     (re.compile(r"\bilega(?:l|is|lidade|lmente)\b", re.IGNORECASE), "ilegal/ilegalidade"),
     (re.compile(r"\bcrimes?\b|\bcriminos[oa]s?\b", re.IGNORECASE), "crime"),
     (re.compile(r"\bculpad[oa]s?\b", re.IGNORECASE), "culpada/culpado"),
@@ -205,11 +222,36 @@ def distinct_year_count(df: pd.DataFrame) -> tuple[str | None, int]:
     return year_col, int(cleaned.nunique())
 
 
-def find_illegality_claim(text: str | None) -> str | None:
-    """Se `text` contiver alegação de ilegalidade/crime/autoria de desmatamento, devolve o termo detectado."""
+# G5 (SEGURANÇA, escopo estreito): o NOME OFICIAL de uma norma que contém termo jurídico ("Lei de Crimes
+# Ambientais") é permitido SÓ em texto de componente cuja fonte é o acervo de leis (`law_source=True`).
+# Só o nome é retirado antes da checagem: "crime", "ilegal" etc. em qualquer outra posição continuam
+# bloqueados, inclusive no mesmo texto ("Sorriso cometeu crime previsto na Lei de Crimes Ambientais").
+_LAW_OFFICIAL_NAME_RE = re.compile(r"\bLei\s+d[eo]s?\s+Crimes\s+Ambientais\b", re.IGNORECASE)
+_DATASET_TAG_RE = re.compile(r"\[D\d+\]")
+
+
+def is_law_sourced(w: WidgetSpec, ds: DatasetResult | None = None) -> bool:
+    """Componente cuja fonte é o acervo de leis, com o rótulo [Dn] (e, se informado, dataset de leis)."""
+    source = w.source or ""
+    if LAWS_SOURCE not in source or not _DATASET_TAG_RE.search(source):
+        return False
+    return ds is None or ds.database == LAWS_DATABASE
+
+
+def spec_has_law_source(spec: DashboardSpec) -> bool:
+    return any(is_law_sourced(w) for w in spec.widgets)
+
+
+def find_illegality_claim(text: str | None, *, law_source: bool = False) -> str | None:
+    """Se `text` contiver alegação de ilegalidade/crime/autoria de desmatamento, devolve o termo detectado.
+
+    `law_source=True` só para textos de componentes com fonte no acervo de leis: aí o nome oficial
+    "Lei de Crimes Ambientais" deixa de contar como alegação (G5). Nada mais muda."""
     if not text or not text.strip():
         return None
     sanitized = _NEGATED_DISCLAIMER_RE.sub(" ", text)
+    if law_source:
+        sanitized = _LAW_OFFICIAL_NAME_RE.sub(" ", sanitized)
     for pattern, label in _ILLEGALITY_PATTERNS:
         if pattern.search(sanitized):
             return label
@@ -229,8 +271,9 @@ def validate_widget_methodological(
     """Aplica as regras metodológicas bloqueantes (R5-a, R5-b, R5-c, R5-e por widget) em código."""
     issues: list[WidgetIssue] = []
 
+    law_source = is_law_sourced(w, ds)
     for field_label, text_val in (("título", w.title), ("subtítulo", w.subtitle)):
-        claim = find_illegality_claim(text_val)
+        claim = find_illegality_claim(text_val, law_source=law_source)
         if claim:
             issues.append(WidgetIssue(
                 w.id,
@@ -340,8 +383,9 @@ def validate_spec_methodological(
     """Valida metadados gerais do `DashboardSpec` (R5-e) e acrescenta avisos não bloqueantes (R5-d)."""
     issues: list[WidgetIssue] = []
 
+    law_panel = spec_has_law_source(spec)
     for field_label, text_val in (("título do painel", spec.title), ("subtítulo do painel", spec.subtitle)):
-        claim = find_illegality_claim(text_val)
+        claim = find_illegality_claim(text_val, law_source=law_panel)
         if claim:
             issues.append(WidgetIssue(
                 None,
@@ -352,7 +396,7 @@ def validate_spec_methodological(
             ))
 
     for warn_msg in list(spec.warnings):
-        claim = find_illegality_claim(warn_msg)
+        claim = find_illegality_claim(warn_msg, law_source=law_panel)
         if claim:
             issues.append(WidgetIssue(
                 None,
