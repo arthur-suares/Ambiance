@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0a110e">
+    <title>Ambiance | Consultas</title>
+    <link rel="stylesheet" href="css/experience.css">
+    <script src="js/app.js" defer></script>
+</head>
+<body>
+    <header class="header">
+        <a href="/" class="brand"><span class="brand-arrow">↖</span><span>AMBIANCE</span></a>
+        <nav class="navigation" aria-label="Navegação">
+            <a class="nav-tab" href="/">← Apresentação</a>
+        </nav>
+        <div class="login-button"><span class="status-dot"></span> Sistema pronto</div>
+    </header>
+
+    <main>
+        <section class="hero" id="consulta">
+            <div class="hero-content">
+                <span class="eyebrow">AMBIANCE / CONSULTA</span>
+                <h1>Investigue o território.</h1>
+                <p class="hero-description">Pergunte sobre soja, carne bovina ou legislação ambiental.</p>
+                <form id="form" class="query-card">
+                    <label for="question">Sua pergunta</label>
+                    <textarea id="question" name="question" placeholder="Ex.: Como evoluiu a produção de soja no Mato Grosso?" rows="3" required></textarea>
+                    <div class="form-options">
+                        <div class="field">
+                            <label for="domain">Área</label>
+                            <select id="domain" name="domain">
+                                <option value="auto">Automático</option>
+                                <option value="law">Legislação</option>
+                                <option value="beef">Carne bovina</option>
+                                <option value="soy">Soja</option>
+                                <option value="mixed">Misto</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="mode">Pesquisa</label>
+                            <select id="mode" name="mode">
+                                <option value="agent">Agente</option>
+                                <option value="laws">Somente legislação</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="k">Resultados</label>
+                            <select id="k" name="k">
+                                <option value="3">3 resultados</option>
+                                <option value="5" selected>5 resultados</option>
+                                <option value="10">10 resultados</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-footer">
+                        <span id="status">Aguardando sua pergunta.</span>
+                        <button type="submit" id="send">ENVIAR <span>→</span></button>
+                    </div>
+                </form>
+                <div class="hero-indicators">
+                    <span><span class="status-dot"></span><span id="connection-status">Aguardando</span></span>
+                    <span>Consultas realizadas: <strong id="query-count">0</strong></span>
+                </div>
+            </div>
+        </section>
+
+        <section class="results-area" id="resultados">
+            <div class="results-heading">
+                <span class="eyebrow">INTELIGÊNCIA ARTIFICIAL</span>
+                <h2>Resultados da consulta</h2>
+                <p>Resposta, referências e contexto recuperado.</p>
+            </div>
+            <article class="result-card">
+                <h3>Resposta</h3>
+                <div id="answer" class="answer-content"><p class="empty-state">Sua resposta aparecerá aqui após o envio.</p></div>
+            </article>
+            <div class="results-grid">
+                <article class="result-card">
+                    <h3>Fontes consultadas</h3>
+                    <div id="sources"><p class="empty-state">Nenhuma fonte disponível.</p></div>
+                </article>
+                <article class="result-card">
+                    <h3>Ferramentas utilizadas</h3>
+                    <div id="calls"><p class="empty-state">Nenhuma ferramenta utilizada.</p></div>
+                </article>
+            </div>
+            <article class="result-card">
+                <h3>Informações de processamento</h3>
+                <div id="usage"><p class="empty-state">Aguardando processamento.</p></div>
+            </article>
+            <article class="result-card">
+                <h3>Contexto recuperado</h3>
+                <div id="context"><p class="empty-state">Nenhum contexto disponível.</p></div>
+            </article>
+        </section>
+    </main>
+</body>
+</html>
