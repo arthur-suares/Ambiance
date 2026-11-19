@@ -140,6 +140,32 @@ A IA não escreve nenhum número nem nenhuma destas frases.
 Prévia dos estados: `python scripts/preview_dashboard.py` também grava
 `_estado_<carregando|sem_dados|erro>_<claro|escuro>.html`.
 
+## Movimento e interação (Parte D)
+
+Tudo em `src/dashboard/interaction.py`, sem biblioteca nova (só o Plotly embutido, funciona offline).
+
+- **Entrada**: cartões aparecem em sequência (opacidade + subida de 8 px, 450 ms, atraso escalonado de
+  70 ms) quando entram na tela. KPIs contam do zero até o valor em pt-BR (800 ms); linhas se desenham
+  da esquerda para a direita (900 ms); barras crescem do zero (700 ms); fatias se abrem (750 ms);
+  minigráficos e medidor se desenham (900 ms).
+- **Valor final sempre no HTML**: o texto final e o `data-value` já estão na página; a animação só passa
+  por números intermediários. Sem JavaScript, com "reduzir movimento" ou na impressão, tudo aparece pronto.
+- **Passar o mouse**: o item em foco se destaca e os demais clareiam; a dica mostra o valor. Clique na
+  legenda (onde há legenda) liga/desliga a série. Cartões sobem 2 px.
+- **Controles do cartão**: "Ver como: barras · pizza · lista" quando o dado permite (a pizza só aparece se
+  não enganar: um único período, medida somável, até 8 partes); as visões são montadas no servidor com as
+  mesmas linhas, trocar não consulta nem recalcula. Tela cheia, baixar imagem (PNG) e baixar CSV (`;`,
+  vírgula decimal, cabeçalhos como na tela, números exatos).
+- **Período**: só em gráficos por ano com 3 anos ou mais. "De/até" com os anos que já estão nos dados;
+  esconde pontos e linhas da tabela fora do período, nunca soma nem cria valores. A frase de conclusão
+  continua valendo para o período completo, e o filtro diz isso.
+- **Testes no navegador** (`tests/test_dashboard_parte_d.py`, Playwright com o Edge do sistema): números
+  finais iguais aos dados, nenhum erro no console, movimento reduzido, troca de visão, filtro de período
+  e celular de 390 px sem rolagem lateral. Capturas em `outputs/capturas_parte_d/`.
+- **Tamanho do Plotly**: o arquivo embutido tem cerca de 4,6 MB. Um pacote parcial (barras, linhas,
+  pizza) teria cerca de 1 MB, mas não vem com o Plotly para Python e não inclui a variação por item
+  (waterfall); usá-lo exigiria guardar um arquivo novo no projeto. Mantido o completo.
+
 ## Polimento (Parte H)
 
 - **Pizza e rosca**: 6 cores de categoria (floresta, petróleo, terracota, oliva, ameixa, azul-rio) mais o

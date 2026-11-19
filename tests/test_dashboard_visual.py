@@ -178,7 +178,8 @@ def test_plotly_carrega_antes_de_todo_grafico_mesmo_com_barra_antes_da_linha(mod
     page = _page(widgets, [_ds("D1", SERIE), _ds("D2", RANK)], plotlyjs=modo)
     carga = [m.start() for m in re.finditer(r"cdn\.plot\.ly/|plotly\.js v\d", page)]
     desenhos = [m.start() for m in re.finditer(r"Plotly\.newPlot\(", page)]
-    assert len(desenhos) == 2 and page.index('id="evolucao"') < page.index('id="rankings"')
+    # D3: a barra traz também a visão "pizza" já montada (mesmos dados), então há 3 desenhos
+    assert len(desenhos) == 3 and page.index('id="evolucao"') < page.index('id="rankings"')
     assert len(carga) >= 1 and page.index("</head>") > carga[0]
     assert all(pos > carga[0] for pos in desenhos)
 
@@ -210,7 +211,8 @@ def test_top_n_em_linha_sem_color_mantem_periodos_mais_recentes():
 def test_pagina_sem_grafico_plotly_nao_carrega_plotly():
     page = _page([{"id": "t", "kind": "table", "title": "T", "dataset_id": "D1", "unit": "t",
                    "source": "Trase [D1]"}], [_ds("D1", SERIE)])
-    assert "Plotly" not in page and "cdn.plot.ly" not in page
+    # A biblioteca não carrega (o script de interação só verifica se window.Plotly existe)
+    assert "cdn.plot.ly" not in page and not re.search(r"plotly\.js v\d", page) and "Plotly.newPlot(" not in page
 
 
 def test_texto_da_ia_e_escapado():

@@ -32,6 +32,7 @@ from src.dashboard.messages import (
     short_subtitle,
     user_message,
 )
+from src.dashboard.interaction import MOTION_CSS, MOTION_JS, card_actions, csv_template, period_filter, view_switch
 from src.dashboard.law_agent import LAW_FOOTER
 from src.dashboard.reviewer_agent import validate_widget_deterministic
 from src.dashboard.schemas import (
@@ -325,7 +326,6 @@ h1 { font-size: var(--t-2xl); line-height: 1.2; margin: var(--s1) 0 var(--s2); l
 /* C3: gráficos menores com título pequeno, em maiúsculas e centralizado */
 .card.is-compact .card-header { position: relative; justify-content: center; text-align: center; padding: 0 var(--s7); }
 .card.is-compact .card-header h3 { font-size: var(--t-sm); font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
-.card.is-compact .card-header .badge { position: absolute; right: 0; top: 0; }
 .card.is-compact .subtitle { font-size: var(--t-xs); }
 .card-body { flex: 1; min-width: 0; }
 .card-footer { border-top: 1px solid var(--border); margin-top: var(--s2); padding-top: var(--s2); font-size: var(--t-xs); color: var(--muted); }
@@ -1557,7 +1557,7 @@ def _sparkline_svg(ys: list[float], uid: str, label: str) -> str:
     return (
         f'<svg class="spark" viewBox="0 0 {w_} {h_}" preserveAspectRatio="none" role="img" '
         f'aria-label="{html.escape(label)}">'
-        f'<polyline points="{line}" fill="none" stroke="currentColor" stroke-width="2" '
+        f'<polyline points="{line}" pathLength="1" fill="none" stroke="currentColor" stroke-width="2" '
         f'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
         f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="3.2" fill="currentColor"/></svg>'
     )
@@ -1589,13 +1589,63 @@ def _is_compact(w: WidgetSpec) -> bool:
     return w.span != 2 and (w.kind in COMPACT_KINDS or (w.kind == "bar" and w.orientation == "h"))
 
 
+def _csv_header(w: WidgetSpec, col: str) -> str:
+    """Cabeçalho do CSV: o nome da tela com a unidade (no CSV não há selo)."""
+    unit = w.column_units.get(col) or (w.unit if col in (*w.y, w.column) and w.kind != "table" else "")
+    return _axis_title(_label(w, col), unit) if unit else _label(w, col)
+
+
+def _fig_html(fig: go.Figure) -> str:
+    # D3: tela cheia e "baixar imagem" ficam nos botões do cartão; a barra do Plotly sai.
+    return fig.to_html(full_html=False, include_plotlyjs=False,
+                       config={"responsive": True, "displaylogo": False, "displayModeBar": False,
+                               "toImageButtonOptions": {"scale": 2}})
+
+
+def _pie_allowed(w: WidgetSpec, df: pd.DataFrame) -> bool:
+    """D3: "ver como pizza" só quando a pizza não engana: um único período, medida somável, sem
+    negativos e no máximo 8 partes."""
+    y = w.y[0]
+    vals = pd.to_numeric(df[y], errors="coerce").dropna()
+    if vals.empty or (vals < 0).any() or _is_ratio(w, y) or len(_years(df, w)) > 1:
+        return False
+    return len(_prepare_slice(df, replace(w, kind="pie"))) <= MAX_SLICES
+
+
+def _with_views(w: WidgetSpec, df: pd.DataFrame, plot_html: str, aria: str) -> str:
+    """D3: "Ver como: barras · pizza · lista" quando o dado permite. As visões são montadas aqui, com
+    as MESMAS linhas; trocar de visão não consulta nem recalcula nada."""
+    if (w.kind not in ("bar", "pie", "donut") or not w.x or _is_time(w.x) or w.color or len(w.y) != 1
+            or w.y[0] not in df.columns or LAWS_SOURCE in (w.source or "")):
+        return plot_html
+    circular = "donut" if w.kind == "donut" else "pie"
+    views = ["bar"] + ([circular] if _pie_allowed(w, df) else []) + ["list"]
+    if w.kind in ("pie", "donut") and circular not in views:
+        return plot_html
+    blocos = []
+    for v in views:
+        if v == w.kind:
+            corpo = plot_html
+        elif v == "list":
+            work = _prepare_slice(df, w)
+            cols = [c for c in (w.x, *w.y) if c in work.columns]
+            corpo = _render_table_html(replace(w, kind="table", columns=cols, sort_by=None,
+                                               top_n=max(len(work), 1)), work)
+        else:
+            alt = replace(w, kind=v, orientation="h" if v == "bar" else w.orientation)
+            corpo = f'<div class="plot-wrap" role="img" aria-label="{aria}">{_fig_html(build_widget_figure(alt, df))}</div>'
+        blocos.append(f'<div class="view" data-view="{v}"{"" if v == w.kind else " hidden"}>{corpo}</div>')
+    return view_switch(views, w.kind) + "".join(blocos)
+
+
 def _render_valid_card(w: WidgetSpec, inner_html: str, df: pd.DataFrame | None = None,
-                       conclusion: str | None = None, extra_html: str = "") -> str:
+                       conclusion: str | None = None, extra_html: str = "", orient: str | None = None) -> str:
     span_cls = " span-2" if w.span == 2 else ""
     span_cls += " is-compact" if _is_compact(w) else ""
+    orient_attr = f' data-orient="{html.escape(orient)}"' if orient else ""
     return (
         f'<article class="card chart-card{span_cls}" data-widget-id="{html.escape(w.id)}" '
-        f'data-widget-kind="{html.escape(w.kind)}">\n'
+        f'data-widget-kind="{html.escape(w.kind)}"{orient_attr}>\n'
         f'  {_card_header(w, df, conclusion)}\n'
         f'  <div class="card-body">{inner_html}</div>\n'
         f'  {extra_html}{_card_footer(w, df)}\n'
@@ -1668,8 +1718,11 @@ def _render_table_html(w: WidgetSpec, df: pd.DataFrame) -> str:
         for c in cols
     )
     rows = []
+    ano_col = next((c for c in cols if _is_time(c)), None)  # D4: o filtro de período esconde linhas
     for _, row in work.iterrows():
         cells = []
+        ano = pd.to_numeric(pd.Series([row[ano_col]]), errors="coerce").iloc[0] if ano_col else None
+        tr_attr = f' data-year="{int(ano)}"' if ano is not None and not pd.isna(ano) else ""
         for c in cols:
             if c == "url_fonte":
                 cells.append(f"<td>{_source_link(row[c])}</td>")
@@ -1682,7 +1735,7 @@ def _render_table_html(w: WidgetSpec, df: pd.DataFrame) -> str:
                              f'<span class="cell-v">{txt}</span></td>')
             else:
                 cells.append(f'<td class="{"num" if c in numeric else ""}">{txt}</td>')
-        rows.append(f"<tr>{''.join(cells)}</tr>")
+        rows.append(f"<tr{tr_attr}>{''.join(cells)}</tr>")
     return (f'<div class="table-wrap" tabindex="0" role="region" aria-label="{html.escape(pt_text(w.title))}">'
             f'<table><thead><tr>{head}</tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
@@ -1990,29 +2043,38 @@ def render_dashboard_html(
             elif w.kind == "gauge":
                 cards[section].append(_render_gauge_card(w, df))
             elif w.kind == "table":
-                cards[section].append(_render_valid_card(w, _render_table_html(w, df), df))
+                acoes = card_actions(image=False, csv_html=csv_template(
+                    _prepare_slice(df, w, default_top_n=50), list(w.columns or df.columns),
+                    header=lambda c, w=w: _csv_header(w, c), label=display_label))
+                cards[section].append(_render_valid_card(w, _render_table_html(w, df), df, extra_html=acoes))
             elif w.kind == "quote":
                 cards[section].append(_render_valid_card(w, _render_quote_html(w, df), df))
             elif w.kind == "progress":
+                acoes = card_actions(image=False, csv_html=csv_template(
+                    _prepare_slice(df, w), [c for c in (w.x, *w.y) if c],
+                    header=lambda c, w=w: _csv_header(w, c), label=display_label))
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df), df,
-                                                         chart_conclusion(w, df, _base_of(w, by_id))))
+                                                         chart_conclusion(w, df, _base_of(w, by_id)), acoes))
             else:
                 fig = build_widget_figure(w, df)
                 if w.group in group_ranges:  # mesmo intervalo de tempo nos gráficos do par
                     fig.update_xaxes(range=group_ranges[w.group], dtick=1 if _is_time(w.x) else None)
-                fig_html = fig.to_html(
-                    full_html=False,
-                    include_plotlyjs=False,
-                    config={"responsive": True, "displaylogo": False,
-                            "modeBarButtons": [["toImage"]], "toImageButtonOptions": {"scale": 2}},
-                )
+                fig_html = _fig_html(fig)
                 needs_plotly = True
                 conclusao = None if _is_law(w, by_id) else chart_conclusion(w, df, _base_of(w, by_id))
                 aria = html.escape(". ".join(t.rstrip(".") for t in (pt_text(w.title), conclusao, pt_text(w.subtitle)) if t)
                                    + ". A tabela em Ver dados traz os mesmos números.")
+                plot = f'<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>'
+                body = note + _with_views(w, df, plot, aria)
+                anos = _years(df, w) if _is_time(w.x) and w.kind in ("line", "area", "bar") else []
+                if len(anos) >= 3:
+                    body = period_filter(anos) + body
+                work = _prepare_slice(df, w)
+                csv = csv_template(work, [c for c in dict.fromkeys([w.x, w.color, *w.y]) if c],
+                                   header=lambda c, w=w: _csv_header(w, c), label=display_label)
                 cards[section].append(_render_valid_card(
-                    w, f'{note}<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>',
-                    df, conclusao, _data_view(w, df)))
+                    w, body, df, conclusao, card_actions(image=True, csv_html=csv) + _data_view(w, df),
+                    orient=w.orientation))
         except Exception:
             logger.exception("Falha ao desenhar o componente %s", w.id)
             cards[section].append(_render_fallback(w, by_id, []))
@@ -2085,6 +2147,7 @@ def render_dashboard_html(
 </script>
 <style>
 {PAGE_CSS}
+{MOTION_CSS}
 </style>
 {plotly_head}
 </head>
@@ -2163,6 +2226,7 @@ def render_dashboard_html(
   }}
 }})();
 </script>
+<script>{MOTION_JS}</script>
 </body>
 </html>
 """
