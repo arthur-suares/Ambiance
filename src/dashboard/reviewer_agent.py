@@ -38,6 +38,8 @@ from src.dashboard.schemas import (
 )
 from src.dashboard.messages import log_issues
 from src.dashboard.validator import (
+    is_non_additive_column_or_unit,
+    is_percentage_column_or_unit,
     validate_spec_methodological,
     validate_widget_methodological,
 )
@@ -98,6 +100,29 @@ def _has_numeric_values(df: pd.DataFrame, col: str) -> bool:
     return pd.to_numeric(df[col], errors="coerce").notna().any()
 
 
+def _check_new_kind(w: WidgetSpec, datasets_by_id: dict[str, DatasetResult]) -> list[WidgetIssue]:
+    """Regras próprias dos tipos novos, antes de herdarem as do tipo-base (BASE_KIND)."""
+    ds = datasets_by_id.get(w.dataset_id)
+    if ds is None or ds.df.empty:
+        return []
+    df = ds.df
+    if w.kind == "gauge" and w.column in df.columns:
+        # Medidor: só um percentual calculado dos dados (participação), sem meta inventada.
+        valor = compute_kpi_value(df, w.column, w.agg)
+        if not is_percentage_column_or_unit(w.column, w.unit, df):
+            return [WidgetIssue(w.id, "deterministic",
+                                f"Medidor exige coluna percentual; '{w.column}' (unidade '{w.unit}') não é.",
+                                code="medidor")]
+        if valor is None or not (0 <= valor <= 100):
+            return [WidgetIssue(w.id, "deterministic", f"Medidor fora de 0–100%: {valor}.", code="medidor")]
+    if w.kind == "waterfall" and any(c in df.columns and is_non_additive_column_or_unit(c, w.unit, df) for c in w.y):
+        # Variação por item soma as contribuições: não serve para percentuais, médias ou intensidades.
+        return [WidgetIssue(w.id, "methodological",
+                            f"Variação por item soma contribuições; '{', '.join(w.y)}' não é aditiva.",
+                            code="soma_percentual")]
+    return []
+
+
 def validate_widget_deterministic(
     w: WidgetSpec,
     datasets_by_id: dict[str, DatasetResult],
@@ -106,6 +131,7 @@ def validate_widget_deterministic(
     issues: list[WidgetIssue] = []
 
     # `area` e `progress` herdam todas as checagens (colunas e metodologia) de `line` e `bar`.
+    issues.extend(_check_new_kind(w, datasets_by_id))
     if w.kind in BASE_KIND:
         w = _replace(w, kind=BASE_KIND[w.kind])
     if w.kind == "kpi" and (w.trend_x or w.trend_y) and w.dataset_id in datasets_by_id:

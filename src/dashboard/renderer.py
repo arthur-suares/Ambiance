@@ -235,6 +235,12 @@ h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.2px;
 .card-header h3 { font-size: 15.5px; font-weight: 650; margin: 0; line-height: 1.35; }
 .scope-notes { font-size: 13px; color: var(--muted); margin: 8px 0 12px; }
 .scope-notes p { margin: 4px 0 0; }
+.gauge { position: relative; width: 132px; height: 132px; margin: 6px auto 4px; }
+.gauge svg { width: 100%; height: 100%; }
+.gauge-track { fill: none; stroke: var(--panel-2); stroke-width: 10; }
+.gauge-fill { fill: none; stroke: #93c83e; stroke-width: 10; stroke-linecap: butt; }
+.gauge-value { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700;
+  font-variant-numeric: tabular-nums; }
 .fallback-note { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
 .subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
 .badge {
@@ -261,7 +267,8 @@ h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.2px;
 .kpi-card.is-featured .card-footer { border-top-color: rgba(255,255,255,.12); }
 
 .plot-wrap { width: 100%; }
-.js-plotly-plot .plotly .main-svg text { fill: var(--chart-text) !important; }
+/* Rótulos dentro das fatias usam a cor escolhida pelo contraste com a fatia (ver _ink_on). */
+.js-plotly-plot .plotly .main-svg text:not(.slicetext) { fill: var(--chart-text) !important; }
 .js-plotly-plot .plotly .main-svg .hoverlayer text { fill: #ffffff !important; }
 .js-plotly-plot .plotly .modebar { background: transparent !important; }
 .js-plotly-plot .plotly .modebar-btn path { fill: var(--muted) !important; }
@@ -355,6 +362,10 @@ SECTION_OF = {
     "area": "evolucao",
     "bar": "rankings",
     "progress": "rankings",
+    "pie": "rankings",
+    "donut": "rankings",
+    "waterfall": "rankings",
+    "gauge": "visao-geral",
     "table": "detalhamento",
 }
 
@@ -460,7 +471,7 @@ def _prepare_slice(df: pd.DataFrame, w: WidgetSpec, default_top_n: int | None = 
         out = out.sort_values(by=w.sort_by, ascending=w.ascending, na_position="last")
     elif w.kind in ("line", "area") and w.x and w.x in out.columns:
         out = out.sort_values(by=w.x, ascending=True, na_position="last")
-    elif (w.kind in ("bar", "progress") and w.x and not _is_time(w.x) and not w.color
+    elif (w.kind in ("bar", "progress", "pie", "donut", "waterfall") and w.x and not _is_time(w.x) and not w.color
           and len(w.y) == 1 and w.y[0] in out.columns):
         # Ranking: do maior para o menor quando a IA não pediu outra ordem.
         key = pd.to_numeric(out[w.y[0]], errors="coerce")
@@ -483,7 +494,7 @@ def _prepare_slice(df: pd.DataFrame, w: WidgetSpec, default_top_n: int | None = 
 
 def _residual_column(df: pd.DataFrame, w: WidgetSpec) -> str | None:
     """Coluna de categoria de um ranking (barras, participações, lista) que tem linhas residuais."""
-    if w.kind not in ("bar", "progress", "table", "pie", "donut"):
+    if w.kind not in ("bar", "progress", "table", "pie", "donut", "waterfall"):
         return None
     if w.kind == "table":
         col = next((c for c in (w.columns or list(df.columns))
@@ -586,7 +597,7 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
             hovertemplate=f"{hover_cat}<br><b>{hover_val}</b>{html.escape(unit)}<extra>{html.escape(str(name))}</extra>",
         )
         if show_text:
-            tr.update(text=[format_compact_br(v, w.unit, with_unit=False) for v in vals],
+            tr.update(text=[format_compact_br(v, w.unit, with_unit=(w.unit or "").strip() == "%") for v in vals],
                       textposition="outside", cliponaxis=False, textfont={"size": 11})
         _safe_update(tr, marker_cornerradius=6)
         fig.add_trace(tr)
@@ -693,12 +704,124 @@ def _build_table_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+MAX_SLICES = 8
+SLICE_LABEL_MIN = 0.06  # rótulo direto só nas fatias com 6% ou mais; as menores ficam na legenda
+
+
+def _pct_br(v: float) -> str:
+    return f"{v:,.1f}".replace(",", "_").replace(".", ",").replace("_", ".") + "%"
+
+
+def _build_pie_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
+    """Pizza/rosca: até 8 fatias, "Outros" (do SQL) por último em cinza, rótulo direto nas fatias grandes.
+
+    As porcentagens são a parte de cada linha na soma das linhas mostradas; se não houver "Outros",
+    o cartão avisa que é a participação entre os itens mostrados (ver `_share_note`)."""
+    work = _prepare_slice(df, w)
+    y_col = w.y[0]
+    cats = work[w.x].map(lambda v: display_label(v, w.x or "")).tolist()
+    vals = pd.to_numeric(work[y_col], errors="coerce").fillna(0.0).tolist()
+    total = sum(vals) or 1.0
+    shares = [v / total for v in vals]
+    residual = work[w.x].map(is_residual_label).tolist()
+    colors = [NEUTRAL if r else PALETTE[i % len(PALETTE)] for i, r in enumerate(residual)]
+    texts = [f"{c}<br>{_pct_br(sh * 100)}" if sh >= SLICE_LABEL_MIN else "" for c, sh in zip(cats, shares)]
+    inks = [_ink_on(c) for c in colors]
+    custom = [[format_compact_br(v, w.unit), _pct_br(sh * 100)] for v, sh in zip(vals, shares)]
+    fig = go.Figure(go.Pie(
+        labels=cats, values=vals, sort=False, direction="clockwise", rotation=90,
+        hole=0.58 if w.kind == "donut" else 0,
+        marker={"colors": colors, "line": {"color": "rgba(255,255,255,0.9)", "width": 1.5}},
+        text=texts, textinfo="text", textposition="inside", insidetextorientation="horizontal",
+        insidetextfont={"color": inks, "size": 12},
+        customdata=custom,
+        hovertemplate="<b>%{label}</b><br>%{customdata[0]} · %{customdata[1]}<extra></extra>",
+    ))
+    small = any(sh < SLICE_LABEL_MIN for sh in shares)
+    layout = _base_layout(height=340, margin={"l": 8, "r": 8, "t": 8, "b": 8})
+    layout["legend"] = {**layout.get("legend", {}), "orientation": "v", "x": 1.02, "y": 0.5}
+    fig.update_layout(**layout, showlegend=small)
+    return fig
+
+
+def _ink_on(hex_color: str) -> str:
+    """Texto branco ou quase preto, o que tiver mais contraste (WCAG) com a cor de fundo."""
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    lin = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in (r, g, b)]
+    lum = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2]
+    contraste_branco = 1.05 / (lum + 0.05)
+    contraste_escuro = (lum + 0.05) / (0.0137 + 0.05)  # #18271f
+    return "#ffffff" if contraste_branco >= contraste_escuro else "#18271f"
+
+
+def _share_note(w: WidgetSpec, df: pd.DataFrame) -> str:
+    """A5: sem linha "Outros", a pizza mostra a participação entre os itens exibidos, não o total."""
+    work = _prepare_slice(df, w)
+    if work[w.x].map(is_residual_label).any():
+        return ""
+    return (f'<p class="fallback-note">Participação entre os {len(work)} itens mostrados, '
+            "não sobre o total geral.</p>")
+
+
+def _build_waterfall_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
+    """Variação por item: contribuição de cada item para a variação entre dois períodos.
+
+    O valor de cada barra vem pronto do SQL (a diferença entre os períodos); o total no fim é a soma
+    dessas contribuições, e só é permitido para métricas aditivas (o revisor bloqueia as demais)."""
+    work = _prepare_slice(df, w)
+    y_col = w.y[0]
+    cats = work[w.x].map(lambda v: display_label(v, w.x or "")).tolist()
+    vals = pd.to_numeric(work[y_col], errors="coerce").fillna(0.0).tolist()
+    total = sum(vals)
+    fig = go.Figure(go.Waterfall(
+        x=[*cats, "Variação total"], y=[*vals, total], measure=["relative"] * len(vals) + ["total"],
+        text=[format_compact_br(v, w.unit) for v in [*vals, total]], textposition="outside",
+        increasing={"marker": {"color": PALETTE[0]}}, decreasing={"marker": {"color": PALETTE[4]}},
+        totals={"marker": {"color": NEUTRAL}}, connector={"line": {"color": "rgba(128,128,128,0.4)", "width": 1}},
+        hovertemplate="<b>%{x}</b><br>%{text}<extra></extra>", cliponaxis=False,
+    ))
+    fig.update_layout(**_base_layout(height=360), showlegend=False)
+    _style_axes(fig, value_axis="y")
+    fig.update_yaxes(title_text=w.unit)
+    return fig
+
+
+def _render_gauge_card(w: WidgetSpec, df: pd.DataFrame) -> str:
+    """Medidor: rosca de um percentual único calculado dos dados (ex.: % do volume para a China)."""
+    valor = compute_kpi_value(df, w.column or "", w.agg)
+    if valor is None:
+        raise ValueError("medidor sem valor")
+    pct = max(0.0, min(100.0, float(valor)))
+    circ = 2 * math.pi * 42
+    filled = circ * pct / 100
+    txt = _pct_br(pct)
+    subtitle = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
+    return (
+        f'<article class="card kpi-card gauge-card" data-widget-id="{html.escape(w.id)}" data-widget-kind="gauge">\n'
+        f'  <div class="kpi-top"><h3 class="kpi-label">{html.escape(pt_text(w.title))}</h3></div>\n'
+        f'  <div class="gauge" role="img" aria-label="{html.escape(pt_text(w.title))}: {txt}">'
+        f'<svg viewBox="0 0 100 100" aria-hidden="true">'
+        f'<circle class="gauge-track" cx="50" cy="50" r="42"/>'
+        f'<circle class="gauge-fill" cx="50" cy="50" r="42" stroke-dasharray="{filled:.2f} {circ:.2f}" '
+        f'transform="rotate(-90 50 50)"/></svg>'
+        f'<span class="gauge-value" data-value="{pct:.4f}" title="{html.escape(format_br_value(valor))}%">{txt}</span></div>\n'
+        f'  {subtitle}\n'
+        f'  <footer class="card-footer">Fonte: {html.escape(w.source)}</footer>\n'
+        f'</article>'
+    )
+
+
 def build_widget_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     """Constrói a figura Plotly correspondente ao WidgetSpec."""
     if w.kind == "kpi":
         return _build_kpi_figure(w, df)
     if w.kind == "bar":
         return _build_bar_figure(w, df)
+    if w.kind in ("pie", "donut"):
+        return _build_pie_figure(w, df)
+    if w.kind == "waterfall":
+        return _build_waterfall_figure(w, df)
     if w.kind in ("line", "area"):
         return _build_line_figure(w, df)
     if w.kind == "table":
@@ -885,6 +1008,37 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
     )
 
 
+
+def _plan_groups(widgets, by_id):
+    """B2: componentes com o mesmo `group` (ex.: barras e linha) ficam juntos, na largura total, na seção
+    do primeiro, e com o mesmo intervalo de tempo no eixo x. Cada um mantém a sua unidade."""
+    members: dict[str, list] = {}
+    for w in widgets:
+        if w.group and w.kind in ("bar", "line", "area"):
+            members.setdefault(w.group, []).append(w)
+    members = {g: ws for g, ws in members.items() if len(ws) > 1}
+    ordered, seen = [], set()
+    ranges, sections = {}, {}
+    for w in widgets:
+        g = w.group if w.group in members else None
+        if g is None:
+            ordered.append(w)
+            continue
+        if g in seen:
+            continue
+        seen.add(g)
+        sections[g] = SECTION_OF.get(members[g][0].kind, "evolucao")
+        xs = []
+        for m in members[g]:
+            m.span = 2
+            ds = by_id.get(m.dataset_id)
+            if ds is not None and m.x in ds.df.columns:
+                xs.extend(pd.to_numeric(ds.df[m.x], errors="coerce").dropna().tolist())
+        if xs:
+            ranges[g] = [min(xs) - 0.5, max(xs) + 0.5]
+        ordered.extend(members[g])
+    return ordered, ranges, sections
+
 def _render_fallback(w: WidgetSpec, by_id: dict[str, DatasetResult], codes: list[str]) -> str:
     """Gráfico reprovado: mostra os MESMOS dados como lista, com uma frase simples do motivo.
 
@@ -942,8 +1096,19 @@ def render_dashboard_html(
     needs_plotly = False
     first_kpi = True
 
-    for w in spec.widgets:
-        section = SECTION_OF.get(w.kind, "detalhamento")
+    ordered, group_ranges, group_section = _plan_groups(spec.widgets, by_id)
+    for w in ordered:
+        section = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
+        note = ""
+        if w.kind in ("pie", "donut") and w.valid and w.dataset_id in by_id and w.x in by_id[w.dataset_id].df.columns:
+            n_partes = len(_prepare_slice(by_id[w.dataset_id].df, w))
+            if n_partes > MAX_SLICES:
+                # Pizza com muitas fatias fica ilegível; "Outros" só pode vir do SQL, então vira barras.
+                w = replace(w, kind="bar", orientation="h")
+                note = ('<p class="fallback-note">Com mais de 8 partes a pizza fica difícil de ler, '
+                        "então mostrei em barras.</p>")
+            else:
+                note = _share_note(w, by_id[w.dataset_id].df)
         blocking = [i for i in validate_widget_deterministic(w, by_id) if i.blocking]
         if not w.valid or blocking:
             codes = list(w.validation_codes) or [i.code for i in blocking]
@@ -954,12 +1119,16 @@ def render_dashboard_html(
             if w.kind == "kpi":
                 cards[section].append(_render_kpi_card(w, df, featured=first_kpi))
                 first_kpi = False
+            elif w.kind == "gauge":
+                cards[section].append(_render_gauge_card(w, df))
             elif w.kind == "table":
                 cards[section].append(_render_valid_card(w, _render_table_html(w, df)))
             elif w.kind == "progress":
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df)))
             else:
                 fig = build_widget_figure(w, df)
+                if w.group in group_ranges:  # mesmo intervalo de tempo nos gráficos do par
+                    fig.update_xaxes(range=group_ranges[w.group], dtick=1 if _is_time(w.x) else None)
                 fig_html = fig.to_html(
                     full_html=False,
                     include_plotlyjs=False,
@@ -969,7 +1138,7 @@ def render_dashboard_html(
                 needs_plotly = True
                 aria = html.escape(pt_text(w.title) + (f". {pt_text(w.subtitle)}" if w.subtitle else ""))
                 cards[section].append(_render_valid_card(
-                    w, f'<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>'))
+                    w, f'{note}<div class="plot-wrap" role="img" aria-label="{aria}">{fig_html}</div>'))
         except Exception:
             logger.exception("Falha ao desenhar o componente %s", w.id)
             cards[section].append(_render_fallback(w, by_id, []))

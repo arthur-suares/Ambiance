@@ -34,9 +34,14 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
 | `kpi` | Número de destaque | Formato curto (`13,9 mi t`, `US$ 6,07 bi`, `21,7 mil ha`); o valor exato fica no `title` do número. Com `trend_x` e `trend_y`, mostra a variação em relação ao período anterior e uma mini-série, calculadas em código. Setas neutras, sem cor de "bom" ou "ruim". |
 | `line` | Série temporal | Ponto final destacado; eixo a partir de zero em séries não negativas. |
 | `area` | Série com preenchimento | `stacked: true` empilha categorias dentro de cada ano. Herda todas as checagens de `line`. |
-| `bar` | Ranking ou comparação | Sem `sort_by`, ordena do maior para o menor; rótulos curtos nas barras. |
+| `bar` | Ranking ou comparação | Sem `sort_by`, ordena do maior para o menor; valor curto no fim de cada barra (com "%" quando a unidade é percentual). |
 | `progress` | Participações (até 10) | Se a coluna for percentual ou fração, usa o valor; senão calcula sobre a soma das linhas do conjunto e avisa que não é o total geral. Herda as checagens de `bar`. |
 | `table` | Detalhamento | Tabela HTML com cabeçalho fixo, números à direita e barra de dados na primeira coluna numérica. |
+| `pie` (pizza) | Quanto cada parte representa do total | Até 8 fatias; "Outros" vem do SQL e fica por último, em cinza. Rótulo direto (nome e %) nas fatias com 6% ou mais; as menores vão para a legenda ao lado. Hover com valor e %. Sem "Outros", o cartão avisa "Participação entre os N itens mostrados, não sobre o total geral". Mais de 8 partes: vira barras, com aviso. Herda as regras de `bar`. |
+| `donut` (rosca) | Igual à pizza, em anel | Mesmas regras da pizza. |
+| `gauge` (medidor) | Um único percentual dos dados (ex.: % do volume que foi para a China) | Rosca com o % no centro, na seção Visão geral. Só aceita coluna percentual entre 0 e 100; sem meta. Herda as regras de `kpi`. |
+| `waterfall` (variação por item) | O que mais pesou numa alta ou queda entre dois períodos | Cada barra é a variação do item, já calculada no SQL; a última é a variação total. Só para métricas aditivas (o revisor bloqueia percentuais e médias). Herda as regras de `bar`. |
+| barras e linha | Duas medidas no mesmo período | Dois componentes (`bar` e `line`) com o mesmo `group`: ficam juntos, na largura total, com o mesmo intervalo de tempo no eixo x e cada um com a sua unidade. Nunca dois eixos com escalas diferentes. |
 
 ## Regras que continuam valendo
 

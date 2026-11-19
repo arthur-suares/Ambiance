@@ -211,10 +211,10 @@ def test_revisor_aponta_quando_o_tipo_pedido_nao_foi_atendido():
 def test_sugere_outros_formatos_em_palavras_simples():
     w = WidgetSpec(id="b", kind="bar", title="T", dataset_id="D1", unit="t", source="Trase [D1]")
     frase = suggest_other_views(DashboardSpec(title="P", subtitle="", widgets=[w]))
-    assert frase == "Quer ver como lista? É só pedir."
-    frase = suggest_other_views(DashboardSpec(title="P", subtitle="", widgets=[w]),
-                                allowed=(*ALLOWED_WIDGET_KINDS, "pie"))
     assert frase == "Quer ver em pizza ou como lista? É só pedir."
+    sem_pizza = tuple(k for k in ALLOWED_WIDGET_KINDS if k != "pie")
+    frase = suggest_other_views(DashboardSpec(title="P", subtitle="", widgets=[w]), allowed=sem_pizza)
+    assert frase == "Quer ver como lista? É só pedir."
 
 
 # --- A9: prompts com os tipos realmente suportados ---------------------------------------
@@ -247,7 +247,7 @@ class _Sessao:
         self.current_dashboard_path = None
 
 
-def test_pizza_dos_maiores_municipios_chega_ao_gerador_e_avisa(monkeypatch, tmp_path):
+def test_pizza_dos_maiores_municipios_vira_pizza(monkeypatch, tmp_path):
     store = ResultStore(base_dir=tmp_path / "s")
     store.put("sessao_pizza_01", _ds(pd.DataFrame({"municipality": ["SORRISO", "SAPEZAL", "Outros"],
                                                    "volume_t": [5.0, 4.0, 91.0]})))
@@ -258,9 +258,9 @@ def test_pizza_dos_maiores_municipios_chega_ao_gerador_e_avisa(monkeypatch, tmp_
             return {"approved": True, "summary": "ok", "issues": []}, 1, 1
         mensagens.append(kw["user_content"])
         return {"title": "Maiores municípios exportadores de soja (2022)", "subtitle": "Origem rastreada",
-                "widgets": [{"id": "w1", "kind": "bar", "title": "Volume por município, 2022",
+                "widgets": [{"id": "w1", "kind": "pie", "title": "Participação no volume, 2022",
                              "dataset_id": "D1", "x": "municipality", "y": ["volume_t"], "unit": "t",
-                             "orientation": "h", "source": "Trase — Soja [D1]"}]}, 1, 1
+                             "source": "Trase — Soja [D1]"}]}, 1, 1
 
     monkeypatch.setattr(dashboard_agent_mod, "call_structured_llm", fake_llm)
     monkeypatch.setattr("src.dashboard.reviewer_agent.call_structured_llm", fake_llm)
@@ -271,8 +271,10 @@ def test_pizza_dos_maiores_municipios_chega_ao_gerador_e_avisa(monkeypatch, tmp_
 
     assert res.plan.requested_chart.requested == "pie"
     assert "Tipo de gráfico pedido pelo usuário: gráfico de pizza" in mensagens[0]
-    assert res.spec.warnings[0] == "Ainda não faço pizza, então mostrei em barras."
-    assert res.spec.widgets[0].valid
+    assert res.plan.requested_chart.kind == "pie" and res.plan.requested_chart.notice is None
+    assert not any("Ainda não faço" in w for w in res.spec.warnings)
+    assert res.spec.widgets[0].kind == "pie" and res.spec.widgets[0].valid
+    assert '"type":"pie"' in res.html
 
 
 # --- A7 e roteamento no chat -----------------------------------------------------------

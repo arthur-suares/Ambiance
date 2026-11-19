@@ -145,8 +145,8 @@ class ChartChoice:
                     f"por outro tipo adequado (kind='{self.kind}'), sem mudar os números.")
         extra = ""
         if self.kind == "bar_line":
-            extra = (" Faça DOIS componentes separados, um `bar` e um `line`, com o mesmo `x` de tempo e cada um "
-                     "com a sua unidade; nunca dois eixos com escalas diferentes no mesmo gráfico.")
+            extra = (" Faça DOIS componentes separados, um `bar` e um `line`, com o mesmo `x` de tempo, o mesmo "
+                     "`group` e cada um com a sua unidade; nunca dois eixos com escalas diferentes no mesmo gráfico.")
         elif self.kind == "area" and self.stacked:
             extra = " Use `stacked=true` (só para métricas aditivas)."
         elif self.kind in ("pie", "donut"):

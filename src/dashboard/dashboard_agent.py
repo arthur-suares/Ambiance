@@ -48,6 +48,10 @@ aditivas DENTRO de cada ano (nunca percentuais ou intensidades).
 `y` = [coluna]; até 10 linhas. Se a coluna já for percentual ou fração, ela é usada como está; \
 senão o percentual é calculado sobre o total do dataset.
 - `table`: tabela detalhada com as colunas relevantes e rótulos amigáveis em `column_labels`. Quando as colunas tiverem unidades diferentes (ex.: toneladas e %), informe a unidade DE CADA COLUNA em `column_units` (ex.: {{"volume_t": "t", "share_pct": "%"}}); `unit` pode resumir ("t / %").
+- `pie`/`donut`: `x` = categoria, `y` = [valor aditivo de um único período]; no máximo 8 linhas, com "Outros" vindo da consulta. Nunca para anos, percentuais, médias, intensidades ou valores negativos.
+- `gauge`: como `kpi` (`column`, `agg`, `value`), mas só para UM percentual calculado dos dados (0 a 100, `unit="%"`), ex.: "% do volume exportado para a China". Sem meta.
+- `waterfall`: `x` = item, `y` = [variação do item entre dois períodos, já calculada no SQL]; só para métricas aditivas (volume, FOB, exposição de um mesmo par de anos).
+- Barras e linha juntas: DOIS componentes (`bar` e `line`) com o mesmo `x` de tempo e o mesmo `group`, cada um com a sua unidade. Nunca dois eixos com escalas diferentes.
 - Em `kpi`, opcionalmente informe `trend_x` (ex.: "year") e `trend_y` (coluna numérica) de um \
 dataset com vários anos: a variação e a mini-série são calculadas em código. Não informe valores.
 
@@ -92,7 +96,7 @@ WIDGET_ITEM_SCHEMA = {
         "unit": {"type": "string", "description": "Unidade (ex.: ha, t, US$, tCO2e, %, ha/t, múltiplas)."},
         "source": {"type": "string", "description": "Deve citar 'Trase' e o ID [Dn]."},
         "span": {"type": "integer", "enum": [1, 2], "description": "1 = meia largura, 2 = largura total."},
-        "column": {"type": "string", "description": "Apenas para kpi: coluna numérica no dataset."},
+        "column": {"type": "string", "description": "Para kpi e gauge: coluna numérica no dataset."},
         "agg": {"type": "string", "enum": list(ALLOWED_KPI_AGGS), "description": "Apenas para kpi."},
         "value": {"type": "number", "description": "Apenas para kpi: valor numérico exato esperado do SQL."},
         "x": {"type": "string", "description": "Para bar/line/area/progress: coluna de categoria ou tempo."},
@@ -114,6 +118,8 @@ WIDGET_ITEM_SCHEMA = {
         "sort_by": {"type": "string"},
         "ascending": {"type": "boolean"},
         "top_n": {"type": "integer", "minimum": 1, "maximum": 200},
+        "group": {"type": "string", "description": "Mesmo valor em dois gráficos (barras e linha) que devem "
+                                                   "ficar juntos e alinhados no mesmo eixo de tempo."},
     },
 }
 

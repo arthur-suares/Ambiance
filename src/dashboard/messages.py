@@ -18,6 +18,7 @@ USER_MESSAGES = {
     "alegacao": "Um texto deste gráfico usava termos incompatíveis com dados de exposição ao desmatamento.",
     "kpi_valor": "O número deste indicador não bateu com os dados.",
     "sem_dados": "Não há dados para este recorte.",
+    "medidor": "O medidor só mostra um percentual calculado dos dados.",
     "estrutura": "Os dados encontrados não têm todas as informações que este gráfico precisa.",
 }
 DEFAULT_MESSAGE = "Não consegui mostrar este gráfico como planejado."

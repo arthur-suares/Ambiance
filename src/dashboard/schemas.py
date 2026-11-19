@@ -15,9 +15,10 @@ from pathlib import Path
 
 import pandas as pd
 
-ALLOWED_WIDGET_KINDS = ("kpi", "bar", "line", "area", "progress", "table")
-# Tipos novos herdam as regras de um tipo existente (colunas e metodologia).
-BASE_KIND = {"area": "line", "progress": "bar"}
+ALLOWED_WIDGET_KINDS = ("kpi", "bar", "line", "area", "progress", "table", "pie", "donut", "gauge", "waterfall")
+# Tipos novos herdam as regras de um tipo existente (colunas e metodologia), sem duplicar o validador.
+# Nomes técnicos ficam no código; a tela diz pizza, rosca, medidor, variação por item.
+BASE_KIND = {"area": "line", "progress": "bar", "pie": "bar", "donut": "bar", "waterfall": "bar", "gauge": "kpi"}
 ALLOWED_KPI_AGGS = ("first", "sum", "mean", "max", "min", "count")
 MAX_REVISIONS = 2
 MAX_ROWS_TO_LLM = 60
@@ -104,6 +105,9 @@ class WidgetSpec:
     sort_by: str | None = None
     ascending: bool = False
     top_n: int | None = None
+    # Componentes com o mesmo `group` são desenhados juntos e alinhados no mesmo eixo de tempo
+    # ("barras e linha" em dois gráficos, nunca dois eixos com escalas diferentes).
+    group: str | None = None
     # Estado de validação por componente (permite degradar só o gráfico inválido)
     valid: bool = True
     validation_error: str | None = None      # frase simples para a tela (nunca texto técnico)
@@ -120,10 +124,10 @@ class WidgetSpec:
             "source": self.source,
             "span": self.span,
         }
-        if self.kind == "kpi":
+        if self.kind in ("kpi", "gauge"):
             out.update({"column": self.column, "agg": self.agg, "value": self.value,
                         "trend_x": self.trend_x, "trend_y": self.trend_y})
-        elif self.kind in ("bar", "line", "area", "progress"):
+        elif self.kind in ("bar", "line", "area", "progress", "pie", "donut", "waterfall"):
             out.update({"x": self.x, "y": self.y, "color": self.color,
                         "sort_by": self.sort_by, "ascending": self.ascending, "top_n": self.top_n})
             if self.kind == "bar":
@@ -136,6 +140,8 @@ class WidgetSpec:
             out.update({"columns": self.columns, "column_labels": self.column_labels,
                         "column_units": self.column_units,
                         "sort_by": self.sort_by, "ascending": self.ascending, "top_n": self.top_n})
+        if self.group:
+            out["group"] = self.group
         if not self.valid and self.validation_error:
             out["validation_error"] = self.validation_error
         return out
@@ -377,6 +383,7 @@ def parse_widget_spec(raw: object, index: int) -> WidgetSpec:
         sort_by=str(raw["sort_by"]).strip() if raw.get("sort_by") else None,
         ascending=bool(raw.get("ascending", False)),
         top_n=top_n,
+        group=str(raw["group"]).strip() if raw.get("group") else None,
         valid=valid,
         validation_error=err,
     )
