@@ -167,6 +167,28 @@ _CLEAR_QUESTION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# "só os 5 maiores", "apenas as 3 primeiras", "top 10", "os 5 maiores"
+_TOP_N_RE = re.compile(
+    r"\b(?:(?:so|apenas|somente)\s+)?(?:(?:os|as)\s+)?(?:top\s*\d+|\d+\s+(?:maior\w*|menor\w*|primeir\w*|ultim\w*))\b",
+    re.IGNORECASE,
+)
+_RESTRICT_EDIT_RE = re.compile(
+    r"\btop\s*\d+\b"
+    r"|\b(?:so|apenas|somente)\s+(?:(?:os|as|o|a)\s+)?\d+\b"
+    r"|^(?:agora\s+)?(?:filtr\w*|limit\w*|foc\w*|deix\w*\s+(?:so|apenas|somente)"
+    r"|mostr\w*\s+(?:so|apenas|somente)|exib\w*\s+(?:so|apenas|somente))\b",
+    re.IGNORECASE,
+)
+# Nomes das categorias já exibidas: "só os 5 maiores municípios" não pede recorte novo.
+_ENTITY_NOUN_RE = re.compile(
+    r"\b(?:municip\w*|destin\w*|pais\w*|empresas?|export\w*|import\w*|trading\w*|estados?|ufs?|biomas?|portos?)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_QUESTION_RE = re.compile(
+    r"\?\s*$|^(?:qual|quais|quanto\w*|como|onde|quando|quem|o\s+que|por\s*que)\b",
+    re.IGNORECASE,
+)
+
 _AMBIGUOUS_VISUAL_HINT_RE = re.compile(
     r"\b(?:panorama\s+visual|visao\s+executiva|apresentacao\s+visual|destaque\s+apenas|foque\s+apenas)\b",
     re.IGNORECASE,
@@ -354,6 +376,20 @@ def classify_intent_deterministic(
             needs_new_data=not use_prev,
             clarification=clarif,
             assumption=_build_assumption(norm, resolved_domain) if not clarif else None,
+            decided_by="rules",
+        )
+
+    # 2b. Edição sem verbo de edição, com painel aberto: "mostre só os 5 maiores", "agora só o top 3",
+    # "filtre só Mato Grosso". Perguntas explícitas ("quais os 5 maiores?") seguem como pergunta.
+    if has_spec and _RESTRICT_EDIT_RE.search(norm) and not _EXPLICIT_QUESTION_RE.search(norm):
+        resto = _ENTITY_NOUN_RE.sub(" ", _COMMODITY_ONLY_RE.sub(" ", _TOP_N_RE.sub(" ", norm)))
+        so_top_n = bool(_TOP_N_RE.search(norm)) and not _SUBSTANTIVE_TOPIC_RE.search(resto)
+        needs_new = not (so_top_n and has_store_data)
+        return OrchestrationDecision(
+            intent="dashboard_edit",
+            domain=resolved_domain,
+            use_previous_results=not needs_new,
+            needs_new_data=needs_new,
             decided_by="rules",
         )
 
