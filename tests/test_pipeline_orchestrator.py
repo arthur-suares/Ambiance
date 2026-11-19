@@ -47,6 +47,29 @@ def test_vague_requests_return_concrete_clarification():
         assert "1." in dec.clarification and "2." in dec.clarification
 
 
+@pytest.mark.parametrize("msg, dominio", [
+    ("faz um gráfico da soja", "soy"),
+    ("monta um painel da carne bovina", "beef"),
+    ("quero um dashboard da cadeia da soja", "soy"),
+])
+def test_so_o_nome_da_cadeia_nao_e_recorte_e_pede_esclarecimento(msg, dominio):
+    """Regressão: 'soja' contava como recorte e o painel era montado sem métrica, lugar ou ano."""
+    dec = classify_intent(msg, has_store_data=False, use_llm=False)
+    assert dec.intent == "dashboard"
+    assert dec.domain == dominio
+    assert dec.clarification is not None
+
+
+@pytest.mark.parametrize("msg", [
+    "Monte um painel da soja em Goiás de 2015 a 2022",
+    "Faça um dashboard dos 10 maiores municípios exportadores de soja por exposição ao desmatamento",
+    "Gráfico das exportações de carne bovina por destino em 2023",
+])
+def test_pedido_com_recorte_monta_direto(msg):
+    dec = classify_intent(msg, has_store_data=False, use_llm=False)
+    assert dec.intent == "dashboard" and dec.clarification is None
+
+
 def test_assumable_world_request_declares_premise():
     dec = classify_intent("faz um grafiko da soja para todo o mundo?")
     assert dec.intent == "dashboard"

@@ -253,12 +253,20 @@ def _build_assumption(norm_msg: str, domain: str) -> str | None:
     return None
 
 
+# Só o nome da cadeia não é recorte: "faz um gráfico da soja" ainda precisa de métrica, lugar ou ano.
+_COMMODITY_ONLY_RE = re.compile(
+    r"\b(?:cadeia|soja|soy|carne|bovin[oa]s?|gado|beef|cattle|pecuaria)\b",
+    re.IGNORECASE,
+)
+
+
 def _is_vague_dashboard_request(norm_msg: str, has_store_data: bool) -> bool:
     if _DEICTIC_STORE_RE.search(norm_msg):
         return not has_store_data
-    if _SUBSTANTIVE_TOPIC_RE.search(norm_msg):
+    sem_cadeia = _COMMODITY_ONLY_RE.sub(" ", norm_msg)
+    if _SUBSTANTIVE_TOPIC_RE.search(sem_cadeia):
         return False
-    tokens = re.findall(r"[a-z0-9]+", norm_msg)
+    tokens = re.findall(r"[a-z0-9]+", sem_cadeia)
     remaining = [t for t in tokens if t not in _VAGUE_FILLER_WORDS]
     return len(remaining) == 0
 
