@@ -30,6 +30,7 @@ from src.dashboard.dashboard_agent import (
 )
 from src.dashboard.data_agent import run_data_agent
 from src.dashboard.reviewer_agent import review_dashboard
+from src.dashboard.validator import find_illegality_claim
 from src.dashboard.schemas import (
     ALLOWED_WIDGET_KINDS,
     DashboardRunResult,
@@ -170,6 +171,44 @@ def _apply_final_review_isolation(spec: DashboardSpec, final_review: ReviewResul
             w.validation_error = "; ".join(issues_by_widget[w.id])
 
 
+OMITTED_CLAIM_WARNING = (
+    "Um texto do painel foi omitido por usar termos incompatíveis com dados de exposição ao "
+    "desmatamento do Trase."
+)
+
+
+def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
+    """Retira textos com alegação indevida que sobraram após as rodadas de revisão.
+
+    As mensagens do revisor citam o termo detectado (ex.: "alegação indevida ('ilegal')") e, ao
+    esgotar as revisões, iam para `spec.warnings`; o monitor de saída então bloqueava o painel
+    inteiro por causa do texto do próprio revisor. Aqui o texto é retirado e trocado por um aviso
+    neutro. O monitor continua com as mesmas regras e bloqueia o que escapar.
+    """
+    omitted = False
+    if find_illegality_claim(spec.title):
+        fallback = f"Dashboard — {question}" if question else ""
+        spec.title = fallback if fallback and not find_illegality_claim(fallback) else "Painel Trase"
+        omitted = True
+    if find_illegality_claim(spec.subtitle):
+        spec.subtitle = ""
+        omitted = True
+    kept = [msg for msg in spec.warnings if not find_illegality_claim(msg)]
+    omitted = omitted or len(kept) != len(spec.warnings)
+    for w in spec.widgets:
+        if find_illegality_claim(w.title) or find_illegality_claim(w.subtitle):
+            w.title = "Componente ocultado"
+            w.subtitle = ""
+            w.valid = False
+            w.validation_error = OMITTED_CLAIM_WARNING
+            omitted = True
+        elif w.validation_error and find_illegality_claim(w.validation_error):
+            w.validation_error = OMITTED_CLAIM_WARNING
+    if omitted and OMITTED_CLAIM_WARNING not in kept:
+        kept.append(OMITTED_CLAIM_WARNING)
+    spec.warnings = kept
+
+
 def generate_dashboard(
     question: str,
     *,
@@ -223,6 +262,7 @@ def generate_dashboard(
             else:
                 _apply_final_review_isolation(spec, review, question)
 
+    _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, datasets, question=question)
 
     saved_path: Path | None = None
@@ -392,6 +432,7 @@ def build_dashboard_from_store(
 
     used_ids = {w.dataset_id for w in spec.widgets if w.dataset_id}
     render_datasets = [d for d in datasets if d.dataset_id in used_ids] or datasets
+    _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, render_datasets, question=question)
 
     saved_path: Path | None = None
