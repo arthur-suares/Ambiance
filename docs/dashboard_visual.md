@@ -15,11 +15,17 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
 
 ## Página
 
-- Barra lateral com âncoras para as seções e botão de tema (claro ou escuro; a escolha fica salva no
+- Barra lateral clara com âncoras para as seções e botão de tema (claro ou escuro; a escolha fica salva no
   navegador e, sem escolha, segue o sistema). Em telas estreitas vira uma barra superior.
-- Seções automáticas, sem campo novo no JSON: `kpi` → Visão geral; `line`/`area` → Evolução;
-  `bar`/`progress` → Rankings; `table` → Detalhamento. Seção vazia não aparece.
-- Rastreabilidade: as consultas SQL de cada `[Dn]`, com botão Copiar.
+- Cabeçalho sem cartão: título, subtítulo em até 2 linhas e a pergunta.
+- Seções automáticas, sem campo novo no JSON: `kpi`/`gauge` → Visão geral (uma fileira de indicadores,
+  não uma grade de cartões); `line`/`area` → Evolução; `bar`/`progress`/`pie`/`donut`/`waterfall` →
+  Rankings; `table` → Detalhamento. Seção vazia não aparece.
+- **Um gráfico principal por seção:** o primeiro de linha, área, barras ou variação ocupa a largura toda;
+  os demais ficam em meia largura, alinhados à grade.
+- **Gráficos menores** (pizza, rosca, participações, ranking curto em meia largura): título pequeno, em
+  maiúsculas e centralizado.
+- Rastreabilidade: as consultas SQL de cada `[Dn]`, com botão Copiar, e as notas completas do recorte.
 - Rodapé: "Dados: Trase (CC BY 4.0). Exposição ao desmatamento é uma associação estatística e não prova
   ilegalidade."
 - Sem fontes, ícones ou estilos externos. O Plotly vai embutido por padrão
@@ -27,11 +33,37 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
   antes de qualquer gráfico: as seções reordenam os cartões, então o primeiro gráfico do JSON nem
   sempre é o primeiro da página.
 
+## Sistema de design
+
+Tudo está em `PAGE_CSS` (`src/dashboard/renderer.py`), como variáveis CSS nos dois temas.
+
+| Item | Regra |
+|---|---|
+| Fonte | Só a do sistema (`ui-sans-serif, system-ui, "Segoe UI", Roboto…`), sem recurso externo. Números com `font-variant-numeric: tabular-nums`. |
+| Tipografia | Escala 12 / 13 / 14 (texto) / 16 (título de cartão) / 20 / 28 (título do painel, indicador) / 36 px (indicador principal). |
+| Espaço | Múltiplos de 4 px: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32, `--s7` 40, `--s8` 48. |
+| Cantos | 6 px em controles e tabelas, 8 px em cartões. Nada de pílulas. |
+| Sombras e linhas | Sem sombras; bordas e divisórias de 1 px. |
+| Cores de categoria | 5, terrosas: floresta `#3f8a5c`, petróleo `#3d8789`, terracota `#c4643f`, oliva `#7f8f36`, ameixa `#8f7a9c`. Cada uma tem contraste ≥ 3:1 no fundo claro e no escuro (os gráficos não trocam de cor com o tema). |
+| Neutro | Cinza quente `#8f8a7c` para "Outros" e "não identificado". |
+| Acento | Um só: ocre `#b5832a` (ponto máximo anotado, item ativo do menu, foco do teclado). |
+| Texto | Contraste AA (≥ 4,5:1) em todos os fundos dos dois temas; conferido nos testes. |
+| Proibido | Degradê, efeito de vidro, sombra brilhante, texto com degradê, emoji como ícone, borda colorida só na lateral, grade de cartões idênticos, cantos muito arredondados. |
+
+**Gráficos**
+
+- Linha reta (sem suavizar), com marcadores em círculo vazado; uma segunda série só com dados reais, com
+  traço diferente (contínuo, tracejado, pontilhado), para não depender só da cor.
+- Rótulo direto no fim de cada linha (nome e último valor) em vez de legenda; numa série única, o ponto
+  máximo é anotado em ocre ("máx. 2017: 29,0 mil"). Com até 8 pontos, o valor aparece em cada ponto.
+- Barras com valor no fim; sem moldura; grade fina só no eixo de valor.
+- Marcas dos eixos no mesmo padrão do painel: "500", "2,5 mil", "15 mi", "1,5 bi".
+
 ## Componentes
 
 | `kind` | Uso | Observações |
 |---|---|---|
-| `kpi` | Número de destaque | Formato curto (`13,9 mi t`, `US$ 6,07 bi`, `21,7 mil ha`); o valor exato fica no `title` do número. Com `trend_x` e `trend_y`, mostra a variação em relação ao período anterior e uma mini-série, calculadas em código. Setas neutras, sem cor de "bom" ou "ruim". |
+| `kpi` | Número de destaque | Na fileira de indicadores: ícone da medida à esquerda, rótulo pequeno, número grande (formato curto, `13,9 mi t`; o valor exato fica no `title`). Com `trend_x` e `trend_y`, uma linha cinza com a variação calculada dos dados ("+11,2% vs 2021") e uma mini-série; sem período anterior, sem variação. |
 | `line` | Série temporal | Ponto final destacado; eixo a partir de zero em séries não negativas. |
 | `area` | Série com preenchimento | `stacked: true` empilha categorias dentro de cada ano. Herda todas as checagens de `line`. |
 | `bar` | Ranking ou comparação | Sem `sort_by`, ordena do maior para o menor; valor curto no fim de cada barra (com "%" quando a unidade é percentual). |

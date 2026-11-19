@@ -188,7 +188,8 @@ def test_f_outros_e_nao_identificado_ficam_no_fim(painel):
     lista = html_out[html_out.index('data-widget-id="w_part"'):]
     rotulos = re.findall(r'<span class="prog-label">([^<]+)</span>', lista)
     assert rotulos[-2:] == ["Outros", "Não identificado"]
-    assert "#9a9789" in lista  # cor neutra
+    from src.dashboard.renderer import NEUTRAL
+    assert NEUTRAL in lista  # cor neutra
 
 
 def test_f_barras_poem_outros_por_ultimo_em_cor_neutra():
@@ -198,7 +199,8 @@ def test_f_barras_poem_outros_por_ultimo_em_cor_neutra():
     nomes = list(fig.data[0].y)  # barras horizontais: o primeiro do eixo fica embaixo
     assert set(nomes[:2]) == {"Outros", "Não identificado"}
     cores = list(fig.data[0].marker.color)
-    assert cores[0] == cores[1] == "#9a9789" and cores[-1] != "#9a9789"
+    from src.dashboard.renderer import NEUTRAL
+    assert cores[0] == cores[1] == NEUTRAL and cores[-1] != NEUTRAL
 
 
 # --- 8: pior caso, gráfico reprovado com dados vira lista --------------------------------

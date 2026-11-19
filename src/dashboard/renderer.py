@@ -29,21 +29,20 @@ from src.dashboard.schemas import (
 
 logger = logging.getLogger(__name__)
 
-# Paleta terrosa, legível nos temas claro e escuro (verde-floresta, limão, teal, âmbar,
-# terracota, petróleo, lilás-acinzentado, pedra).
+# E3: paleta derivada do assunto (floresta, petróleo, terracota, oliva, ameixa). Cada cor tem contraste
+# >= 3:1 no fundo claro (#ffffff) e no escuro (#1b1f1b); "Outros" usa o cinza quente NEUTRAL e o ocre
+# ACCENT é o único acento (máximo anotado, item ativo). Nunca só cor: há rótulo direto, forma ou posição.
 PALETTE = [
-    "#2f7d4f",
-    "#93c83e",
-    "#1f9e8f",
-    "#d99a2b",
-    "#c2603a",
-    "#2c6e8a",
-    "#8a7fa8",
-    "#7d8579",
+    "#3f8a5c",  # floresta
+    "#3d8789",  # petróleo
+    "#c4643f",  # terracota
+    "#7f8f36",  # oliva
+    "#8f7a9c",  # ameixa
 ]
+ACCENT = "#b5832a"
 
 
-NEUTRAL = "#9a9789"  # cinza quente para "Outros" e "não identificado"
+NEUTRAL = "#8f8a7c"  # cinza quente para "Outros" e "não identificado"
 
 # Colunas que guardam o país de destino. Nelas, BRAZIL é soja processada no próprio Brasil
 # (consumo doméstico), e não uma exportação.
@@ -146,189 +145,204 @@ def format_br_value(val, col_name: str = "") -> str:
 # CSS da página (sem recursos externos). Tokens nos dois temas; os textos dos gráficos Plotly
 # (SVG) são recoloridos por CSS, então a troca de tema não exige redesenhar as figuras.
 PAGE_CSS = """
+/* Sistema de design dos painéis (ver docs/dashboard_visual.md).
+   Tipografia: fontes do sistema, escala 12/13/14/16/20/28/36 px; números em tabular-nums.
+   Espaço: múltiplos de 4 px (--s1..--s8). Raio: 6 px (controles) e 8 px (cartões). Linhas de 1 px, sem sombras.
+   Cores: terrosas, um único acento (ocre); séries com contraste >= 3:1 nos dois temas. */
 :root {
-  --bg: #eef3ea; --panel: #ffffff; --panel-2: #f6f9f3; --fg: #18271f; --muted: #5b6b60;
-  --border: #dde5d6; --accent: #2f7d4f; --accent-soft: #e3f0e2; --lime: #d6f26a; --lime-ink: #173a2b;
-  --side-bg: #173a2b; --side-fg: #dfe9e1; --side-muted: #9fb7a6; --hero-tint: #eaf6d2;
-  --chart-text: #4d5d53; --track: #e6ede1; --shadow: 0 1px 2px rgba(16,40,28,.05), 0 10px 28px rgba(16,40,28,.07);
-  --warn-bg: #fff6e0; --warn-border: #ecc977; --warn-fg: #7a4f0e; --focus: #2f7d4f; --code-bg: #f1f5ee;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 40px; --s8: 48px;
+  --r-sm: 6px; --r-md: 8px;
+  --t-xs: 12px; --t-sm: 13px; --t-md: 14px; --t-lg: 16px; --t-xl: 20px; --t-2xl: 28px; --t-3xl: 36px;
+  --bg: #f6f5f0; --panel: #ffffff; --panel-2: #f1efe8; --fg: #1e231f; --muted: #5d6259; --border: #e2dfd5;
+  --line: #d6d2c6; --accent: #b5832a; --accent-soft: #f5ecd9; --brand: #3f8a5c;
+  --chart-text: #555a52; --track: #ebe8df; --icon: #3f8a5c;
+  --warn-bg: #fbf3e2; --warn-border: #e2c88f; --warn-fg: #6e4a0c; --focus: #b5832a; --code-bg: #f6f5f0;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #0f1a14; --panel: #16241c; --panel-2: #1b2c22; --fg: #e8f0ea; --muted: #a3b5a8;
-  --border: #25382c; --accent: #8bd17c; --accent-soft: #1f3527; --lime: #d6f26a; --lime-ink: #10251a;
-  --side-bg: #0a130e; --side-fg: #dfe9e1; --side-muted: #8aa292; --hero-tint: #1d3324;
-  --chart-text: #b9c8bd; --track: #22362a; --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 28px rgba(0,0,0,.25);
-  --warn-bg: #2c2414; --warn-border: #6b5424; --warn-fg: #f0d28e; --focus: #d6f26a; --code-bg: #0f1a14;
+  --bg: #121512; --panel: #1b1f1b; --panel-2: #222722; --fg: #eceee7; --muted: #a9ada2; --border: #2c322c;
+  --line: #3a413a; --accent: #d1a04a; --accent-soft: #2c2618; --brand: #7cc596;
+  --chart-text: #b3b7ac; --track: #2a302a; --icon: #7cc596;
+  --warn-bg: #2a2416; --warn-border: #5e4c22; --warn-fg: #ecd29a; --focus: #d1a04a; --code-bg: #121512;
   color-scheme: dark;
 }
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0; background: var(--bg); color: var(--fg);
-  font: 14.5px/1.55 Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  font: var(--t-md)/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
-:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 8px; }
-.skip { position: absolute; left: -999px; top: 8px; background: var(--panel); color: var(--fg); padding: 8px 12px; border-radius: 8px; z-index: 10; }
-.skip:focus { left: 12px; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: var(--r-sm); }
+.skip { position: absolute; left: -999px; top: var(--s2); background: var(--panel); color: var(--fg); padding: var(--s2) var(--s3); border-radius: var(--r-sm); z-index: 10; }
+.skip:focus { left: var(--s3); }
 .icon { width: 18px; height: 18px; flex-shrink: 0; }
 .icon-sm { width: 14px; height: 14px; vertical-align: -2px; }
 .icon-lg { width: 40px; height: 40px; color: var(--muted); }
-.icon-logo { width: 26px; height: 26px; color: var(--lime); }
+.icon-logo { width: 22px; height: 22px; color: var(--brand); }
 
-.shell { display: grid; grid-template-columns: 252px minmax(0, 1fr); min-height: 100vh; }
+/* Estrutura */
+.shell { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 100vh; }
 .sidebar {
-  position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--side-bg); color: var(--side-fg);
-  padding: 24px 16px; display: flex; flex-direction: column; gap: 18px;
+  position: sticky; top: 0; height: 100vh; overflow-y: auto; background: var(--panel); color: var(--fg);
+  border-right: 1px solid var(--border); padding: var(--s5) var(--s3); display: flex; flex-direction: column; gap: var(--s4);
 }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 16px; letter-spacing: .2px; padding: 0 8px; }
-.side-title { margin: 0; padding: 0 8px; color: var(--side-muted); font-size: 12.5px; line-height: 1.4; }
-.sidebar nav { display: flex; flex-direction: column; gap: 4px; }
+.brand { display: flex; align-items: center; gap: var(--s2); font-weight: 700; font-size: var(--t-md); padding: 0 var(--s2); }
+.side-title { margin: 0; padding: 0 var(--s2); color: var(--muted); font-size: var(--t-xs); line-height: 1.4; }
+.sidebar nav { display: flex; flex-direction: column; gap: 2px; }
 .sidebar nav a {
-  display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 12px;
-  color: var(--side-fg); text-decoration: none; font-weight: 500; transition: background .15s, color .15s;
+  display: flex; align-items: center; gap: var(--s2); padding: var(--s2); border-radius: var(--r-sm);
+  color: var(--muted); text-decoration: none; font-weight: 500; font-size: var(--t-sm);
 }
-.sidebar nav a:hover { background: rgba(255,255,255,.07); }
-.sidebar nav a.is-active { background: var(--lime); color: var(--lime-ink); font-weight: 650; }
-.side-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 10px; }
+.sidebar nav a:hover { color: var(--fg); background: var(--panel-2); }
+.sidebar nav a.is-active { color: var(--fg); background: var(--panel-2); font-weight: 650; }
+.sidebar nav a.is-active .icon { color: var(--accent); }
+.side-bottom { margin-top: auto; display: flex; flex-direction: column; gap: var(--s2); }
 .theme-toggle {
-  display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 12px; border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.14); background: transparent; color: var(--side-fg); font: inherit; cursor: pointer;
+  display: flex; align-items: center; gap: var(--s2); width: 100%; padding: var(--s2); border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: transparent; color: var(--fg); font: inherit; font-size: var(--t-sm); cursor: pointer;
 }
-.theme-toggle:hover { background: rgba(255,255,255,.07); }
-.side-foot { margin: 0; padding: 0 8px; color: var(--side-muted); font-size: 12px; }
+.theme-toggle:hover { background: var(--panel-2); }
+.side-foot { margin: 0; padding: 0 var(--s2); color: var(--muted); font-size: var(--t-xs); }
 
-main { padding: 28px 32px 48px; max-width: 1320px; width: 100%; }
-.hero {
-  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
-  background: linear-gradient(135deg, var(--panel) 0%, var(--panel) 45%, var(--hero-tint) 100%);
-  border: 1px solid var(--border); border-radius: 22px; padding: 24px 28px; box-shadow: var(--shadow); margin-bottom: 22px;
-}
-.eyebrow { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: .9px; text-transform: uppercase; color: var(--accent); margin-bottom: 6px; }
-h1 { font-size: 26px; line-height: 1.25; margin: 0 0 8px; letter-spacing: -.2px; }
-.hero-subtitle { margin: 0 0 12px; color: var(--muted); max-width: 860px; }
-.question-pill { display: inline-block; background: var(--accent-soft); color: var(--fg); border-radius: 999px; padding: 6px 14px; font-size: 13px; }
-.source-pill { flex-shrink: 0; background: var(--lime); color: var(--lime-ink); font-weight: 650; font-size: 12.5px; border-radius: 999px; padding: 6px 12px; }
+main { padding: var(--s6) var(--s7) var(--s8); max-width: 1280px; width: 100%; }
+
+/* Cabeçalho: texto direto sobre o fundo, sem cartão nem degradê */
+.hero { margin-bottom: var(--s6); }
+.hero-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); }
+.eyebrow { font-size: var(--t-xs); font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+.source-pill { flex-shrink: 0; color: var(--muted); font-size: var(--t-xs); }
+h1 { font-size: var(--t-2xl); line-height: 1.2; margin: var(--s1) 0 var(--s2); letter-spacing: -.3px; font-weight: 700; max-width: 900px; }
+.hero-subtitle { margin: 0 0 var(--s3); color: var(--muted); max-width: 820px; font-size: var(--t-md); }
+.question-pill { font-size: var(--t-sm); color: var(--muted); }
+.question-pill strong { color: var(--fg); font-weight: 600; }
 
 .banner-warn {
-  display: flex; gap: 12px; align-items: flex-start; background: var(--warn-bg); border: 1px solid var(--warn-border);
-  color: var(--warn-fg); border-radius: 16px; padding: 14px 18px; margin-bottom: 22px;
+  display: flex; gap: var(--s3); align-items: flex-start; background: var(--warn-bg); border: 1px solid var(--warn-border);
+  color: var(--warn-fg); border-radius: var(--r-md); padding: var(--s3) var(--s4); margin-bottom: var(--s5); font-size: var(--t-sm);
 }
-.banner-warn ul { margin: 4px 0 0; padding-left: 18px; }
+.banner-warn ul { margin: var(--s1) 0 0; padding-left: var(--s4); }
 
-.dash-section { margin-bottom: 26px; scroll-margin-top: 16px; }
+/* Seções */
+.dash-section { margin-bottom: var(--s7); scroll-margin-top: var(--s4); }
 .section-title {
-  display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 700; letter-spacing: .9px;
-  text-transform: uppercase; color: var(--muted); margin: 0 0 12px;
+  font-size: var(--t-xs); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted);
+  margin: 0 0 var(--s3); padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
 }
-.section-title::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; }
-.chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); }
 .span-2 { grid-column: 1 / -1; }
 
-.card {
-  background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 18px 20px 14px;
-  box-shadow: var(--shadow); display: flex; flex-direction: column; min-width: 0;
-}
-.card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
-.card-header h3 { font-size: 15.5px; font-weight: 650; margin: 0; line-height: 1.35; }
-.scope-notes { font-size: 13px; color: var(--muted); margin: 8px 0 12px; }
-.scope-notes p { margin: 4px 0 0; }
-.gauge { position: relative; width: 132px; height: 132px; margin: 6px auto 4px; }
-.gauge svg { width: 100%; height: 100%; }
-.gauge-track { fill: none; stroke: var(--panel-2); stroke-width: 10; }
-.gauge-fill { fill: none; stroke: #93c83e; stroke-width: 10; stroke-linecap: butt; }
-.gauge-value { position: absolute; inset: 0; display: grid; place-items: center; font-size: 22px; font-weight: 700;
-  font-variant-numeric: tabular-nums; }
-.fallback-note { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
-.subtitle { margin: 4px 0 0; color: var(--muted); font-size: 12.5px; }
-.badge {
-  flex-shrink: 0; background: var(--panel-2); color: var(--muted); border: 1px solid var(--border);
-  border-radius: 999px; padding: 2px 10px; font-size: 11.5px; font-weight: 650; white-space: nowrap;
-}
-.card-body { flex: 1; min-width: 0; }
-.card-footer { border-top: 1px solid var(--border); margin-top: 10px; padding-top: 9px; font-size: 12px; color: var(--muted); }
+/* C1: fileira de indicadores (sem cartões), separados por linhas finas */
+.kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--s5) 0;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s5) 0; }
+.kpi { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--s3); align-items: start;
+  padding: 0 var(--s5); border-left: 1px solid var(--border); min-width: 0; }
+.kpi:first-child { border-left: 0; }
+.kpi-icon { width: 36px; height: 36px; color: var(--icon); margin-top: 2px; }
+.kpi-label { margin: 0; font-size: var(--t-sm); font-weight: 500; color: var(--muted); line-height: 1.35; }
+.kpi-value { margin: var(--s1) 0 0; font-size: var(--t-2xl); font-weight: 750; letter-spacing: -.5px; line-height: 1.1;
+  color: var(--fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kpi.is-featured .kpi-value { font-size: var(--t-3xl); }
+.kpi-delta { margin: var(--s1) 0 0; font-size: var(--t-xs); color: var(--muted); font-variant-numeric: tabular-nums;
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.kpi-delta .delta { color: var(--fg); font-weight: 650; }
+.delta-ref { font-weight: 400; color: var(--muted); }
+.spark { width: 72px; height: 20px; color: var(--icon); flex-shrink: 0; }
+.kpi-note { margin: var(--s1) 0 0; font-size: var(--t-xs); color: var(--muted); }
+.kpi-source { margin: var(--s1) 0 0; font-size: 11px; color: var(--muted); }
+.kpi-gauge { width: 56px; height: 56px; }
+.kpi-gauge svg { width: 100%; height: 100%; display: block; }
+.gauge-track { fill: none; stroke: var(--track); stroke-width: 9; }
+.gauge-fill { fill: none; stroke: var(--brand); stroke-width: 9; }
 
-.kpi-card { gap: 6px; }
-.kpi-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-.kpi-label { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); line-height: 1.4; }
-.kpi-value { margin: 2px 0 0; font-size: 34px; font-weight: 750; letter-spacing: -.6px; line-height: 1.1; color: var(--fg); font-variant-numeric: tabular-nums; }
-.kpi-meta { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 8px 10px; color: var(--accent); min-height: 40px; }
-.spark { flex: 1 1 72px; width: 100%; max-width: 132px; min-width: 0; height: 40px; }
-.delta { font-size: 12.5px; font-weight: 650; color: var(--fg); background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; white-space: nowrap; }
-.delta-ref { font-weight: 500; color: var(--muted); }
-.kpi-card .card-footer { margin-top: auto; }
-.kpi-card.is-featured { background: var(--side-bg); border-color: transparent; color: #eef5ef; }
-.kpi-card.is-featured .kpi-label, .kpi-card.is-featured .subtitle, .kpi-card.is-featured .card-footer, .kpi-card.is-featured .delta-ref { color: #a9c2b1; }
-.kpi-card.is-featured .kpi-value { color: var(--lime); }
-.kpi-card.is-featured .kpi-meta { color: var(--lime); }
-.kpi-card.is-featured .badge, .kpi-card.is-featured .delta { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.14); color: #eef5ef; }
-.kpi-card.is-featured .card-footer { border-top-color: rgba(255,255,255,.12); }
+/* Cartões de gráfico */
+.card {
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s4) var(--s5) var(--s3);
+  display: flex; flex-direction: column; min-width: 0;
+}
+.card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); margin-bottom: var(--s2); }
+.card-header h3 { font-size: var(--t-lg); font-weight: 650; margin: 0; line-height: 1.35; }
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: var(--t-sm); }
+.badge { flex-shrink: 0; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 var(--s2);
+  font-size: 11px; font-weight: 600; line-height: 20px; white-space: nowrap; }
+/* C3: gráficos menores com título pequeno, em maiúsculas e centralizado */
+.card.is-compact .card-header { position: relative; justify-content: center; text-align: center; padding: 0 var(--s7); }
+.card.is-compact .card-header h3 { font-size: var(--t-sm); font-weight: 700; letter-spacing: .6px; text-transform: uppercase; }
+.card.is-compact .card-header .badge { position: absolute; right: 0; top: 0; }
+.card.is-compact .subtitle { font-size: var(--t-xs); }
+.card-body { flex: 1; min-width: 0; }
+.card-footer { border-top: 1px solid var(--border); margin-top: var(--s2); padding-top: var(--s2); font-size: var(--t-xs); color: var(--muted); }
+.fallback-note { margin: 0 0 var(--s2); font-size: var(--t-sm); color: var(--muted); }
+.scope-notes { font-size: var(--t-sm); color: var(--muted); margin: var(--s2) 0 var(--s3); }
+.scope-notes p { margin: var(--s1) 0 0; }
 
 .plot-wrap { width: 100%; }
 /* Rótulos dentro das fatias usam a cor escolhida pelo contraste com a fatia (ver _ink_on). */
 .js-plotly-plot .plotly .main-svg text:not(.slicetext) { fill: var(--chart-text) !important; }
+.js-plotly-plot .plotly .main-svg .annotation-text { fill: var(--fg) !important; }
 .js-plotly-plot .plotly .main-svg .hoverlayer text { fill: #ffffff !important; }
 .js-plotly-plot .plotly .modebar { background: transparent !important; }
 .js-plotly-plot .plotly .modebar-btn path { fill: var(--muted) !important; }
 
-.table-wrap { max-height: 440px; overflow: auto; border: 1px solid var(--border); border-radius: 14px; }
-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; font-variant-numeric: tabular-nums; }
+/* Tabela */
+.table-wrap { max-height: 440px; overflow: auto; border: 1px solid var(--border); border-radius: var(--r-sm); }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--t-sm); font-variant-numeric: tabular-nums; }
 thead th {
   position: sticky; top: 0; z-index: 1; background: var(--panel-2); color: var(--muted); text-align: left;
-  font-size: 11.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 10px 12px; border-bottom: 1px solid var(--border);
+  font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line);
 }
-tbody td { padding: 9px 12px; border-bottom: 1px solid var(--border); }
-tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--panel-2) 55%, transparent); }
-tbody tr:hover td { background: var(--accent-soft); }
+tbody td { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--border); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: var(--panel-2); }
 th.num, td.num { text-align: right; }
 td.has-bar { position: relative; }
-.databar { position: absolute; right: 0; top: 6px; bottom: 6px; background: var(--accent-soft); border-radius: 6px 0 0 6px; }
-:root[data-theme="dark"] .databar { background: rgba(139,209,124,.18); }
+.databar { position: absolute; right: 0; top: 7px; bottom: 7px; background: var(--accent-soft); border-radius: 2px 0 0 2px; }
 .cell-v { position: relative; }
 
-.progress-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.prog-row { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; font-size: 13.5px; }
+/* Participações em lista */
+.progress-list { list-style: none; margin: var(--s1) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--s3); }
+.prog-row { display: flex; align-items: baseline; gap: var(--s2); margin-bottom: var(--s1); font-size: var(--t-sm); }
 .prog-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
-.prog-v { color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.prog-v { color: var(--muted); font-size: var(--t-xs); font-variant-numeric: tabular-nums; }
 .prog-pct { font-weight: 700; font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
-.prog-track { height: 9px; border-radius: 999px; background: var(--track); overflow: hidden; }
-.prog-fill { display: block; height: 100%; border-radius: 999px; }
-.note { margin: 12px 0 0; color: var(--muted); font-size: 12px; }
+.prog-track { height: 6px; border-radius: 2px; background: var(--track); overflow: hidden; }
+.prog-fill { display: block; height: 100%; border-radius: 2px; }
+.note { margin: var(--s3) 0 0; color: var(--muted); font-size: var(--t-xs); }
 
-.card-warning { background: var(--warn-bg); border-color: var(--warn-border); box-shadow: none; }
-.badge-warn { display: inline-flex; align-items: center; gap: 6px; background: transparent; color: var(--warn-fg); border-color: var(--warn-border); margin-bottom: 8px; }
-.warn-text { margin: 6px 0 2px; color: var(--warn-fg); font-size: 13.5px; }
-.empty-state { text-align: center; padding: 48px 16px; color: var(--muted); background: var(--panel); border: 1px dashed var(--border); border-radius: 20px; margin-bottom: 24px; }
+.card-warning { background: var(--warn-bg); border-color: var(--warn-border); }
+.badge-warn { display: inline-flex; align-items: center; gap: var(--s1); color: var(--warn-fg); border-color: var(--warn-border); margin-bottom: var(--s2); }
+.warn-text { margin: var(--s1) 0 2px; color: var(--warn-fg); font-size: var(--t-sm); }
+.empty-state { text-align: center; padding: var(--s8) var(--s4); color: var(--muted); background: var(--panel); border: 1px dashed var(--line); border-radius: var(--r-md); margin-bottom: var(--s5); }
 
-details.provenance { background: var(--panel); border: 1px solid var(--border); border-radius: 20px; padding: 16px 20px; box-shadow: var(--shadow); scroll-margin-top: 16px; }
-details.provenance summary { cursor: pointer; font-weight: 650; color: var(--fg); }
-.query-item { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
-.query-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.query-item pre { margin: 8px 0 0; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
-.query-item code { font-size: 12px; white-space: pre-wrap; word-break: break-word; }
-.btn-ghost { border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); border-radius: 999px; padding: 4px 12px; font: inherit; font-size: 12px; cursor: pointer; }
-.btn-ghost:hover { background: var(--accent-soft); }
-.meta { color: var(--muted); font-size: 12.5px; }
-.page-footer { margin-top: 22px; color: var(--muted); font-size: 12px; text-align: center; }
+details.provenance { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r-md); padding: var(--s3) var(--s5); scroll-margin-top: var(--s4); }
+details.provenance summary { cursor: pointer; font-weight: 600; color: var(--fg); font-size: var(--t-sm); }
+.query-item { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--border); }
+.query-head { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); font-size: var(--t-sm); }
+.query-item pre { margin: var(--s2) 0 0; padding: var(--s2) var(--s3); background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--r-sm); overflow-x: auto; }
+.query-item code { font-size: var(--t-xs); white-space: pre-wrap; word-break: break-word; }
+.btn-ghost { border: 1px solid var(--border); background: transparent; color: var(--fg); border-radius: var(--r-sm); padding: 2px var(--s3); font: inherit; font-size: var(--t-xs); cursor: pointer; }
+.btn-ghost:hover { background: var(--panel-2); }
+.meta { color: var(--muted); font-size: var(--t-xs); }
+.page-footer { margin-top: var(--s5); color: var(--muted); font-size: var(--t-xs); }
 
 @media (max-width: 900px) {
-  .shell { grid-template-columns: 1fr; }
-  .sidebar { position: sticky; top: 0; z-index: 5; height: auto; flex-direction: row; align-items: center; gap: 10px; padding: 10px 12px; overflow-x: auto; }
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { position: sticky; top: 0; z-index: 5; height: auto; flex-direction: row; align-items: center; gap: var(--s2);
+    padding: var(--s2) var(--s3); overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--border); }
   .brand span, .side-title, .side-foot { display: none; }
-  .sidebar nav { flex-direction: row; gap: 4px; }
-  .sidebar nav a { padding: 8px 10px; white-space: nowrap; font-size: 13px; }
+  .sidebar nav { flex-direction: row; }
+  .sidebar nav a { white-space: nowrap; }
   .sidebar nav a span { display: none; }
   .side-bottom { margin: 0 0 0 auto; }
-  .theme-toggle { padding: 8px 10px; }
   .theme-toggle .theme-label { display: none; }
-  main { padding: 16px 14px 32px; }
-  .hero { flex-direction: column; padding: 18px; border-radius: 18px; }
-  h1 { font-size: 21px; }
-  .chart-grid { grid-template-columns: 1fr; }
-  .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-  .kpi-value { font-size: 28px; }
+  main { padding: var(--s4) var(--s4) var(--s6); }
+  h1 { font-size: var(--t-xl); }
+  .chart-grid { grid-template-columns: minmax(0, 1fr); }
+  .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .kpi-value { white-space: normal; }
+  h1, .hero-subtitle { overflow-wrap: anywhere; }
+  .kpi { border-left: 0; padding: 0 var(--s4); }
+  .kpi-value, .kpi.is-featured .kpi-value { font-size: var(--t-xl); }
   .span-2 { grid-column: auto; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } * { transition: none !important; } }
@@ -336,12 +350,12 @@ details.provenance summary { cursor: pointer; font-weight: 650; color: var(--fg)
   .sidebar, .theme-toggle, .btn-ghost, .skip { display: none !important; }
   .shell { grid-template-columns: 1fr; }
   body { background: #ffffff; }
-  .card, .hero, details.provenance { box-shadow: none; break-inside: avoid; }
+  .card, details.provenance, .kpi-strip { break-inside: avoid; }
 }
 """
-FONT_STACK = 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif'
-GRID_COLOR = "rgba(120, 140, 128, 0.18)"
-HOVER_BG = "#173a2b"
+FONT_STACK = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'
+GRID_COLOR = "rgba(128, 124, 112, 0.16)"
+HOVER_BG = "#1e231f"
 TIME_COLUMNS = ("year", "ano")
 COUNT_UNITS = {
     "nº", "n°", "numero", "número", "contagem", "unidades", "municípios", "municipios", "países",
@@ -379,7 +393,33 @@ ICONS = {
     "rastreabilidade": '<path d="M9 7 4 12l5 5M15 7l5 5-5 5"/>',
     "tema": '<path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9Z"/>',
     "aviso": '<path d="M12 4 2.5 20h19L12 4Z"/><path d="M12 10v4M12 17h.01"/>',
+    "m-volume": '<path d="M3 8l9-4 9 4-9 4-9-4Z"/><path d="M3 12l9 4 9-4"/><path d="M3 16l9 4 9-4"/>',
+    "m-area": '<path d="M12 21V11"/><path d="M12 11c0-4 3-7 7-7 0 4-3 7-7 7Z"/><path d="M12 14c0-3-2-5-6-5 0 3 2 5 6 5Z"/>',
+    "m-dinheiro": '<circle cx="12" cy="12" r="8.5"/><path d="M14.5 9.2c-.5-.8-1.4-1.2-2.5-1.2-1.5 0-2.5.8-2.5 1.9 0 2.6 5 1.4 5 4.2 0 1.1-1.1 1.9-2.6 1.9-1.1 0-2-.4-2.5-1.2M12 6.5V8m0 8v1.5"/>',
+    "m-nuvem": '<path d="M7 18h10a4 4 0 0 0 .5-7.97A6 6 0 0 0 6 11a3.5 3.5 0 0 0 1 7Z"/>',
+    "m-parte": '<path d="M12 3a9 9 0 1 0 9 9h-9V3Z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15V3.5Z"/>',
+    "m-local": '<path d="M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.3"/>',
+    "m-grafico": '<path d="M4 20h16"/><path d="M7 16v-5M12 16V7M17 16v-8"/>',
 }
+
+
+def _metric_icon(w: WidgetSpec) -> str:
+    """Ícone da medida do indicador, pela unidade ou pelo nome da coluna."""
+    unit = (w.unit or "").strip().lower()
+    col = (w.column or "").lower()
+    if unit in ("%",) or "pct" in col or "share" in col or "particip" in col:
+        return "m-parte"
+    if "us$" in unit or "r$" in unit or "fob" in col or "usd" in col:
+        return "m-dinheiro"
+    if "co2" in unit or "co2" in col or "emiss" in col:
+        return "m-nuvem"
+    if unit == "ha" or "expos" in col or "defor" in col or "desmat" in col:
+        return "m-area"
+    if unit in ("t", "kt", "mi t") or "volume" in col or "tonel" in col:
+        return "m-volume"
+    if unit in COUNT_UNITS:
+        return "m-local"
+    return "m-grafico"
 
 
 def _icon(name: str, cls: str = "icon") -> str:
@@ -534,7 +574,7 @@ def _base_layout(height: int = 340, margin: dict | None = None) -> dict:
         "margin": margin or {"l": 56, "r": 24, "t": 16, "b": 48},
         "paper_bgcolor": "rgba(0,0,0,0)",
         "plot_bgcolor": "rgba(0,0,0,0)",
-        "font": {"family": FONT_STACK, "size": 12.5, "color": "#5b6b60"},
+        "font": {"family": FONT_STACK, "size": 12, "color": "#555a52"},
         "legend": {"orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0,
                    "font": {"size": 12}},
         "hoverlabel": {"bgcolor": HOVER_BG, "bordercolor": HOVER_BG,
@@ -548,6 +588,45 @@ def _style_axes(fig: go.Figure, value_axis: str = "y") -> None:
               "tickfont": {"size": 11.5}, "title_font": {"size": 12}}
     fig.update_xaxes(**common, showgrid=value_axis == "x", gridcolor=GRID_COLOR)
     fig.update_yaxes(**common, showgrid=value_axis == "y", gridcolor=GRID_COLOR)
+
+
+def _short_num(v: float) -> str:
+    """Número curto para marcas de eixo, no mesmo padrão do painel: 500 · 2,5 mil · 10 mi · 1,5 bi."""
+    a = abs(v)
+    for scale, suf in ((1e9, " bi"), (1e6, " mi"), (1e3, " mil")):
+        if a >= scale:
+            txt = _br_number(v / scale, 1)
+            return txt + suf
+    return _br_number(v, 0 if a >= 10 or float(v).is_integer() else 1)
+
+
+def _nice_step(span: float, target: int = 4) -> float:
+    if span <= 0:
+        return 1.0
+    raw = span / target
+    mag = 10 ** math.floor(math.log10(raw))
+    for m in (1, 2, 2.5, 5, 10):
+        if raw <= m * mag:
+            return m * mag
+    return 10 * mag
+
+
+def _br_ticks(fig: go.Figure, axis: str, values) -> None:
+    """Marcas do eixo de valor com texto em pt-BR (o Plotly só abrevia em inglês: 5M, 1B)."""
+    vals = [float(v) for v in pd.to_numeric(pd.Series(list(values)), errors="coerce").dropna()]
+    if not vals:
+        return
+    lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
+    step = _nice_step(hi - lo)
+    start = math.floor(lo / step) * step
+    ticks, t = [], start
+    while t <= hi + step * 0.001:
+        ticks.append(round(t, 10))
+        t += step
+    if ticks[-1] < hi:
+        ticks.append(ticks[-1] + step)
+    upd = {"tickmode": "array", "tickvals": ticks, "ticktext": [_short_num(x) for x in ticks]}
+    (fig.update_xaxes if axis == "x" else fig.update_yaxes)(**upd)
 
 
 def _hex_rgba(color: str, alpha: float) -> str:
@@ -599,7 +678,7 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         if show_text:
             tr.update(text=[format_compact_br(v, w.unit, with_unit=(w.unit or "").strip() == "%") for v in vals],
                       textposition="outside", cliponaxis=False, textfont={"size": 11})
-        _safe_update(tr, marker_cornerradius=6)
+        _safe_update(tr, marker_cornerradius=3)
         fig.add_trace(tr)
 
     if w.color and len(w.y) == 1:
@@ -620,6 +699,7 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
 
     n = len(work)
     height = max(320, 56 + 32 * n) if horiz else 360
+    _br_ticks(fig, "x" if horiz else "y", [v for y_col in w.y for v in pd.to_numeric(work[y_col], errors="coerce")])
     fig.update_layout(
         **_base_layout(height=height, margin={"l": 8, "r": 56 if horiz else 16, "t": 18, "b": 40}),
         barmode=w.barmode,
@@ -647,25 +727,26 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     fig = go.Figure()
     unit = f" {w.unit}" if w.unit else ""
 
+    series: list[tuple[str, pd.Series, pd.Series, str]] = []
+
     def _add(name, sub, y_col, color):
         xs = sub[x_col]
         ys = pd.to_numeric(sub[y_col], errors="coerce")
-        n = len(sub)
-        sizes = [0] * max(n - 1, 0) + [9] if n else []
+        dash = LINE_DASHES[len(series) % len(LINE_DASHES)]
         tr = go.Scatter(
             name=name, x=xs, y=ys,
-            mode="lines+markers" if w.markers else "lines",
-            line={"color": color, "width": 2.6, "shape": "spline", "smoothing": 0.5},
-            marker={"size": sizes, "color": color, "line": {"width": 2, "color": "#ffffff"}},
+            mode="lines+markers" if (w.markers and not is_area) else "lines",
+            # Linha reta (sem suavizar): a curva suavizada passava acima e abaixo dos valores reais.
+            line={"color": color, "width": 2.2, "dash": "solid" if is_area else dash},
+            marker={"size": 8, "symbol": "circle-open", "color": color, "line": {"width": 2, "color": color}},
             hovertemplate=f"<b>%{{y:,.2f}}</b>{html.escape(unit)}<extra>{html.escape(str(name))}</extra>",
         )
         if stacked:
-            tr.update(stackgroup="s", fillcolor=_hex_rgba(color, 0.35))
+            tr.update(stackgroup="s", fillcolor=_hex_rgba(color, 0.45))
         elif is_area:
-            tr.update(fill="tozeroy", fillcolor=_hex_rgba(color, 0.16))
-            _safe_update(tr, fillgradient={"type": "vertical",
-                                           "colorscale": [[0, _hex_rgba(color, 0.02)], [1, _hex_rgba(color, 0.32)]]})
+            tr.update(fill="tozeroy", fillcolor=_hex_rgba(color, 0.14))
         fig.add_trace(tr)
+        series.append((str(name), xs, ys, color))
 
     if w.color and len(w.y) == 1:
         for idx, (grp, sub) in enumerate(work.groupby(w.color, sort=False, dropna=False)):
@@ -676,9 +757,12 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         for idx, y_col in enumerate(w.y):
             _add(_label(w, y_col), work, y_col, PALETTE[idx % len(PALETTE)])
 
+    direct = not stacked and 1 <= len(series) <= 6
+    _direct_line_labels(fig, series, w, single=len(series) == 1)
     fig.update_layout(
-        **_base_layout(height=360, margin={"l": 8, "r": 20, "t": 18, "b": 40}),
-        showlegend=(len(w.y) > 1 or bool(w.color)),
+        **_base_layout(height=360, margin={"l": 8, "r": 112 if (direct and len(series) > 1) else 56,
+                                           "t": 24, "b": 40}),
+        showlegend=not direct and (len(w.y) > 1 or bool(w.color)),
         hovermode="x unified",
     )
     _style_axes(fig, value_axis="y")
@@ -686,10 +770,51 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     fig.update_xaxes(title_text="" if _is_time(x_col) else _label(w, x_col))
     if _is_time(x_col) and work[x_col].nunique() <= 12:
         fig.update_xaxes(dtick=1)
+    anos = pd.to_numeric(work[x_col], errors="coerce").dropna() if _is_time(x_col) else pd.Series(dtype=float)
+    if not anos.empty:
+        # Só os anos que existem nos dados: o rótulo do fim da linha fica na margem, não estica o eixo.
+        fig.update_xaxes(range=[anos.min() - 0.4, anos.max() + 0.4])
     fig.update_yaxes(title_text=y_title)
     if stacked or _starts_at_zero(work, list(w.y)):
         fig.update_yaxes(rangemode="tozero")  # série não negativa: o eixo parte de zero
+    if stacked:
+        totais = work.assign(_v=pd.to_numeric(work[w.y[0]], errors="coerce")).groupby(x_col)["_v"].sum()
+        _br_ticks(fig, "y", totais.tolist())
+    else:
+        _br_ticks(fig, "y", [v for _n, _x, ys, _c in series for v in ys.tolist()])
     return fig
+
+
+LINE_DASHES = ("solid", "dash", "dot", "dashdot")
+
+
+def _direct_line_labels(fig: go.Figure, series, w: WidgetSpec, *, single: bool) -> None:
+    """E4: rótulo no fim de cada linha (nome e último valor) em vez de legenda; numa série única,
+    anota também o ponto máximo. Poucos pontos (até 8): valor escrito em cada ponto (C4)."""
+    if not series or len(series) > 6 or w.stacked:
+        return
+    for name, xs, ys, color in series:
+        valid = ys.notna()
+        if not valid.any():
+            continue
+        x_last, y_last = xs[valid].iloc[-1], ys[valid].iloc[-1]
+        txt = format_compact_br(y_last, w.unit, with_unit=False)
+        fig.add_annotation(x=x_last, y=y_last, text=txt if single else f"{html.escape(name)} · {txt}",
+                           showarrow=False, xanchor="left", xshift=8, font={"size": 11.5, "color": color})
+    if not single:
+        return
+    name, xs, ys, color = series[0]
+    valid = ys.notna()
+    if valid.sum() <= 8:
+        fig.data[0].update(mode="lines+markers+text", textposition="top center", textfont={"size": 11},
+                           text=[format_compact_br(v, w.unit, with_unit=False) if pd.notna(v) else "" for v in ys])
+        return
+    i_max = ys[valid].idxmax()
+    if i_max != ys[valid].index[-1]:
+        x_max, y_max = xs.loc[i_max], ys.loc[i_max]
+        fig.add_annotation(x=x_max, y=y_max, ax=0, ay=-28, arrowhead=0, arrowwidth=1, arrowcolor=ACCENT,
+                           text=f"máx. {_fmt_axis_value(x_max)}: {format_compact_br(y_max, w.unit, with_unit=False)}",
+                           font={"size": 11, "color": ACCENT})
 
 
 def _build_table_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
@@ -777,37 +902,42 @@ def _build_waterfall_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     fig = go.Figure(go.Waterfall(
         x=[*cats, "Variação total"], y=[*vals, total], measure=["relative"] * len(vals) + ["total"],
         text=[format_compact_br(v, w.unit) for v in [*vals, total]], textposition="outside",
-        increasing={"marker": {"color": PALETTE[0]}}, decreasing={"marker": {"color": PALETTE[4]}},
+        increasing={"marker": {"color": PALETTE[0]}}, decreasing={"marker": {"color": PALETTE[2]}},
         totals={"marker": {"color": NEUTRAL}}, connector={"line": {"color": "rgba(128,128,128,0.4)", "width": 1}},
         hovertemplate="<b>%{x}</b><br>%{text}<extra></extra>", cliponaxis=False,
     ))
     fig.update_layout(**_base_layout(height=360), showlegend=False)
     _style_axes(fig, value_axis="y")
     fig.update_yaxes(title_text=w.unit)
+    acumulado = pd.Series([*vals, 0.0]).cumsum().tolist()
+    _br_ticks(fig, "y", [*acumulado, total])
     return fig
 
 
 def _render_gauge_card(w: WidgetSpec, df: pd.DataFrame) -> str:
-    """Medidor: rosca de um percentual único calculado dos dados (ex.: % do volume para a China)."""
+    """Medidor (B3) na fileira de indicadores: rosca pequena no lugar do ícone e o % ao lado."""
     valor = compute_kpi_value(df, w.column or "", w.agg)
     if valor is None:
         raise ValueError("medidor sem valor")
     pct = max(0.0, min(100.0, float(valor)))
-    circ = 2 * math.pi * 42
+    circ = 2 * math.pi * 40
     filled = circ * pct / 100
     txt = _pct_br(pct)
-    subtitle = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
+    note = f'<p class="kpi-note">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
     return (
-        f'<article class="card kpi-card gauge-card" data-widget-id="{html.escape(w.id)}" data-widget-kind="gauge">\n'
-        f'  <div class="kpi-top"><h3 class="kpi-label">{html.escape(pt_text(w.title))}</h3></div>\n'
-        f'  <div class="gauge" role="img" aria-label="{html.escape(pt_text(w.title))}: {txt}">'
+        f'<article class="kpi kpi-gauge-item" data-widget-id="{html.escape(w.id)}" data-widget-kind="gauge">\n'
+        f'  <div class="kpi-gauge gauge" role="img" aria-label="{html.escape(pt_text(w.title))}: {txt}">'
         f'<svg viewBox="0 0 100 100" aria-hidden="true">'
-        f'<circle class="gauge-track" cx="50" cy="50" r="42"/>'
-        f'<circle class="gauge-fill" cx="50" cy="50" r="42" stroke-dasharray="{filled:.2f} {circ:.2f}" '
-        f'transform="rotate(-90 50 50)"/></svg>'
-        f'<span class="gauge-value" data-value="{pct:.4f}" title="{html.escape(format_br_value(valor))}%">{txt}</span></div>\n'
-        f'  {subtitle}\n'
-        f'  <footer class="card-footer">Fonte: {html.escape(w.source)}</footer>\n'
+        f'<circle class="gauge-track" cx="50" cy="50" r="40"/>'
+        f'<circle class="gauge-fill" cx="50" cy="50" r="40" stroke-dasharray="{filled:.2f} {circ:.2f}" '
+        f'transform="rotate(-90 50 50)"/></svg></div>\n'
+        f'  <div class="kpi-body">\n'
+        f'    <h3 class="kpi-label">{html.escape(pt_text(w.title))}</h3>\n'
+        f'    <p class="kpi-value"><span class="gauge-value" data-value="{pct:.4f}" '
+        f'title="{html.escape(format_br_value(valor))}%">{txt}</span></p>\n'
+        f'    {note}\n'
+        f'    <p class="kpi-source">Fonte: {html.escape(w.source)}</p>\n'
+        f'  </div>\n'
         f'</article>'
     )
 
@@ -840,16 +970,10 @@ def _sparkline_svg(ys: list[float], uid: str, label: str) -> str:
     step = (w_ - 2 * pad) / (len(ys) - 1)
     pts = [(pad + i * step, h_ - pad - (y - lo) / span * (h_ - 2 * pad)) for i, y in enumerate(ys)]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    area = f"{pts[0][0]:.1f},{h_} {line} {pts[-1][0]:.1f},{h_}"
-    gid = f"g-{uid}"
     lx, ly = pts[-1]
     return (
         f'<svg class="spark" viewBox="0 0 {w_} {h_}" preserveAspectRatio="none" role="img" '
         f'aria-label="{html.escape(label)}">'
-        f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0" stop-color="currentColor" stop-opacity=".30"/>'
-        f'<stop offset="1" stop-color="currentColor" stop-opacity="0"/></linearGradient></defs>'
-        f'<polygon points="{area}" fill="url(#{gid})"/>'
         f'<polyline points="{line}" fill="none" stroke="currentColor" stroke-width="2" '
         f'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
         f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="3.2" fill="currentColor"/></svg>'
@@ -869,8 +993,18 @@ def _card_header(w: WidgetSpec) -> str:
             f'{badge}</div>')
 
 
+COMPACT_KINDS = ("pie", "donut", "progress")
+
+
+def _is_compact(w: WidgetSpec) -> bool:
+    """C3: gráficos menores (pizza, rosca, participações, ranking curto em meia largura) usam título
+    pequeno, em maiúsculas e centralizado."""
+    return w.span != 2 and (w.kind in COMPACT_KINDS or (w.kind == "bar" and w.orientation == "h"))
+
+
 def _render_valid_card(w: WidgetSpec, inner_html: str) -> str:
     span_cls = " span-2" if w.span == 2 else ""
+    span_cls += " is-compact" if _is_compact(w) else ""
     return (
         f'<article class="card chart-card{span_cls}" data-widget-id="{html.escape(w.id)}" '
         f'data-widget-kind="{html.escape(w.kind)}">\n'
@@ -882,34 +1016,39 @@ def _render_valid_card(w: WidgetSpec, inner_html: str) -> str:
 
 
 def _render_kpi_card(w: WidgetSpec, df: pd.DataFrame, featured: bool = False) -> str:
+    """C1: ícone grande à esquerda, rótulo pequeno, número grande e, embaixo, a variação calculada dos
+    dados ("+11,2% vs 2021"). Sem período anterior, não há linha de variação."""
     actual = compute_kpi_value(df, w.column or "", w.agg)
     if actual is None:
         raise ValueError(f"Não foi possível calcular o KPI em {w.dataset_id}.{w.column}.")
     exact = format_br_value(actual) + (f" {w.unit}" if w.unit else "")
-    # Em contagens o selo já diz a unidade ("municípios"); no número ela só repetiria.
-    value_txt = format_compact_br(actual, w.unit, with_unit=(w.unit or "").strip().lower() not in COUNT_UNITS)
+    # Em contagens o rótulo já diz a unidade ("municípios"); no número ela só repetiria.
+    count_unit = (w.unit or "").strip().lower() in COUNT_UNITS
+    value_txt = format_compact_br(actual, w.unit, with_unit=not count_unit)
     trend = kpi_trend(df, w)
-    meta = ""
-    if trend:
-        delta = ""
-        if trend["delta_pct"] is not None:
-            d = trend["delta_pct"]
-            arrow = "▲" if d > 0 else ("▼" if d < 0 else "■")
-            pct = f"{abs(d):,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
-            delta = (f'<span class="delta" title="Variação em relação a {html.escape(_fmt_axis_value(trend["prev_x"]))}">'
-                     f'{arrow} {pct}% <span class="delta-ref">vs {html.escape(_fmt_axis_value(trend["prev_x"]))}</span></span>')
+    delta = ""
+    if trend and trend["delta_pct"] is not None:
+        d = trend["delta_pct"]
+        sinal = "+" if d > 0 else ("−" if d < 0 else "")
+        pct = f"{abs(d):,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
+        ref = html.escape(_fmt_axis_value(trend["prev_x"]))
         label = (f"Série de {_label(w, w.trend_y)} de "
                  f"{_fmt_axis_value(trend['xs'][0])} a {_fmt_axis_value(trend['last_x'])}")
-        meta = f'<div class="kpi-meta">{delta}{_sparkline_svg(trend["ys"], _uid(w), label)}</div>'
-    subtitle = f'<p class="subtitle">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
-    badge = f'<span class="badge">{html.escape(w.unit)}</span>' if w.unit else ""
-    cls = "card kpi-card is-featured" if featured else "card kpi-card"
+        delta = (f'<p class="kpi-delta"><span class="delta" title="Variação em relação a {ref}">'
+                 f'{sinal}{pct}% <span class="delta-ref">vs {ref}</span></span>'
+                 f'{_sparkline_svg(trend["ys"], _uid(w), label)}</p>')
+    rotulo = pt_text(w.title) + (f" ({w.unit})" if count_unit and w.unit and w.unit.lower() not in pt_text(w.title).lower() else "")
+    note = f'<p class="kpi-note">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
+    cls = "kpi is-featured" if featured else "kpi"
     return (
         f'<article class="{cls}" data-widget-id="{html.escape(w.id)}" data-widget-kind="kpi">\n'
-        f'  <div class="kpi-top"><h3 class="kpi-label">{html.escape(pt_text(w.title))}</h3>{badge}</div>\n'
-        f'  <p class="kpi-value" title="{html.escape(exact)}">{html.escape(value_txt)}</p>\n'
-        f'  {meta}{subtitle}\n'
-        f'  <footer class="card-footer">Fonte: {html.escape(w.source)}</footer>\n'
+        f'  {_icon(_metric_icon(w), "kpi-icon")}\n'
+        f'  <div class="kpi-body">\n'
+        f'    <h3 class="kpi-label">{html.escape(rotulo)}</h3>\n'
+        f'    <p class="kpi-value" title="{html.escape(exact)}" data-value="{actual}">{html.escape(value_txt)}</p>\n'
+        f'    {delta}{note}\n'
+        f'    <p class="kpi-source">Fonte: {html.escape(w.source)}</p>\n'
+        f'  </div>\n'
         f'</article>'
     )
 
@@ -1009,6 +1148,44 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
 
 
 
+MAIN_KINDS = ("line", "area", "bar", "waterfall")
+
+
+def _main_chart_ids(widgets, group_section) -> set[str]:
+    """E5: em cada seção de gráficos, o primeiro de linha/área/barras/variação é o principal
+    (largura total); os demais ficam em meia largura, alinhados à grade."""
+    seen: set[str] = set()
+    out: set[str] = set()
+    for w in widgets:
+        sec = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
+        if sec in ("visao-geral", "detalhamento") or sec in seen or w.kind not in MAIN_KINDS:
+            continue
+        seen.add(sec)
+        out.add(w.id)
+    return out
+
+
+def _final_spans(widgets, group_section, main_ids) -> dict[str, int]:
+    """Largura final de cada cartão de gráfico: o principal da seção ocupa a largura toda e um cartão
+    de meia largura que ficaria sozinho na linha (seguido de um de largura toda, ou no fim) também."""
+    por_secao: dict[str, list] = {}
+    for w in widgets:
+        sec = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
+        if sec != "visao-geral":
+            por_secao.setdefault(sec, []).append(w)
+    spans: dict[str, int] = {}
+    for ws in por_secao.values():
+        base = [2 if (w.id in main_ids or w.span == 2) else 1 for w in ws]
+        col = 0
+        for i, w in enumerate(ws):
+            span = base[i]
+            if span == 1 and col == 0 and (i + 1 == len(ws) or base[i + 1] == 2):
+                span = 2
+            spans[w.id] = span
+            col = 0 if span == 2 else (col + 1) % 2
+    return spans
+
+
 def _plan_groups(widgets, by_id):
     """B2: componentes com o mesmo `group` (ex.: barras e linha) ficam juntos, na largura total, na seção
     do primeiro, e com o mesmo intervalo de tempo no eixo x. Cada um mantém a sua unidade."""
@@ -1097,7 +1274,10 @@ def render_dashboard_html(
     first_kpi = True
 
     ordered, group_ranges, group_section = _plan_groups(spec.widgets, by_id)
+    spans = _final_spans(ordered, group_section, _main_chart_ids(ordered, group_section))
     for w in ordered:
+        if spans.get(w.id, w.span) != w.span:
+            w = replace(w, span=spans[w.id])  # E5: principal na largura toda; nenhum cartão sozinho pela metade
         section = group_section.get(w.group or "", SECTION_OF.get(w.kind, "detalhamento"))
         note = ""
         if w.kind in ("pie", "donut") and w.valid and w.dataset_id in by_id and w.x in by_id[w.dataset_id].df.columns:
@@ -1165,7 +1345,7 @@ def render_dashboard_html(
         if not cards[sid]:
             continue
         nav_items.append(f'<a href="#{sid}" data-section="{sid}">{_icon(sid)}<span>{label}</span></a>')
-        grid = "kpi-grid" if sid == "visao-geral" else "chart-grid"
+        grid = "kpi-strip" if sid == "visao-geral" else "chart-grid"
         sections_html.append(
             f'<section class="dash-section" id="{sid}" aria-labelledby="{sid}-h">\n'
             f'  <h2 class="section-title" id="{sid}-h">{label}</h2>\n'
@@ -1231,13 +1411,10 @@ def render_dashboard_html(
   </aside>
   <main id="conteudo">
     <header class="hero">
-      <div class="hero-text">
-        <span class="eyebrow">Painel analítico</span>
-        <h1>{page_title}</h1>
-        {page_subtitle}
-        {question_banner}
-      </div>
-      <span class="source-pill">Fonte: Trase</span>
+      <div class="hero-top"><span class="eyebrow">Painel analítico</span><span class="source-pill">Fonte: Trase</span></div>
+      <h1>{page_title}</h1>
+      {page_subtitle}
+      {question_banner}
     </header>
     {top_warnings}
     {chr(10).join(sections_html)}

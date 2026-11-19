@@ -145,7 +145,8 @@ def test_barras_e_linha_ficam_juntas_alinhadas_e_sem_segundo_eixo():
     ranges = re.findall(r'"range":\[2018\.5,2022\.5\]', page)
     assert len(ranges) == 2  # mesmo intervalo de tempo nos dois
     assert "yaxis2" not in page  # nunca dois eixos com escalas diferentes no mesmo gráfico
-    assert page.count('class="card chart-card span-2"') == 2
+    for wid in ("l", "b"):
+        assert f'class="card chart-card span-2" data-widget-id="{wid}"' in page
 
 
 def test_pedido_barras_e_linha_instrui_o_par_com_grupo():
@@ -163,11 +164,21 @@ def test_barras_horizontais_com_percentual_no_fim():
     assert list(fig_t.data[0].text)[-1] == "12"  # valor curto no fim da barra (unidade no selo)
 
 
+def _contraste(a: str, b: str) -> float:
+    def lum(h):
+        h = h.lstrip("#")
+        r, g, bl = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        f = lambda c: c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4  # noqa: E731
+        return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(bl)
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def test_rotulo_da_fatia_tem_contraste_nos_dois_temas():
     pie = build_widget_figure(_w(), MUNICIPIOS).data[0]
     cores, tintas = list(pie.marker.colors), list(pie.insidetextfont.color)
-    assert tintas[cores.index("#2f7d4f")] == "#ffffff"  # verde-escuro: texto branco
-    assert tintas[cores.index("#93c83e")] == "#18271f"  # verde-limão: texto escuro
+    for cor, tinta in zip(cores, tintas):  # texto de cada fatia legível sobre a própria fatia
+        assert _contraste(cor, tinta) >= 3.0, (cor, tinta)
     page = render_dashboard_html(parse_dashboard_spec({"title": "P", "widgets": [_w().to_dict()]}),
                                  [_ds("D1", MUNICIPIOS)])
     assert "main-svg text:not(.slicetext)" in page  # o tema não sobrescreve a cor escolhida
