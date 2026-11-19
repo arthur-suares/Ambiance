@@ -33,6 +33,14 @@ from src.dashboard.dashboard_agent import (
 )
 from src.dashboard.data_agent import run_data_agent
 from src.dashboard.data_base import declare_bases
+from src.dashboard.dimensions import (
+    DIMENSIONS,
+    GLOSSARY_PROMPT,
+    column_matches,
+    columns_cover,
+    detect_dimension,
+    dimension_line,
+)
 from src.dashboard.reviewer_agent import review_dashboard
 from src.dashboard.messages import user_message
 from src.dashboard.validator import find_illegality_claim
@@ -70,10 +78,13 @@ indique claramente no objetivo.
 (ex.: exposição ao desmatamento tem janela de 5 anos e não pode ser somada entre anos; rankings \
 municipais cobrem a origem rastreada sem 'UNKNOWN'; usar ano mais recente se nenhum foi pedido; \
 na soja, o destino BRAZIL é processamento doméstico e não conta como país importador).
+- Use o glossário abaixo para saber por qual coluna agrupar. Se a mensagem trouxer "DIMENSÃO PEDIDA", \
+o recorte principal agrupa por essa coluna.
+{glossary}
 - Defina UMA base comum em `common_base` (ano, origem rastreada ou todas as origens, só exportação ou \
 cadeia inteira) e descreva todos os recortes com essa mesma base: KPIs, pizza, ranking e tabela devem \
 usar o mesmo filtro de ano, de origem e o mesmo denominador. Só a série histórica pode cobrir vários anos.
-""".format(kinds=kinds_for_prompt(), choice_by_intent=CHOICE_BY_INTENT)
+""".format(kinds=kinds_for_prompt(), choice_by_intent=CHOICE_BY_INTENT, glossary=GLOSSARY_PROMPT)
 
 PLAN_TOOL_SCHEMA = {
     "type": "object",
@@ -140,6 +151,9 @@ def create_plan(question: str, domain: str, chart: ChartChoice | None = None) ->
     )
     if chart is not None:
         user_msg += "\n" + chart.prompt_line()
+    dim = detect_dimension(question)
+    if dim is not None:
+        user_msg += "\n" + dimension_line(dim)
     payload, in_tok, out_tok = call_structured_llm(
         system=ORCHESTRATOR_SYSTEM_PROMPT,
         user_content=user_msg,
@@ -179,6 +193,7 @@ def create_plan(question: str, domain: str, chart: ChartChoice | None = None) ->
         methodological_notes=notes,
         requested_chart=chart,
         common_base=_parse_common_base(payload.get("common_base")),
+        requested_dimension=dim.key if dim is not None else None,
         input_tokens=in_tok,
         output_tokens=out_tok,
     )
@@ -266,6 +281,33 @@ def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
     spec.warnings = kept
 
 
+def _finish_dimension(spec: DashboardSpec, plan: OrchestratorPlan, question: str, datasets=None) -> None:
+    """A3: se o painel não agrupou pela dimensão pedida, avisa em uma frase curta; se agrupou por
+    município, o subtítulo diz que é o município de ORIGEM e que cobre só a origem rastreada."""
+    dim = DIMENSIONS.get(plan.requested_dimension or "")
+    if dim is None:
+        return
+    from src.dashboard.reviewer_agent import dimension_widgets
+    matched, grouped = dimension_widgets(spec, dim, datasets)
+    if grouped and not matched:
+        col = grouped[0].x or next(iter(grouped[0].columns), "")
+        other = next((d for d in DIMENSIONS.values() if d.key != dim.key and column_matches(col, d)), None)
+        if other is not None:  # sem saber a outra dimensão, não afirma nada (pode ser um apelido do SQL)
+            msg = f"Não consegui montar por {dim.label}; mostrei por {other.label}."
+            if msg not in spec.warnings:
+                spec.warnings.append(msg)
+        return
+    if dim.key == "municipio" and matched:
+        q = question.lower()
+        cadeia = "da soja" if plan.domain == "soy" or "soja" in q else (
+            "da carne bovina" if plan.domain == "beef" or "carne" in q else "do produto")
+        exportada = " exportada" if re.search(r"export", q) else ""
+        frase = f"Município de origem {cadeia}{exportada}; cobre só a origem rastreada."
+        w = matched[0]
+        if "origem rastreada" not in (w.subtitle or ""):
+            w.subtitle = f"{frase} {w.subtitle}".strip() if w.subtitle else frase
+
+
 def _parse_common_base(raw) -> dict:
     if not isinstance(raw, dict):
         return {}
@@ -320,7 +362,8 @@ def generate_dashboard(
         total_out += d_out
 
         for attempt in range(MAX_REVISIONS + 1):
-            review = review_dashboard(question, spec, datasets, requested=plan.requested_chart)
+            review = review_dashboard(question, spec, datasets, requested=plan.requested_chart,
+                                      dimension=plan.requested_dimension)
             reviews.append(review)
             total_in += review.input_tokens
             total_out += review.output_tokens
@@ -337,6 +380,7 @@ def generate_dashboard(
                 _apply_final_review_isolation(spec, review, question)
 
     declare_bases(spec, datasets)  # A4: bases diferentes -> cada widget diz a base que usou
+    _finish_dimension(spec, plan, question, datasets)
     _finish_chart_choice(spec, plan, datasets)
     _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, datasets, question=question)
@@ -390,9 +434,14 @@ def build_dashboard_from_store(
     is_edit = bool(edit and current_spec is not None)
 
     stored_datasets = store.get_datasets(sid, non_empty_only=True)
+    dim = detect_dimension(question)
+    # A1: os dados guardados só servem se tiverem a dimensão pedida (ex.: município, não empresa).
+    dim_missing = bool(dim is not None and stored_datasets
+                       and not any(columns_cover(d.df.columns, dim) for d in stored_datasets))
     can_reuse_store = (
         bool(stored_datasets)
         and not needs_new_data
+        and not dim_missing
         and (is_edit or use_previous_results)
     )
 
@@ -408,6 +457,7 @@ def build_dashboard_from_store(
             dashboard_goal=goal_txt,
             data_requests=[],
             requested_chart=chart,
+            requested_dimension=dim.key if dim is not None else None,
         )
         datasets = stored_datasets
     else:
@@ -438,7 +488,7 @@ def build_dashboard_from_store(
                 "verdict": "ok" if data_res.datasets else "empty",
             })
 
-        if is_edit or use_previous_results:
+        if (is_edit or use_previous_results) and not dim_missing:
             datasets = store.get_datasets(sid, non_empty_only=True)
         else:
             datasets = list(data_res.datasets)
@@ -475,7 +525,8 @@ def build_dashboard_from_store(
 
         for attempt in range(MAX_REVISIONS + 1):
             t_val = time.perf_counter()
-            review = review_dashboard(question, spec, datasets, requested=plan.requested_chart)
+            review = review_dashboard(question, spec, datasets, requested=plan.requested_chart,
+                                      dimension=plan.requested_dimension)
             reviews.append(review)
             total_in += review.input_tokens
             total_out += review.output_tokens
@@ -511,6 +562,7 @@ def build_dashboard_from_store(
     used_ids = {w.dataset_id for w in spec.widgets if w.dataset_id}
     render_datasets = [d for d in datasets if d.dataset_id in used_ids] or datasets
     declare_bases(spec, render_datasets)  # A4: bases diferentes -> cada widget diz a base que usou
+    _finish_dimension(spec, plan, question, render_datasets)
     _finish_chart_choice(spec, plan, datasets)
     _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, render_datasets, question=question)

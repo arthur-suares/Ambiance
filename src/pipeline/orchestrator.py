@@ -20,6 +20,7 @@ import unicodedata
 
 from src.dashboard._llm import call_structured_llm
 from src.dashboard import chart_intent
+from src.dashboard.dimensions import columns_cover, detect_dimension
 from src.rag import resolve_domain
 
 ALLOWED_INTENTS = ("question", "dashboard", "dashboard_edit", "map_edit", "mixed")
@@ -265,6 +266,18 @@ def _extract_session_flags(
     return spec_flag, data_flag, cols
 
 
+def _panel_columns(session) -> set[str] | None:
+    spec = getattr(session, "current_spec", None) if session is not None else None
+    if spec is None:
+        return None
+    cols: set[str] = set()
+    for w in getattr(spec, "widgets", []) or []:
+        for c in (getattr(w, "x", None), getattr(w, "color", None), *(getattr(w, "columns", None) or [])):
+            if c:
+                cols.add(str(c).lower())
+    return cols
+
+
 def _build_assumption(norm_msg: str, domain: str) -> str | None:
     if _WORLD_SCOPE_RE.search(norm_msg):
         chain_label = (
@@ -315,6 +328,27 @@ def _edit_needs_new_data(norm_msg: str, store_columns: set[str]) -> bool:
     return not matched_any_metric
 
 
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _is_format_only(norm_msg: str) -> bool:
+    """A1: só palavras de formato ("faz em pizza", "mostra de outro jeito", "põe como lista").
+    Entidade, dimensão, filtro, período ou cadeia na mensagem = pedido de painel novo."""
+    return not (
+        _SUBSTANTIVE_TOPIC_RE.search(norm_msg)
+        or _ENTITY_NOUN_RE.search(norm_msg)
+        or _COMMODITY_ONLY_RE.search(norm_msg)
+        or _YEAR_RE.search(norm_msg)
+        or detect_dimension(norm_msg) is not None
+    )
+
+
+def _new_dimension(norm_msg: str, panel_columns: set[str] | None) -> bool:
+    """A1: a mensagem pede agrupar por uma dimensão que o painel aberto não usa."""
+    dim = detect_dimension(norm_msg)
+    return bool(dim is not None and panel_columns is not None and not columns_cover(panel_columns, dim))
+
+
 def classify_intent_deterministic(
     message: str,
     *,
@@ -322,10 +356,15 @@ def classify_intent_deterministic(
     has_spec: bool = False,
     has_store_data: bool = False,
     store_columns: set[str] | None = None,
+    panel_columns: set[str] | None = None,
 ) -> OrchestrationDecision | None:
-    """Tenta decidir a intenção apenas por regras rápidas; devolve `None` se genuinamente ambíguo."""
+    """Tenta decidir a intenção apenas por regras rápidas; devolve `None` se genuinamente ambíguo.
+
+    `panel_columns`: colunas que os gráficos do painel aberto usam (x, cor, colunas da tabela)."""
     norm = _normalize(message)
     resolved_domain = resolve_domain(message, domain)
+    if panel_columns is None and has_spec:
+        panel_columns = store_columns or None
 
     if not norm:
         return OrchestrationDecision(
@@ -357,6 +396,19 @@ def classify_intent_deterministic(
     has_edit_verb = bool(_EDIT_VERB_RE.search(norm))
     has_edit_target = bool(_EDIT_COMPONENT_TARGET_RE.search(norm))
     has_deictic = bool(_DEICTIC_STORE_RE.search(norm))
+
+    # 1b. A1: com painel aberto, pedir outra dimensão (município, empresa, porto, destino...) é painel
+    # NOVO, com dados novos: nunca reaproveitar datasets agrupados por outra coluna.
+    # "Adicione um gráfico por estado" continua edição: acrescenta ao painel, com dados novos.
+    if has_spec and has_dash_noun and _new_dimension(norm, panel_columns) and not _ADD_VERB_RE.search(norm):
+        return OrchestrationDecision(
+            intent="dashboard",
+            domain=resolved_domain,
+            use_previous_results=False,
+            needs_new_data=True,
+            assumption=_build_assumption(norm, resolved_domain),
+            decided_by="rules",
+        )
 
     # 2. Edição de painel: verbo de edição + alvo de componente
     is_unambiguous_visual_target = has_dash_noun or bool(
@@ -393,7 +445,7 @@ def classify_intent_deterministic(
     # "põe como lista", "mostra de outro jeito".
     chart_req = chart_intent.detect(message) if has_spec else None
     if (chart_req is not None and chart_req.explicit and chart_req.requested != "map"
-            and not _EXPLICIT_QUESTION_RE.search(norm)):
+            and not _EXPLICIT_QUESTION_RE.search(norm) and _is_format_only(norm)):
         return OrchestrationDecision(
             intent="dashboard_edit",
             domain=resolved_domain,
@@ -440,6 +492,9 @@ def classify_intent_deterministic(
             )
 
         use_prev = bool(has_deictic and has_store_data)
+        dim = detect_dimension(norm)
+        if use_prev and dim is not None and store_columns and not columns_cover(store_columns, dim):
+            use_prev = False  # A1: os dados guardados estão agrupados por outra coluna
         return OrchestrationDecision(
             intent="dashboard",
             domain=resolved_domain,
@@ -566,6 +621,7 @@ def classify_intent(
         has_spec=spec_flag,
         has_store_data=data_flag,
         store_columns=cols,
+        panel_columns=_panel_columns(session),
     )
     if det is not None:
         return det

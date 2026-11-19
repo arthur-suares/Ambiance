@@ -389,21 +389,84 @@ def check_requested_chart(spec: DashboardSpec, requested) -> list[WidgetIssue]:
     )]
 
 
+_GROUPING_KINDS = ("bar", "pie", "donut", "progress", "waterfall", "table", "line", "area")
+
+
+def _renamed_in_query(col: str, dim, query: str) -> bool:
+    """Apelido livre ("CASE ... exporter_group ... END AS grupo"): a consulta usa a coluna da dimensão
+    e o nome do eixo não é de nenhuma outra dimensão."""
+    import re as _re
+
+    from src.dashboard.dimensions import DIMENSIONS, column_matches
+
+    if not query or not _re.search(rf"\bAS\s+\"?{_re.escape(col)}\b", query, _re.IGNORECASE):
+        return False
+    if not any(_re.search(rf"\b{_re.escape(c)}\b", query, _re.IGNORECASE) for c in dim.columns):
+        return False
+    return not any(column_matches(col, d) for d in DIMENSIONS.values() if d.key != dim.key)
+
+
+def dimension_widgets(spec: DashboardSpec, dim, datasets=None) -> tuple[list, list]:
+    """(widgets que agrupam pela dimensão pedida, widgets que agrupam por alguma categoria).
+
+    Agrupar = eixo x de categoria (não o ano), a cor de uma série, ou a 1ª coluna de texto da tabela.
+    Um apelido do SQL ("municipality_of_production AS m") também conta como a dimensão."""
+    from src.dashboard.dimensions import aliased_from, column_matches
+
+    queries = {d.dataset_id: d.query_summary or "" for d in (datasets or [])}
+    grouped, matched = [], []
+    for w in spec.widgets:
+        if not w.valid or w.kind not in _GROUPING_KINDS:
+            continue
+        cols = [c for c in (w.x, w.color) if c and c.lower() not in ("year", "ano")]
+        if w.kind == "table" and w.columns:
+            cols.append(w.columns[0])
+        if not cols:
+            continue
+        grouped.append(w)
+        q = queries.get(w.dataset_id, "")
+        if any(column_matches(c, dim) or aliased_from(c, dim, q) or _renamed_in_query(c, dim, q) for c in cols):
+            matched.append(w)
+    return matched, grouped
+
+
+def check_requested_dimension(spec: DashboardSpec, dimension: str | None, datasets=None) -> list[WidgetIssue]:
+    """A3: o gráfico principal precisa agrupar pela dimensão pedida (ex.: município, não empresa)."""
+    from src.dashboard.dimensions import DIMENSIONS
+
+    dim = DIMENSIONS.get(dimension or "")
+    if dim is None:
+        return []
+    matched, grouped = dimension_widgets(spec, dim, datasets)
+    if not grouped or matched:
+        return []
+    cols = ", ".join(dim.columns)
+    return [WidgetIssue(
+        None, "deterministic",
+        f"O pedido foi por {dim.label} e nenhum gráfico agrupa por essa dimensão. Use a coluna {cols} "
+        "no eixo x do gráfico principal, se ela estiver nos datasets.",
+        code="dimensao", blocking=False,
+    )]
+
+
 def review_dashboard(
     question: str,
     spec: DashboardSpec,
     datasets: list[DatasetResult],
     requested=None,
+    dimension: str | None = None,
 ) -> ReviewResult:
     """Revisa o dashboard: primeiro determinístico em código; depois LLM só para metodologia.
 
     `requested` é o `ChartChoice` guardado no plano: o revisor confere se o tipo pedido foi atendido.
+    `dimension` é a dimensão pedida (município, empresa...): o revisor confere o agrupamento.
     """
     # A4: bases diferentes entre widgets não se corrigem reescrevendo o JSON (os dados são os mesmos):
     # o aviso vai no resultado, sem reprovar, e o orquestrador escreve a base em cada widget.
     base_issues = check_common_base(spec, datasets)
     log_issues("revisor_base", base_issues)
-    det_issues = check_requested_chart(spec, requested) + check_deterministic(spec, datasets)
+    det_issues = (check_requested_chart(spec, requested) + check_requested_dimension(spec, dimension, datasets)
+                  + check_deterministic(spec, datasets))
     log_issues("revisor", det_issues)
     if det_issues:
         return ReviewResult(

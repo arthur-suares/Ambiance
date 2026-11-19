@@ -140,6 +140,22 @@ A IA não escreve nenhum número nem nenhuma destas frases.
 Prévia dos estados: `python scripts/preview_dashboard.py` também grava
 `_estado_<carregando|sem_dados|erro>_<claro|escuro>.html`.
 
+## Por qual coluna agrupar (A4, itens 1 a 3)
+
+- **Glossário** (`src/dashboard/dimensions.py`): "município", "municípios exportadores", "de onde vem",
+  "origem" → município de origem (só origem rastreada); "exportador", "empresa", "trading", "grupo",
+  "quem exporta" → grupo exportador; "porto" → porto; "destino", "país", "para onde vai" → país de
+  destino; "importador" → grupo importador. Em "municípios exportadores", "exportadores" descreve o
+  município. O glossário entra no prompt do planejador e do Agente de Dados.
+- **Edição x painel novo**: com um painel aberto, "faz em pizza", "mostra de outro jeito" e "põe como
+  lista" são edição sem nova consulta. Se a mensagem cita entidade, dimensão, filtro, ano ou cadeia,
+  é painel novo. Se pede uma dimensão que o painel não usa, é painel novo com dados novos; o Result Store
+  nunca é reaproveitado quando os dados guardados não têm a coluna pedida.
+- **Revisor**: o plano guarda a dimensão pedida; se nenhum gráfico agrupa por ela (apelidos do SQL
+  contam), devolve para refazer. Se ainda não bater, o painel diz "Não consegui montar por município;
+  mostrei por empresa." Por município, o subtítulo diz "Município de origem da soja exportada; cobre só
+  a origem rastreada."
+
 ## Mesma base em todo o painel (adendo A4)
 
 - O planejador define uma base comum (`common_base`: ano, origem rastreada ou todas, só exportação

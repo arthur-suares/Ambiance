@@ -21,6 +21,7 @@ from src import queries
 from src.agent import QUERY_FUNCS, SOY_RULES, SOY_TOOLS, SOY_UNAVAILABLE, TOOLS, ToolCall, tool_call_summary
 from src.config import DUCKDB_PATH, LLM_MODEL
 from src.dashboard.data_base import common_base_line
+from src.dashboard.dimensions import DIMENSIONS, GLOSSARY_PROMPT, dimension_line
 from src.dashboard.schemas import DataAgentResult, DatasetResult, MAX_ROWS_TO_LLM, OrchestratorPlan, round_sig
 from src.data_dictionary import render_prompt
 from src.database import SqlError, run_readonly_sql
@@ -65,6 +66,9 @@ municipality_of_production AS municipality, SUM(TRY_CAST(volume AS DOUBLE)) AS v
 FROM soy_supply_chain WHERE municipality_of_production IN (SELECT m FROM top) \
 AND country_of_first_import <> 'BRAZIL' GROUP BY ALL ORDER BY year`.
 - Para contar compradores use `importer_group` (grupos importadores); para vendedores, `exporter_group`.
+- Se o plano trouxer "DIMENSÃO PEDIDA", o recorte principal agrupa por essa coluna (veja o glossário).
+
+{glossary}
 - Se uma consulta falhar ou voltar vazia, ajuste e tente novamente (no máximo 2 tentativas por recorte).
 - Quando todos os datasets necessários já tiverem sido obtidos ([D1], [D2]...), encerre com um resumo curto \
 dizendo o que cada [Dn] representa.
@@ -178,6 +182,9 @@ def _format_plan_message(question: str, plan: OrchestratorPlan) -> str:
     )
     if notes:
         msg += f"\n\nCuidados metodológicos:\n{notes}"
+    dim = DIMENSIONS.get(getattr(plan, "requested_dimension", None) or "")
+    if dim is not None:
+        msg += f"\n\n{dimension_line(dim)}"
     base = common_base_line(getattr(plan, "common_base", None))
     if base:
         msg += f"\n\n{base}"
@@ -218,6 +225,7 @@ def run_data_agent(question: str, plan: OrchestratorPlan, *, start_index: int = 
         "text": DATA_AGENT_PROMPT.format(
             latest_year=latest_beef,
             soy_latest_year=latest_soy,
+            glossary=GLOSSARY_PROMPT,
             dictionary=render_prompt() if beef_ok else BEEF_UNAVAILABLE,
             soy=(soy_queries.schema_prompt() + "\n" + SOY_RULES) if soy_ok else SOY_UNAVAILABLE,
         ),

@@ -45,6 +45,8 @@ class OrchestratorPlan:
     requested_chart: object | None = None
     # A4: base comum do painel (year, origin "rastreada"|"toda", flow "exportacao"|"cadeia").
     common_base: dict = field(default_factory=dict)
+    # A4: dimensão de agrupamento pedida (chave de src/dashboard/dimensions.DIMENSIONS).
+    requested_dimension: str | None = None
     input_tokens: int = 0
     output_tokens: int = 0
 
