@@ -22,6 +22,8 @@ import unicodedata
 
 from src.config import DASHBOARD_OUTPUT_DIR, DUCKDB_PATH
 from src.dashboard._llm import call_structured_llm
+from src.dashboard.chart_intent import CHOICE_BY_INTENT, ChartChoice, apply_share_guards, kinds_for_prompt
+from src.dashboard.chart_intent import interpret as interpret_chart
 from src.dashboard.dashboard_agent import (
     build_dashboard_html,
     edit_dashboard_spec,
@@ -52,7 +54,10 @@ Diretrizes de planejamento:
 - Planeje de 2 a 4 recortes de dados (`data_requests`) que juntos formem um bom painel executivo \
 (ex.: indicadores de destaque para KPIs, ranking para gráfico de barras, série histórica para linha, \
 ou detalhamento para tabela).
-- Tipos de visual suportados nesta versão: APENAS `kpi`, `bar`, `line` e `table` (sem mapas).
+- Tipos de visual suportados nesta versão (use só estes; sem mapas):
+{kinds}
+- {choice_by_intent}
+- Se o usuário pediu um tipo de gráfico, o recorte principal DEVE usar esse tipo em `suggested_visual`.
 - Respeite a disponibilidade dos bancos informada no contexto (`trase.duckdb` para carne bovina; \
 `soy.duckdb` para soja). Se a pergunta não especificar a cadeia, priorize a cadeia disponível ou \
 indique claramente no objetivo.
@@ -60,7 +65,7 @@ indique claramente no objetivo.
 (ex.: exposição ao desmatamento tem janela de 5 anos e não pode ser somada entre anos; rankings \
 municipais cobrem a origem rastreada sem 'UNKNOWN'; usar ano mais recente se nenhum foi pedido; \
 na soja, o destino BRAZIL é processamento doméstico e não conta como país importador).
-"""
+""".format(kinds=kinds_for_prompt(), choice_by_intent=CHOICE_BY_INTENT)
 
 PLAN_TOOL_SCHEMA = {
     "type": "object",
@@ -106,7 +111,7 @@ def default_output_path(question: str, output_dir: Path | None = None) -> Path:
     return base / f"{stamp}_{slugify_question(question)}.html"
 
 
-def create_plan(question: str, domain: str) -> OrchestratorPlan:
+def create_plan(question: str, domain: str, chart: ChartChoice | None = None) -> OrchestratorPlan:
     """Usa o LLM para definir quais recortes de dados e tipos de gráficos comporão o painel."""
     beef_ok = DUCKDB_PATH.exists()
     soy_ok = soy_queries.is_available()
@@ -116,6 +121,8 @@ def create_plan(question: str, domain: str) -> OrchestratorPlan:
         f"Bancos disponíveis: carne bovina (trase.duckdb)={'sim' if beef_ok else 'não'}, "
         f"soja (soy.duckdb)={'sim' if soy_ok else 'não'}."
     )
+    if chart is not None:
+        user_msg += "\n" + chart.prompt_line()
     payload, in_tok, out_tok = call_structured_llm(
         system=ORCHESTRATOR_SYSTEM_PROMPT,
         user_content=user_msg,
@@ -140,6 +147,11 @@ def create_plan(question: str, domain: str) -> OrchestratorPlan:
         ))
     if not requests:
         requests.append(DataRequest("Q1", question, "table", "auto"))
+    # O tipo pedido pelo usuário fica guardado no plano, não ao gosto do LLM.
+    if chart is not None and chart.kind in ALLOWED_WIDGET_KINDS and not any(
+        r.suggested_visual == chart.kind for r in requests
+    ):
+        requests[0].suggested_visual = chart.kind
 
     notes = [str(n).strip() for n in (payload.get("methodological_notes") or []) if str(n).strip()]
     return OrchestratorPlan(
@@ -148,9 +160,25 @@ def create_plan(question: str, domain: str) -> OrchestratorPlan:
         dashboard_goal=str(payload.get("dashboard_goal") or question).strip(),
         data_requests=requests,
         methodological_notes=notes,
+        requested_chart=chart,
         input_tokens=in_tok,
         output_tokens=out_tok,
     )
+
+
+def _main_kind(spec: DashboardSpec | None) -> str | None:
+    if spec is None:
+        return None
+    return next((w.kind for w in spec.widgets if w.valid and w.kind != "kpi"), None)
+
+
+def _finish_chart_choice(spec: DashboardSpec, plan: OrchestratorPlan, datasets) -> None:
+    """A3/A4: troca pizza enganosa pelo gráfico adequado e dá UM aviso curto quando o pedido
+    não pôde ser atendido como veio."""
+    apply_share_guards(spec, datasets)
+    chart = plan.requested_chart
+    if isinstance(chart, ChartChoice) and chart.notice and chart.notice not in spec.warnings:
+        spec.warnings.insert(0, chart.notice)
 
 
 def _apply_final_review_isolation(spec: DashboardSpec, final_review: ReviewResult, question: str) -> None:
@@ -220,9 +248,10 @@ def generate_dashboard(
     start = time.perf_counter()
     resolved_domain = resolve_domain(question, domain)
 
-    plan = create_plan(question, resolved_domain)
-    total_in = plan.input_tokens
-    total_out = plan.output_tokens
+    chart, c_in, c_out = interpret_chart(question)
+    plan = create_plan(question, resolved_domain, chart)
+    total_in = plan.input_tokens + c_in
+    total_out = plan.output_tokens + c_out
 
     data_res = run_data_agent(question, plan)
     total_in += data_res.input_tokens
@@ -246,7 +275,7 @@ def generate_dashboard(
         total_out += d_out
 
         for attempt in range(MAX_REVISIONS + 1):
-            review = review_dashboard(question, spec, datasets)
+            review = review_dashboard(question, spec, datasets, requested=plan.requested_chart)
             reviews.append(review)
             total_in += review.input_tokens
             total_out += review.output_tokens
@@ -262,6 +291,7 @@ def generate_dashboard(
             else:
                 _apply_final_review_isolation(spec, review, question)
 
+    _finish_chart_choice(spec, plan, datasets)
     _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, datasets, question=question)
 
@@ -320,8 +350,8 @@ def build_dashboard_from_store(
         and (is_edit or use_previous_results)
     )
 
-    total_in = 0
-    total_out = 0
+    main_kind = _main_kind(current_spec) if is_edit else None
+    chart, total_in, total_out = interpret_chart(question, current_kind=main_kind)
     data_notes = ""
 
     if can_reuse_store:
@@ -331,11 +361,13 @@ def build_dashboard_from_store(
             domain=resolved_domain,
             dashboard_goal=goal_txt,
             data_requests=[],
+            requested_chart=chart,
         )
         datasets = stored_datasets
     else:
         t_data = time.perf_counter()
-        plan = create_plan(question, resolved_domain)
+        plan = create_plan(question, resolved_domain, chart)
+        plan.requested_chart = plan.requested_chart or chart
         if goal_hint:
             plan.methodological_notes.append(goal_hint)
         total_in += plan.input_tokens
@@ -397,7 +429,7 @@ def build_dashboard_from_store(
 
         for attempt in range(MAX_REVISIONS + 1):
             t_val = time.perf_counter()
-            review = review_dashboard(question, spec, datasets)
+            review = review_dashboard(question, spec, datasets, requested=plan.requested_chart)
             reviews.append(review)
             total_in += review.input_tokens
             total_out += review.output_tokens
@@ -432,6 +464,7 @@ def build_dashboard_from_store(
 
     used_ids = {w.dataset_id for w in spec.widgets if w.dataset_id}
     render_datasets = [d for d in datasets if d.dataset_id in used_ids] or datasets
+    _finish_chart_choice(spec, plan, datasets)
     _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, render_datasets, question=question)
 

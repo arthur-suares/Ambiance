@@ -19,6 +19,7 @@ import re
 import unicodedata
 
 from src.dashboard._llm import call_structured_llm
+from src.dashboard import chart_intent
 from src.rag import resolve_domain
 
 ALLOWED_INTENTS = ("question", "dashboard", "dashboard_edit", "map_edit", "mixed")
@@ -141,6 +142,10 @@ _VAGUE_FILLER_WORDS = frozenset({
     "dashboard", "dashboards", "dashbord", "dashboad", "dasboard", "deshboard", "dash",
     "painel", "paineis", "grafico", "graficos", "grafiko", "grafikos", "grfico", "grficos",
     "chart", "charts", "plot", "plotar", "visualizacao", "visualizacoes",
+    # Nomes de formato não são recorte: "faz uma pizza" ainda precisa dizer de quê.
+    "pizza", "piza", "torta", "rosca", "rosquinha", "bolinha", "redondo", "fatias", "barras", "barra",
+    "colunas", "linha", "linhas", "tabela", "lista", "planilha", "medidor", "ponteiro", "cascata",
+    "formato", "jeito", "forma", "ver", "como", "outro", "outra", "tipo",
 })
 
 _SUBSTANTIVE_TOPIC_RE = re.compile(
@@ -298,6 +303,9 @@ def _edit_needs_new_data(norm_msg: str, store_columns: set[str]) -> bool:
         return False
     if not store_columns:
         return True
+    names_format = bool((choice := chart_intent.detect(norm_msg)) and choice.explicit)
+    if names_format and not any(p.search(norm_msg) for p, _cols in _METRIC_COLUMN_HINTS):
+        return False  # "coloca em barras": troca de formato, mesmos dados
     matched_any_metric = False
     for pattern, col_substrings in _METRIC_COLUMN_HINTS:
         if pattern.search(norm_msg):
@@ -343,7 +351,9 @@ def classify_intent_deterministic(
             decided_by="rules",
         )
 
-    has_dash_noun = bool(_DASHBOARD_NOUN_RE.search(norm))
+    # Nomear um formato ("faça uma pizza", "uma bolinha mostrando...") também pede gráfico,
+    # mesmo sem a palavra "gráfico". Tabela/lista sozinhas continuam indo para a resposta em texto.
+    has_dash_noun = bool(_DASHBOARD_NOUN_RE.search(norm)) or chart_intent.names_chart_format(message)
     has_edit_verb = bool(_EDIT_VERB_RE.search(norm))
     has_edit_target = bool(_EDIT_COMPONENT_TARGET_RE.search(norm))
     has_deictic = bool(_DEICTIC_STORE_RE.search(norm))
@@ -376,6 +386,19 @@ def classify_intent_deterministic(
             needs_new_data=not use_prev,
             clarification=clarif,
             assumption=_build_assumption(norm, resolved_domain) if not clarif else None,
+            decided_by="rules",
+        )
+
+    # 2a. Troca de formato em linguagem leiga com painel aberto: "faz em pizza", "quero ver em linha",
+    # "põe como lista", "mostra de outro jeito".
+    chart_req = chart_intent.detect(message) if has_spec else None
+    if (chart_req is not None and chart_req.explicit and chart_req.requested != "map"
+            and not _EXPLICIT_QUESTION_RE.search(norm)):
+        return OrchestrationDecision(
+            intent="dashboard_edit",
+            domain=resolved_domain,
+            use_previous_results=has_store_data,
+            needs_new_data=not has_store_data,
             decided_by="rules",
         )
 

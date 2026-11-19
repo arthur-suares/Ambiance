@@ -332,13 +332,36 @@ def check_methodological_llm(
     )
 
 
+def check_requested_chart(spec: DashboardSpec, requested) -> list[WidgetIssue]:
+    """O tipo de gráfico que o usuário pediu está no painel? (em linguagem simples, sem jargão)."""
+    if requested is None or getattr(requested, "kind", None) in (None, "other"):
+        return []
+    kinds = {w.kind for w in spec.widgets}
+    if requested.kind == "bar_line":
+        missing = not {"bar", "line"} <= kinds
+    elif requested.kind == "area" and requested.stacked:
+        missing = not any(w.kind == "area" and w.stacked for w in spec.widgets)
+    else:
+        missing = requested.kind not in kinds
+    if not missing:
+        return []
+    return [WidgetIssue(
+        None, "deterministic",
+        f"O pedido foi {requested.kind_label} e o painel ainda não tem esse gráfico.",
+    )]
+
+
 def review_dashboard(
     question: str,
     spec: DashboardSpec,
     datasets: list[DatasetResult],
+    requested=None,
 ) -> ReviewResult:
-    """Revisa o dashboard: primeiro determinístico em código; depois LLM só para metodologia."""
-    det_issues = check_deterministic(spec, datasets)
+    """Revisa o dashboard: primeiro determinístico em código; depois LLM só para metodologia.
+
+    `requested` é o `ChartChoice` guardado no plano: o revisor confere se o tipo pedido foi atendido.
+    """
+    det_issues = check_requested_chart(spec, requested) + check_deterministic(spec, datasets)
     if det_issues:
         return ReviewResult(
             approved=False,

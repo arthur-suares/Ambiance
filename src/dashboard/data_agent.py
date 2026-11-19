@@ -177,7 +177,22 @@ def _format_plan_message(question: str, plan: OrchestratorPlan) -> str:
     )
     if notes:
         msg += f"\n\nCuidados metodológicos:\n{notes}"
+    chart = getattr(plan, "requested_chart", None)
+    if chart is not None:
+        msg += f"\n\n{chart.prompt_line()}"
+        if chart.kind in ("pie", "donut", "progress", "bar") and chart.requested in ("pie", "donut"):
+            msg += f"\n{SHARE_DATA_RULE}"
     return msg
+
+
+# A5: participação ("pizza") sempre com "Outros" calculado no SQL, nunca pelo modelo.
+SHARE_DATA_RULE = """\
+Para participação (pizza): devolva no máximo os 7 maiores e uma linha 'Outros' = total menos a soma \
+dos 7, calculada NA PRÓPRIA CONSULTA (CTE com o total do recorte); inclua uma coluna `total` com o total \
+do recorte. Se o total do recorte não puder ser calculado, devolva só os N maiores sem 'Outros' e diga \
+isso no resumo ("participação entre os N maiores"). Nunca trate os N maiores como 100% do Brasil. \
+Não faça participação de percentuais, médias, intensidades nem de exposição de janela de 5 anos \
+somada entre anos."""
 
 
 def run_data_agent(question: str, plan: OrchestratorPlan, *, start_index: int = 1) -> DataAgentResult:

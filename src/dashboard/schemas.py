@@ -40,6 +40,8 @@ class OrchestratorPlan:
     dashboard_goal: str
     data_requests: list[DataRequest] = field(default_factory=list)
     methodological_notes: list[str] = field(default_factory=list)
+    # Tipo de gráfico entendido do pedido (`chart_intent.ChartChoice`), ou None.
+    requested_chart: object | None = None
     input_tokens: int = 0
     output_tokens: int = 0
 

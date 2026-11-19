@@ -45,3 +45,38 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
 - `BRAZIL` em coluna de destino aparece como "BRASIL (processamento doméstico)".
 - Todo texto vindo da IA passa por `html.escape`.
 - Componente inválido vira cartão de aviso; o resto do painel continua.
+
+## Como o pedido vira gráfico
+
+Quem usa o chat não precisa saber o nome dos gráficos. `src/dashboard/chart_intent.py` lê a frase e
+escolhe o formato:
+
+1. **Dicionário** de expressões do dia a dia, sem diferenciar acentos e aceitando erros de digitação:
+   "pizza", "piza", "torta", "uma bolinha mostrando quanto cada um representa", "proporção" → pizza;
+   "rosquinha", "anel" → rosca; "barras", "colunas", "os maiores", "quem mais", "ranking" → barras;
+   "evolução", "ao longo dos anos", "como mudou", "subiu ou caiu" → linha; "composição ao longo do tempo",
+   "empilhado" → área empilhada; "tabela", "como lista", "números exatos" → lista; "medidor",
+   "quanto % foi para" → medidor; "o que mais pesou na queda" → variação por item; "barras e linha juntas"
+   → dois gráficos alinhados no mesmo eixo de tempo.
+   Nome de formato vence descrição ("barras com a evolução" → barras). Entre nomes, vale o último
+   ("troque as barras por linha" → linha).
+2. Se o dicionário não resolver, **uma chamada curta à IA** só para classificar o formato. Se ela falhar,
+   o gerador escolhe pela intenção: participação → pizza; "maiores" → barras horizontais ordenadas;
+   evolução → linha; composição no tempo → área empilhada; detalhe → lista.
+
+O formato entendido fica no plano (`OrchestratorPlan.requested_chart`) e segue para o planejador, o
+Agente de Dados, o gerador e o revisor, que confere se o pedido foi atendido.
+
+- **Nunca recusa.** Formato que ainda não existe vira o mais próximo, com um aviso de uma frase
+  ("Ainda não faço mapa, então mostrei em barras."). Quando o tipo passa a existir em
+  `ALLOWED_WIDGET_KINDS`, o aviso some sozinho.
+- **Não engana.** Pizza de série de anos vira linha; pizza de percentuais, médias, intensidades,
+  exposição de 5 anos somada entre anos ou com valores negativos vira barras. Cada troca gera um aviso.
+- **"Outros" vem do SQL.** Em participação, o Agente de Dados devolve até 7 itens e uma linha "Outros"
+  calculada na consulta (total menos os maiores). Sem total disponível, o texto diz "participação entre
+  os N maiores".
+- **Sem jargão na tela:** pizza, rosca, barras, linha, lista, medidor. Os nomes técnicos ficam no código.
+- **Edição em linguagem simples** com o painel aberto: "faz em pizza", "quero ver em linha", "põe como
+  lista", "mostra de outro jeito" trocam o formato, reaproveitando os dados.
+- No fim da resposta, uma sugestão: "Quer ver em pizza ou como lista? É só pedir."
+- "Tabela" e "lista" sozinhas, sem "gráfico"/"painel", continuam indo para a resposta em texto.

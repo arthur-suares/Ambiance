@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 
 from src.dashboard._llm import call_structured_llm
+from src.dashboard.chart_intent import CHOICE_BY_INTENT, kinds_for_prompt
 from src.dashboard.renderer import render_dashboard_html
 from src.dashboard.schemas import (
     ALLOWED_KPI_AGGS,
@@ -29,8 +30,11 @@ Você é o Agente de Dashboard dedicado do sistema Trase RAG.
 Você recebe DataFrames já extraídos do DuckDB ([D1], [D2]...) e projeta um dashboard analítico \
 interativo em português por meio de uma especificação JSON declarativa.
 
-Tipos de componentes permitidos (`kind`): APENAS `kpi`, `bar`, `line`, `area`, `progress` e `table`.
-(Mapas e gráficos de pizza NÃO são permitidos.)
+Tipos de componentes permitidos (`kind`), e só estes (sem mapas):
+{kinds}
+{choice_by_intent}
+Se a mensagem trouxer "Tipo de gráfico pedido pelo usuário", o componente principal DEVE usar esse `kind`; os demais componentes complementam. Nunca recuse um pedido por causa do tipo de gráfico.
+Nos textos da tela (títulos, subtítulos, rótulos), use palavras do dia a dia ("pizza", "rosca", "barras", "linha", "lista", "medidor"), nunca os nomes técnicos (donut, gauge, waterfall, combo).
 
 Quando usar cada tipo:
 - `kpi`: indicadores-chave de destaque no topo (informe `dataset_id`, `column`, `agg` entre \
@@ -73,7 +77,7 @@ e o título deve dizer "(exceto Brasil)".
 nunca de "tradings". "Exportadoras" e "tradings" valem só para `exporter` e `exporter_group`.
 11. Não repita a unidade no rótulo do eixo: se `unit` já traz a unidade, o rótulo em `column_labels` \
 não deve conter "(t)", "(ha)" etc.
-"""
+""".format(kinds=kinds_for_prompt(), choice_by_intent=CHOICE_BY_INTENT)
 
 WIDGET_ITEM_SCHEMA = {
     "type": "object",
@@ -126,6 +130,11 @@ DASHBOARD_SPEC_SCHEMA = {
 }
 
 
+def _chart_line(plan) -> str:
+    chart = getattr(plan, "requested_chart", None)
+    return f"{chart.prompt_line()}\n" if chart is not None else ""
+
+
 def _datasets_context(datasets: list[DatasetResult]) -> str:
     return "\n".join(format_dataset_for_llm(d, max_rows=MAX_ROWS_TO_LLM) for d in datasets)
 
@@ -143,6 +152,7 @@ def propose_dashboard_spec(
     user_msg = (
         f"Pergunta do usuário: {question}\n"
         f"Objetivo do painel: {plan.dashboard_goal}\n"
+        f"{_chart_line(plan)}"
         f"Sugestões do Orquestrador:\n{reqs}\n\n"
         f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
         f"{_datasets_context(datasets)}"
@@ -173,7 +183,8 @@ def revise_dashboard_spec(
     prev_json = json.dumps(previous_spec.to_dict(), ensure_ascii=False, indent=2)
     user_msg = (
         f"Pergunta do usuário: {question}\n"
-        f"Objetivo do painel: {plan.dashboard_goal}\n\n"
+        f"Objetivo do painel: {plan.dashboard_goal}\n"
+        f"{_chart_line(plan)}\n"
         f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
         f"{_datasets_context(datasets)}\n"
         f"Especificação JSON anterior:\n{prev_json}\n\n"
@@ -208,7 +219,8 @@ def edit_dashboard_spec(
     current_json = json.dumps(current_spec.to_dict(), ensure_ascii=False, indent=2)
     user_msg = (
         f"Pedido de edição do usuário: {request}\n"
-        f"Contexto/objetivo do painel: {goal}\n\n"
+        f"Contexto/objetivo do painel: {goal}\n"
+        f"{_chart_line(plan_or_goal)}\n"
         f"Especificação JSON atual do painel (PRESERVE os `id` e configurações dos componentes "
         f"que não foram alvo da alteração):\n{current_json}\n\n"
         f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
