@@ -1387,6 +1387,8 @@ def _card_header(w: WidgetSpec, df: pd.DataFrame | None = None, conclusion: str 
     lead = f'<p class="conclusion">{html.escape(conclusion)}</p>' if conclusion else ""
     units = list(dict.fromkeys(u for u in w.column_units.values() if u)) if w.kind == "table" else []
     unit_txt = " / ".join(units) if len(units) > 1 else w.unit
+    if w.kind in ("pie", "donut"):
+        unit_txt = "%"  # A4: pizza e rosca mostram participação; a quantidade fica no passar do mouse
     badge = f'<span class="badge">{html.escape(unit_txt)}</span>' if unit_txt else ""
     tools = f'<div class="card-tools">{badge}{_help_html(w, df)}</div>'
     return (f'<div class="card-header"><div class="card-titles"><h3>{html.escape(pt_text(w.title))}</h3>'

@@ -32,6 +32,7 @@ from src.dashboard.dashboard_agent import (
     revise_dashboard_spec,
 )
 from src.dashboard.data_agent import run_data_agent
+from src.dashboard.data_base import declare_bases
 from src.dashboard.reviewer_agent import review_dashboard
 from src.dashboard.messages import user_message
 from src.dashboard.validator import find_illegality_claim
@@ -69,6 +70,9 @@ indique claramente no objetivo.
 (ex.: exposição ao desmatamento tem janela de 5 anos e não pode ser somada entre anos; rankings \
 municipais cobrem a origem rastreada sem 'UNKNOWN'; usar ano mais recente se nenhum foi pedido; \
 na soja, o destino BRAZIL é processamento doméstico e não conta como país importador).
+- Defina UMA base comum em `common_base` (ano, origem rastreada ou todas as origens, só exportação ou \
+cadeia inteira) e descreva todos os recortes com essa mesma base: KPIs, pizza, ranking e tabela devem \
+usar o mesmo filtro de ano, de origem e o mesmo denominador. Só a série histórica pode cobrir vários anos.
 """.format(kinds=kinds_for_prompt(), choice_by_intent=CHOICE_BY_INTENT)
 
 PLAN_TOOL_SCHEMA = {
@@ -97,6 +101,15 @@ PLAN_TOOL_SCHEMA = {
         "methodological_notes": {
             "type": "array",
             "items": {"type": "string"},
+        },
+        "common_base": {
+            "type": "object",
+            "description": "Base comum a todos os recortes do painel.",
+            "properties": {
+                "year": {"type": "integer", "description": "Ano de referência dos recortes de um único ano."},
+                "origin": {"type": "string", "enum": ["rastreada", "toda"]},
+                "flow": {"type": "string", "enum": ["exportacao", "cadeia"]},
+            },
         },
     },
 }
@@ -165,6 +178,7 @@ def create_plan(question: str, domain: str, chart: ChartChoice | None = None) ->
         data_requests=requests,
         methodological_notes=notes,
         requested_chart=chart,
+        common_base=_parse_common_base(payload.get("common_base")),
         input_tokens=in_tok,
         output_tokens=out_tok,
     )
@@ -252,6 +266,22 @@ def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
     spec.warnings = kept
 
 
+def _parse_common_base(raw) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    out: dict = {}
+    try:
+        if raw.get("year"):
+            out["year"] = int(raw["year"])
+    except (TypeError, ValueError):
+        pass
+    if raw.get("origin") in ("rastreada", "toda"):
+        out["origin"] = raw["origin"]
+    if raw.get("flow") in ("exportacao", "cadeia"):
+        out["flow"] = raw["flow"]
+    return out
+
+
 def generate_dashboard(
     question: str,
     *,
@@ -306,6 +336,7 @@ def generate_dashboard(
             else:
                 _apply_final_review_isolation(spec, review, question)
 
+    declare_bases(spec, datasets)  # A4: bases diferentes -> cada widget diz a base que usou
     _finish_chart_choice(spec, plan, datasets)
     _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, datasets, question=question)
@@ -479,6 +510,7 @@ def build_dashboard_from_store(
 
     used_ids = {w.dataset_id for w in spec.widgets if w.dataset_id}
     render_datasets = [d for d in datasets if d.dataset_id in used_ids] or datasets
+    declare_bases(spec, render_datasets)  # A4: bases diferentes -> cada widget diz a base que usou
     _finish_chart_choice(spec, plan, datasets)
     _omit_unresolved_claims(spec, question)
     html_content = build_dashboard_html(spec, render_datasets, question=question)

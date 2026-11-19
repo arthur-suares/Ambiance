@@ -140,6 +140,19 @@ A IA não escreve nenhum número nem nenhuma destas frases.
 Prévia dos estados: `python scripts/preview_dashboard.py` também grava
 `_estado_<carregando|sem_dados|erro>_<claro|escuro>.html`.
 
+## Mesma base em todo o painel (adendo A4)
+
+- O planejador define uma base comum (`common_base`: ano, origem rastreada ou todas, só exportação
+  ou cadeia inteira) e o Agente de Dados recebe a ordem de usar essa base em todas as consultas.
+- O código lê a base de cada conjunto de dados (`src/dashboard/data_base.py`): anos presentes na tabela
+  ou filtrados na consulta, `<> 'UNKNOWN'` (origem rastreada), `<> 'BRAZIL'` / consumo doméstico
+  (só exportação). A IA não escreve a base.
+- O revisor avisa (`base_diferente`, sem reprovar) quando KPIs, pizza, ranking ou tabela usam bases
+  diferentes. Uma série de vários anos ao lado de um recorte de um ano não conta como base diferente.
+- Nesse caso, cada widget recebe no subtítulo a frase da base usada, por exemplo
+  "Base: exportações com origem rastreada de 2022."
+- O selo de pizza e rosca é sempre "%"; a quantidade (t) aparece ao passar o mouse.
+
 ## Como o pedido vira gráfico
 
 Quem usa o chat não precisa saber o nome dos gráficos. `src/dashboard/chart_intent.py` lê a frase e

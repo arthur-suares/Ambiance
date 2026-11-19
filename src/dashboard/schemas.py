@@ -43,6 +43,8 @@ class OrchestratorPlan:
     methodological_notes: list[str] = field(default_factory=list)
     # Tipo de gráfico entendido do pedido (`chart_intent.ChartChoice`), ou None.
     requested_chart: object | None = None
+    # A4: base comum do painel (year, origin "rastreada"|"toda", flow "exportacao"|"cadeia").
+    common_base: dict = field(default_factory=dict)
     input_tokens: int = 0
     output_tokens: int = 0
 

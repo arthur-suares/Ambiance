@@ -20,6 +20,7 @@ import pandas as pd
 from src import queries
 from src.agent import QUERY_FUNCS, SOY_RULES, SOY_TOOLS, SOY_UNAVAILABLE, TOOLS, ToolCall, tool_call_summary
 from src.config import DUCKDB_PATH, LLM_MODEL
+from src.dashboard.data_base import common_base_line
 from src.dashboard.schemas import DataAgentResult, DatasetResult, MAX_ROWS_TO_LLM, OrchestratorPlan, round_sig
 from src.data_dictionary import render_prompt
 from src.database import SqlError, run_readonly_sql
@@ -177,6 +178,9 @@ def _format_plan_message(question: str, plan: OrchestratorPlan) -> str:
     )
     if notes:
         msg += f"\n\nCuidados metodológicos:\n{notes}"
+    base = common_base_line(getattr(plan, "common_base", None))
+    if base:
+        msg += f"\n\n{base}"
     chart = getattr(plan, "requested_chart", None)
     if chart is not None:
         msg += f"\n\n{chart.prompt_line()}"

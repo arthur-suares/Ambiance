@@ -36,6 +36,7 @@ from src.dashboard.schemas import (
     compute_kpi_value,
     format_dataset_for_llm,
 )
+from src.dashboard.data_base import check_common_base
 from src.dashboard.messages import log_issues
 from src.dashboard.validator import (
     is_non_additive_column_or_unit,
@@ -398,15 +399,20 @@ def review_dashboard(
 
     `requested` é o `ChartChoice` guardado no plano: o revisor confere se o tipo pedido foi atendido.
     """
+    # A4: bases diferentes entre widgets não se corrigem reescrevendo o JSON (os dados são os mesmos):
+    # o aviso vai no resultado, sem reprovar, e o orquestrador escreve a base em cada widget.
+    base_issues = check_common_base(spec, datasets)
+    log_issues("revisor_base", base_issues)
     det_issues = check_requested_chart(spec, requested) + check_deterministic(spec, datasets)
     log_issues("revisor", det_issues)
     if det_issues:
         return ReviewResult(
             approved=False,
-            issues=det_issues,
+            issues=det_issues + base_issues,
             summary=f"{len(det_issues)} problema(s) encontrado(s) na verificação determinística.",
             llm_called=False,
         )
     review = check_methodological_llm(question, spec, datasets)
     log_issues("revisor_llm", review.issues)
+    review.issues.extend(base_issues)
     return review
