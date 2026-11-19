@@ -52,6 +52,17 @@ de janela de 5 anos entre anos diferentes; exclua 'UNKNOWN' em rankings municipa
 - Na soja, `country_of_first_import = 'BRAZIL'` é soja processada no próprio Brasil (consumo doméstico), \
 não é exportação. Ao contar países de destino, exclua BRAZIL (`country_of_first_import <> 'BRAZIL'`). \
 Em rankings de destino, mantenha BRAZIL só se a pergunta pedir o consumo doméstico.
+- Evolução anual dos N maiores (municípios, empresas, destinos): escolha os N num ÚNICO ano de referência \
+(o pedido ou o mais recente) numa CTE e traga todos os anos só desses N, numa tabela longa \
+(ano, entidade, valor). Não reclassifique a cada ano (o gráfico teria mais de N linhas), não classifique pela \
+soma de vários anos e não use LIMIT sobre linhas ano×entidade (sobrariam poucos anos). Se o valor for volume \
+"exportado" da soja, exclua BRAZIL e 'UNKNOWN' tanto na CTE do ranking quanto na série. Ex.: \
+`WITH top AS (SELECT municipality_of_production m FROM soy_supply_chain WHERE TRY_CAST(year AS INTEGER) = 2022 \
+AND municipality_of_production <> 'UNKNOWN' AND country_of_first_import <> 'BRAZIL' GROUP BY 1 \
+ORDER BY SUM(TRY_CAST(volume AS DOUBLE)) DESC LIMIT 10) SELECT TRY_CAST(year AS INTEGER) AS year, \
+municipality_of_production AS municipality, SUM(TRY_CAST(volume AS DOUBLE)) AS volume_tonnes \
+FROM soy_supply_chain WHERE municipality_of_production IN (SELECT m FROM top) \
+AND country_of_first_import <> 'BRAZIL' GROUP BY ALL ORDER BY year`.
 - Para contar compradores use `importer_group` (grupos importadores); para vendedores, `exporter_group`.
 - Se uma consulta falhar ou voltar vazia, ajuste e tente novamente (no máximo 2 tentativas por recorte).
 - Quando todos os datasets necessários já tiverem sido obtidos ([D1], [D2]...), encerre com um resumo curto \

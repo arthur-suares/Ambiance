@@ -4,12 +4,16 @@ Cada teste reproduz um erro encontrado no uso real. Nenhum chama o LLM de verdad
 """
 from __future__ import annotations
 
+import re
+
+import duckdb
 import pandas as pd
 import pytest
 
 import src.dashboard.dashboard_agent as dashboard_agent_mod
 from src.dashboard import build_dashboard_from_store
 from src.dashboard.dashboard_agent import DASHBOARD_SYSTEM_PROMPT
+from src.dashboard.data_agent import DATA_AGENT_PROMPT
 from src.dashboard.orchestrator import OMITTED_CLAIM_WARNING
 from src.dashboard.schemas import MAX_REVISIONS, DatasetResult
 from src.dashboard.validator import find_illegality_claim
@@ -111,3 +115,43 @@ def test_alegacao_nao_corrigida_nao_bloqueia_painel_pelo_texto_do_revisor(monkey
     assert OMITTED_CLAIM_WARNING in res.spec.warnings
     assert not any(find_illegality_claim(t) for t in [res.spec.title, res.spec.subtitle, *res.spec.warnings])
     assert res.spec.widgets[0].valid  # o gráfico, que estava correto, continua no painel
+
+
+# --- Erro 1 (dados): evolução dos N maiores municípios ------------------------------
+
+def _sql_de_exemplo_da_serie() -> str:
+    trecho = DATA_AGENT_PROMPT[DATA_AGENT_PROMPT.index("Evolução anual dos N maiores"):]
+    return re.search(r"Ex\.: `(WITH top AS .+?)`", trecho, flags=re.S).group(1)
+
+
+def test_prompt_do_agente_de_dados_fixa_ranking_em_um_ano():
+    trecho = DATA_AGENT_PROMPT[DATA_AGENT_PROMPT.index("Evolução anual dos N maiores"):][:900]
+    assert "ÚNICO ano de referência" in trecho
+    assert "Não reclassifique a cada ano" in trecho
+    assert "BRAZIL" in trecho and "UNKNOWN" in trecho
+
+
+def test_sql_de_exemplo_traz_os_10_de_2022_em_todos_os_anos_sem_brasil():
+    """Base sintética com colunas VARCHAR (como no soy.duckdb). Armadilhas montadas de propósito:
+    - M10 só fica no top 10 de 2022 se contar o destino BRAZIL;
+    - M11 é o maior somando todos os anos, mas pequeno em 2022;
+    - em 2004 o maior é M12, que não está no top de 2022."""
+    linhas = []
+    for ano in range(2004, 2023):
+        for i in range(10):
+            linhas.append((str(ano), f"M{i}", "CHINA", str(1000 - i * 10)))
+        linhas.append((str(ano), "M10", "BRAZIL", "50000"))
+        linhas.append((str(ano), "M10", "CHINA", "1"))
+        linhas.append((str(ano), "M11", "CHINA", "1" if ano == 2022 else "90000"))
+        linhas.append((str(ano), "M12", "CHINA", "80000" if ano == 2004 else "2"))
+        linhas.append((str(ano), "UNKNOWN", "CHINA", "999999"))
+    con = duckdb.connect()
+    con.execute("CREATE TABLE soy_supply_chain (year VARCHAR, municipality_of_production VARCHAR, "
+                "country_of_first_import VARCHAR, volume VARCHAR)")
+    con.executemany("INSERT INTO soy_supply_chain VALUES (?, ?, ?, ?)", linhas)
+
+    df = con.execute(_sql_de_exemplo_da_serie()).df()
+
+    assert sorted(df["municipality"].unique()) == sorted(f"M{i}" for i in range(10))
+    assert df.groupby("municipality")["year"].nunique().eq(19).all()
+    assert df.loc[df.municipality == "M0", "volume_tonnes"].eq(1000).all()  # BRAZIL fora da série
