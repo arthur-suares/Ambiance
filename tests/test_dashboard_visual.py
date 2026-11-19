@@ -112,7 +112,7 @@ def test_area_empilhada_usa_stackgroup_e_parte_de_zero():
 
 def test_ranking_de_barras_ordena_do_maior_para_o_menor():
     fig = build_widget_figure(_w(kind="bar", x="municipality", y=["volume_t"], orientation="h"), RANK)
-    assert list(fig.data[0].y)[-1] == "RIO VERDE"  # horizontal: o maior fica no topo
+    assert list(fig.data[0].y)[-1] == "Rio Verde"  # horizontal: o maior fica no topo (H2: título)
     assert list(fig.data[0].text)[-1] == "1,63 mi"
 
 

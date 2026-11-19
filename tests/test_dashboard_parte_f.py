@@ -72,12 +72,12 @@ def test_mais_de_um_valor_por_ano_nao_agrega():
 
 def test_barras_lider_com_participacao_no_total_mostrado():
     w = _w(kind="bar", x="municipality", orientation="h", dataset_id="D2")
-    assert chart_conclusion(w, RANK) == "A lidera com 3 t, 50,0% do total mostrado."
+    assert chart_conclusion(w, RANK) == "A lidera com 3 t, 50,0% do volume dos 3 municípios mostrados."
 
 
 def test_pizza_com_outros_fala_do_total():
     df = pd.DataFrame({"pais": ["CHINA", "SPAIN", "Outros"], "volume_t": [60.0, 10.0, 30.0]})
-    assert chart_conclusion(_w(kind="pie", x="pais"), df) == "CHINA responde por 60,0% do total."
+    assert chart_conclusion(_w(kind="pie", x="pais"), df) == "CHINA responde por 60,0% do volume total."
 
 
 def test_percentual_nunca_vira_participacao_somada():

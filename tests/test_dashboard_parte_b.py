@@ -52,11 +52,12 @@ def test_pedido_de_pizza_nao_gera_mais_aviso():
 def test_pizza_dos_maiores_municipios_ordem_cor_e_rotulos():
     fig = build_widget_figure(_w(), MUNICIPIOS)
     pie = fig.data[0]
-    assert list(pie.labels) == ["SORRISO", "RIO VERDE", "SAPEZAL", "Outros", "Não identificado"]
+    assert list(pie.labels) == ["Sorriso", "Rio Verde", "Sapezal", "Outros", "Não identificado"]
     cores = list(pie.marker.colors)
     assert cores[-2:] == [NEUTRAL, NEUTRAL] and NEUTRAL not in cores[:3]
-    # rótulo direto só nas fatias grandes; hover traz valor e %
-    assert pie.text[0] == "SORRISO<br>12,0%" and pie.text[2] == ""
+    # H1: todas as fatias com rótulo externo (inclusive as pequenas), sem legenda repetida
+    assert pie.text[0] == "Sorriso · 12,0%" and pie.text[2].startswith("Sapezal · ")
+    assert pie.textposition == "outside" and fig.layout.showlegend is False
     assert "%{customdata[0]}" in pie.hovertemplate and "%{customdata[1]}" in pie.hovertemplate
     assert pie.hole in (None, 0)
 
@@ -176,9 +177,7 @@ def _contraste(a: str, b: str) -> float:
 
 def test_rotulo_da_fatia_tem_contraste_nos_dois_temas():
     pie = build_widget_figure(_w(), MUNICIPIOS).data[0]
-    cores, tintas = list(pie.marker.colors), list(pie.insidetextfont.color)
-    for cor, tinta in zip(cores, tintas):  # texto de cada fatia legível sobre a própria fatia
-        assert _contraste(cor, tinta) >= 3.0, (cor, tinta)
+    assert pie.textposition == "outside" and pie.outsidetextfont.size == 12  # H1: fora da fatia
     page = render_dashboard_html(parse_dashboard_spec({"title": "P", "widgets": [_w().to_dict()]}),
                                  [_ds("D1", MUNICIPIOS)])
-    assert "main-svg text:not(.slicetext)" in page  # o tema não sobrescreve a cor escolhida
+    assert ".main-svg .slicetext { fill: var(--fg) !important; }" in page  # o texto segue o tema

@@ -214,7 +214,7 @@ def test_grafico_reprovado_com_dados_vira_lista_e_sem_dados_vira_aviso():
     ]})
     page = render_dashboard_html(spec, [_ds("D1", GRUPOS)])
     visivel = _texto_visivel(page)
-    assert "Mostrei os mesmos dados como lista." in visivel and "CARGILL" in visivel
+    assert "Mostrei os mesmos dados como lista." in visivel and "Cargill" in visivel  # H2: formato de título
     assert "Sem dados para este gráfico" in visivel and "Não há dados para este recorte." in visivel
     assert "coluna_que_nao_existe" not in visivel and "D9" not in visivel.replace("[D9]", "")
 
@@ -249,4 +249,4 @@ def test_eixos_e_legendas_nao_mostram_nome_de_campo():
                   *[t.name or "" for t in fig.data]]
         assert not any("_" in t for t in textos), textos
     assert build_widget_figure(parse_dashboard_spec({"title": "P", "widgets": [SPEC_GERADA["widgets"][3]]})
-                               .widgets[0], GRUPOS).layout.xaxis.title.text == "Volume (t)"
+                               .widgets[0], GRUPOS).layout.xaxis.title.text == "Volume"  # H4: a unidade fica só no selo

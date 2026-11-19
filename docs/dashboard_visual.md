@@ -140,6 +140,19 @@ A IA não escreve nenhum número nem nenhuma destas frases.
 Prévia dos estados: `python scripts/preview_dashboard.py` também grava
 `_estado_<carregando|sem_dados|erro>_<claro|escuro>.html`.
 
+## Polimento (Parte H)
+
+- **Pizza e rosca**: 6 cores de categoria (floresta, petróleo, terracota, oliva, ameixa, azul-rio) mais o
+  cinza de "Outros"/"não identificado", na ordem `PIE_ORDER`, para que fatias vizinhas (inclusive a última
+  com a primeira) nunca tenham tons parecidos. Todo rótulo fica fora da fatia, com linha-guia, em 12 px e
+  na cor do tema, inclusive o das fatias pequenas; sem legenda (ela só repetia as fatias).
+- **Nomes**: empresas, municípios e importadores aparecem em formato de título ("Rio Verde", "Louis
+  Dreyfus"), mantendo siglas (ADM, COFCO, LDC, UFs). Só na tela; os dados não mudam.
+- **Base na conclusão**: "24,1% do volume dos 10 municípios mostrados com origem identificada, em 2022";
+  com "Outros", "do volume total". Nunca só "do total".
+- **Unidade uma vez só**: o selo do cartão traz a unidade e o eixo diz só a medida ("Volume"). Pizza, rosca
+  e participações têm selo "%". Contagens (normas, municípios) têm marcas inteiras no eixo.
+
 ## Painéis de leis (Parte G)
 
 - **Quando**: pedido de painel, gráfico ou tabela com termo de lei ("monte um painel das multas do Código

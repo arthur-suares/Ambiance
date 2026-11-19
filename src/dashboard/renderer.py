@@ -54,8 +54,12 @@ PALETTE = [
     "#c4643f",  # terracota
     "#7f8f36",  # oliva
     "#8f7a9c",  # ameixa
+    "#4f7cac",  # azul-rio
 ]
 ACCENT = "#b5832a"
+# H1: ordem das cores nas fatias, para que vizinhas (inclusive a última com a primeira) nunca tenham
+# tons quase iguais: floresta, terracota, petróleo, ameixa, oliva, azul-rio.
+PIE_ORDER = (0, 2, 1, 4, 3, 5)
 
 
 NEUTRAL = "#8f8a7c"  # cinza quente para "Outros" e "não identificado"
@@ -65,15 +69,52 @@ NEUTRAL = "#8f8a7c"  # cinza quente para "Outros" e "não identificado"
 DESTINATION_COLUMNS = {"country_of_first_import", "country_of_destination", "pais_destino", "destino"}
 
 
+# H2: nomes de empresas e municípios em formato de título só na tela ("RIO VERDE" -> "Rio Verde"),
+# mantendo siglas. Os dados continuam como vieram.
+ACRONYMS = frozenset({
+    "ADM", "COFCO", "LDC", "BRF", "JBS", "CHS", "CJ", "ALZ", "CGG", "BTG", "SLC", "GTA", "BR", "SA", "S.A.",
+    "LTDA", "LTDA.", "EIRELI", "ME", "EPP", "CO", "CO.", "LLC", "INC", "INC.", "AG", "BV", "NV", "GMBH", "PLC",
+    "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA", "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR",
+    "RJ", "RN", "RO", "RR", "RS", "SC", "SE", "SP", "TO", "EUA", "UE", "II", "III", "IV",
+})
+_SMALL_WORDS = frozenset({"de", "da", "do", "das", "dos", "e", "d'", "del", "la", "of", "and", "y"})
+_NAME_DIMENSIONS = ("municipio", "empresa", "importador")
+
+
+def title_case_name(text: str) -> str:
+    """"LOUIS DREYFUS COMPANY" -> "Louis Dreyfus Company"; "ADM" e "COFCO" ficam como estão."""
+    out = []
+    for i, tok in enumerate(str(text).split(" ")):
+        core = tok.strip("()[],;")
+        if not core:
+            out.append(tok)
+        elif core.upper() in ACRONYMS or (len(core) <= 4 and core.isalpha() and not re.search(r"[AEIOUÁÉÍÓÚÂÊÔÃÕY]", core.upper())):
+            out.append(tok.upper())
+        elif i > 0 and core.lower() in _SMALL_WORDS:
+            out.append(tok.lower())
+        else:
+            out.append("-".join(p[:1].upper() + p[1:].lower() for p in tok.split("-")))
+    return " ".join(out)
+
+
+def _is_name_column(col_name: str) -> bool:
+    from src.dashboard.dimensions import DIMENSIONS, column_matches
+
+    return any(column_matches(col_name, DIMENSIONS[k]) for k in _NAME_DIMENSIONS) if col_name else False
+
+
 def display_label(value, col_name: str = "") -> str:
-    """Rótulo para exibição: "BRAZIL" vira "BRASIL" (com a ressalva em coluna de destino) e rótulos
-    técnicos como UNKNOWN ou PROCESSED DOMESTICALLY viram português simples."""
+    """Rótulo para exibição: "BRAZIL" vira "BRASIL" (com a ressalva em coluna de destino), rótulos
+    técnicos como UNKNOWN ou PROCESSED DOMESTICALLY viram português simples e nomes de empresas e
+    municípios em maiúsculas viram formato de título (H2)."""
     text = str(value)
     if text.strip().upper() == "BRAZIL":
         return "BRASIL (processamento doméstico)" if col_name.lower() in DESTINATION_COLUMNS else "BRASIL"
     plain = plain_labels(text)
     if plain != text and plain[:1].islower():
         plain = plain[:1].upper() + plain[1:]
+    if plain == text and text.isupper() and _is_name_column(col_name):
+        plain = title_case_name(text)
     return plain
 
 
@@ -294,7 +335,9 @@ h1 { font-size: var(--t-2xl); line-height: 1.2; margin: var(--s1) 0 var(--s2); l
 
 .plot-wrap { width: 100%; }
 /* Rótulos dentro das fatias usam a cor escolhida pelo contraste com a fatia (ver _ink_on). */
-.js-plotly-plot .plotly .main-svg text:not(.slicetext) { fill: var(--chart-text) !important; }
+/* H1: rótulos das fatias ficam fora da fatia, então também seguem o tema. */
+.js-plotly-plot .plotly .main-svg text { fill: var(--chart-text) !important; }
+.js-plotly-plot .plotly .main-svg .slicetext { fill: var(--fg) !important; }
 .js-plotly-plot .plotly .main-svg .annotation-text { fill: var(--fg) !important; }
 .js-plotly-plot .plotly .main-svg .hoverlayer text { fill: #ffffff !important; }
 .js-plotly-plot .plotly .modebar { background: transparent !important; }
@@ -718,6 +761,8 @@ def _br_ticks(fig: go.Figure, axis: str, values) -> None:
         return
     lo, hi = min(0.0, min(vals)), max(0.0, max(vals))
     step = _nice_step(hi - lo)
+    if step < 1 and all(v.is_integer() for v in vals):
+        step = 1.0  # H4: contagem (normas, municípios) não tem marca fracionária
     start = math.floor(lo / step) * step
     ticks, t = [], start
     while t <= hi + step * 0.001:
@@ -805,7 +850,8 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         barmode=w.barmode,
         showlegend=(len(w.y) > 1 or bool(w.color)),
     )
-    axis_label = _axis_title(_label(w, w.y[0]), w.unit) if len(w.y) == 1 else w.unit
+    # H4: a unidade fica só no selo do cartão; o eixo diz a medida.
+    axis_label = _label(w, w.y[0]) if len(w.y) == 1 else ""
     _style_axes(fig, value_axis="x" if horiz else "y")
     if horiz:
         fig.update_xaxes(title_text=axis_label)
@@ -866,7 +912,8 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
         hovermode="x unified",
     )
     _style_axes(fig, value_axis="y")
-    y_title = _axis_title(_label(w, w.y[0]), w.unit) if len(w.y) == 1 else w.unit
+    # H4: a unidade fica só no selo do cartão; o eixo diz a medida.
+    y_title = _label(w, w.y[0]) if len(w.y) == 1 else ""
     fig.update_xaxes(title_text="" if _is_time(x_col) else _label(w, x_col))
     if _is_time(x_col) and work[x_col].nunique() <= 12:
         fig.update_xaxes(dtick=1)
@@ -949,24 +996,35 @@ def _build_pie_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     total = sum(vals) or 1.0
     shares = [v / total for v in vals]
     residual = work[w.x].map(is_residual_label).tolist()
-    colors = [NEUTRAL if r else PALETTE[i % len(PALETTE)] for i, r in enumerate(residual)]
-    texts = [f"{c}<br>{_pct_br(sh * 100)}" if sh >= SLICE_LABEL_MIN else "" for c, sh in zip(cats, shares)]
-    inks = [_ink_on(c) for c in colors]
+    colors = pie_colors(residual)
+    # H1: todo rótulo fica FORA da fatia, com linha-guia e o mesmo tamanho (12 px); a cor do texto segue o
+    # tema (CSS). Assim a fatia pequena também tem rótulo e a legenda, que repetia as fatias, sai.
+    texts = [f"{c} · {_pct_br(sh * 100)}" for c, sh in zip(cats, shares)]
     custom = [[format_compact_br(v, w.unit), _pct_br(sh * 100)] for v, sh in zip(vals, shares)]
     fig = go.Figure(go.Pie(
         labels=cats, values=vals, sort=False, direction="clockwise", rotation=90,
         hole=0.58 if w.kind == "donut" else 0,
         marker={"colors": colors, "line": {"color": "rgba(255,255,255,0.9)", "width": 1.5}},
-        text=texts, textinfo="text", textposition="inside", insidetextorientation="horizontal",
-        insidetextfont={"color": inks, "size": 12},
+        text=texts, textinfo="text", textposition="outside", automargin=True,
+        outsidetextfont={"size": 12, "color": "#555a52"},
         customdata=custom,
         hovertemplate="<b>%{label}</b><br>%{customdata[0]} · %{customdata[1]}<extra></extra>",
     ))
-    small = any(sh < SLICE_LABEL_MIN for sh in shares)
-    layout = _base_layout(height=340, margin={"l": 8, "r": 8, "t": 8, "b": 8})
-    layout["legend"] = {**layout.get("legend", {}), "orientation": "v", "x": 1.02, "y": 0.5}
-    fig.update_layout(**layout, showlegend=small)
+    layout = _base_layout(height=360, margin={"l": 24, "r": 24, "t": 24, "b": 24})
+    fig.update_layout(**layout, showlegend=False)
     return fig
+
+
+def pie_colors(residual: list[bool]) -> list[str]:
+    """Cores das fatias na ordem PIE_ORDER; "Outros"/"não identificado" em cinza neutro."""
+    out, k = [], 0
+    for r in residual:
+        if r:
+            out.append(NEUTRAL)
+        else:
+            out.append(PALETTE[PIE_ORDER[k % len(PIE_ORDER)]])
+            k += 1
+    return out
 
 
 def _ink_on(hex_color: str) -> str:
@@ -1038,7 +1096,7 @@ def _build_range_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
                                      margin={"l": 8, "r": 120, "t": 8, "b": 40}), showlegend=False)
     _style_axes(fig, value_axis="x")
     fig.update_yaxes(autorange="reversed")
-    fig.update_xaxes(title_text=w.unit + (" (escala logarítmica)" if usa_log else ""),
+    fig.update_xaxes(title_text="escala logarítmica" if usa_log else "",
                      type="log" if usa_log else "linear")
     if usa_log:  # só as potências de 10, em pt-BR ("100", "10 mil", "1 mi")
         k0, k1 = int(math.floor(math.log10(lo.min()))), int(math.ceil(math.log10(hi.max())))
@@ -1068,7 +1126,7 @@ def _build_waterfall_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     ))
     fig.update_layout(**_base_layout(height=360), showlegend=False)
     _style_axes(fig, value_axis="y")
-    fig.update_yaxes(title_text=w.unit)
+    fig.update_yaxes(title_text="")  # H4: unidade no selo
     acumulado = pd.Series([*vals, 0.0]).cumsum().tolist()
     _br_ticks(fig, "y", [*acumulado, total])
     return fig
@@ -1213,7 +1271,7 @@ def _trend_sentence(w: WidgetSpec, series: pd.DataFrame, x: str, y: str) -> str 
     return frase
 
 
-def _leader_sentence(w: WidgetSpec, df: pd.DataFrame) -> str | None:
+def _leader_sentence(w: WidgetSpec, df: pd.DataFrame, base=None) -> str | None:
     x, y = w.x or "", w.y[0]
     work = _prepare_slice(df, w)
     vals = pd.to_numeric(work[y], errors="coerce")
@@ -1232,10 +1290,53 @@ def _leader_sentence(w: WidgetSpec, df: pd.DataFrame) -> str | None:
     if not aditivo or total <= 0:
         return f"{nome} tem o maior valor: {valor}."
     share = _pct_br(float(ranked[top]) / total * 100)
-    escopo = "do total" if residual.any() else "do total mostrado"
+    escopo = _share_scope(w, y, work[x], len(ranked), base, years)
     if w.kind in ("pie", "donut"):
         return f"{nome} responde por {share} {escopo}."
     return f"{nome} lidera com {valor}, {share} {escopo}."
+
+
+_PLURAL_ITENS = {"municipio": "municípios", "empresa": "empresas", "destino": "países", "porto": "portos",
+                 "estado": "estados", "bioma": "biomas", "importador": "importadores"}
+
+
+def _with_article(name: str) -> str:
+    """"Volume" -> "do volume"; "Exposição ao desmatamento" -> "da exposição ao desmatamento"."""
+    low = name[:1].lower() + name[1:] if not name[:2].isupper() else name
+    first = low.split()[0] if low.split() else low
+    if first.endswith(("ões", "as")):
+        return f"das {low}"
+    if first.endswith("os") or (first.endswith("s") and len(first) > 3 and not first.endswith(("ís", "ês"))):
+        return f"dos {low}"
+    if first.endswith(("ção", "são", "a", "ade", "agem", "ão")) and not first.endswith("ma"):
+        return f"da {low}"
+    return f"do {low}"
+
+
+def _share_scope(w: WidgetSpec, y: str, cats: pd.Series, n_itens: int, base, years: list[int]) -> str:
+    """H3: a BASE da participação em palavras simples, nunca só "do total".
+
+    Ex.: "do volume total com origem identificada, em 2022"; "do volume dos 10 municípios mostrados"."""
+    from src.dashboard.dimensions import DIMENSIONS, column_matches
+
+    medida = _with_article(_measure_name(w, y))
+    residuais = cats.map(is_residual_label)
+    tem_outros = bool(cats[residuais].astype(str).str.contains(r"(?i)outr|demais|resto|other").any())
+    tem_nao_ident = bool(cats.astype(str).str.contains(r"(?i)unknown|n[aã]o identificad").any())
+    if tem_outros:
+        partes = [f"{medida} total"]
+    else:
+        dim = next((k for k, d in DIMENSIONS.items() if column_matches(w.x, d)), None)
+        partes = [f"{medida} dos {n_itens} {_PLURAL_ITENS.get(dim, 'itens')} mostrados"]
+    origem = getattr(base, "origin", None)
+    if tem_nao_ident or origem == "toda":
+        partes.append(", incluindo origem não identificada")
+    elif origem == "rastreada":
+        partes.append(" com origem identificada")
+    anos = list(getattr(base, "years", None) or years or [])
+    if len(anos) == 1:
+        partes.append(f", em {anos[0]}")
+    return "".join(partes)
 
 
 def _waterfall_sentence(w: WidgetSpec, df: pd.DataFrame) -> str | None:
@@ -1255,7 +1356,7 @@ def _waterfall_sentence(w: WidgetSpec, df: pd.DataFrame) -> str | None:
     return frase[:1].upper() + frase[1:]
 
 
-def chart_conclusion(w: WidgetSpec, df: pd.DataFrame) -> str | None:
+def chart_conclusion(w: WidgetSpec, df: pd.DataFrame, base=None) -> str | None:
     """F1: uma frase de conclusão calculada do DataFrame, com modelo de texto fixo.
 
     Não soma anos: variação compara dois períodos; participação só quando há um único período e a
@@ -1285,7 +1386,7 @@ def chart_conclusion(w: WidgetSpec, df: pd.DataFrame) -> str | None:
                 return None
             return _trend_sentence(w, _clean_series(work, x, series_cols[0]), x, series_cols[0])
         if w.kind in ("bar", "pie", "donut", "progress") and not w.color and len(w.y) == 1:
-            return _leader_sentence(w, df)
+            return _leader_sentence(w, df, base)
     except Exception:  # a frase é um extra: nunca derruba o cartão
         logger.exception("Falha ao calcular a conclusão de %s", w.id)
     return None
@@ -1471,7 +1572,7 @@ def _card_header(w: WidgetSpec, df: pd.DataFrame | None = None, conclusion: str 
     lead = f'<p class="conclusion">{html.escape(conclusion)}</p>' if conclusion else ""
     units = list(dict.fromkeys(u for u in w.column_units.values() if u)) if w.kind == "table" else []
     unit_txt = " / ".join(units) if len(units) > 1 else w.unit
-    if w.kind in ("pie", "donut"):
+    if w.kind in ("pie", "donut", "progress"):
         unit_txt = "%"  # A4: pizza e rosca mostram participação; a quantidade fica no passar do mouse
     badge = f'<span class="badge">{html.escape(unit_txt)}</span>' if unit_txt else ""
     tools = f'<div class="card-tools">{badge}{_help_html(w, df)}</div>'
@@ -1645,6 +1746,14 @@ def _render_warning_card(w: WidgetSpec, reason: str) -> str:
 
 
 MAIN_KINDS = ("line", "area", "bar", "waterfall")
+
+
+def _base_of(w: WidgetSpec, by_id):
+    """Base do dataset do componente (ano, origem), lida em código; None se não houver."""
+    from src.dashboard.data_base import infer_base
+
+    ds = (by_id or {}).get(w.dataset_id)
+    return infer_base(ds) if ds is not None and getattr(ds, "database", "") != LAWS_DATABASE else None
 
 
 def _is_law(w: WidgetSpec, by_id=None) -> bool:
@@ -1886,7 +1995,7 @@ def render_dashboard_html(
                 cards[section].append(_render_valid_card(w, _render_quote_html(w, df), df))
             elif w.kind == "progress":
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df), df,
-                                                         chart_conclusion(w, df)))
+                                                         chart_conclusion(w, df, _base_of(w, by_id))))
             else:
                 fig = build_widget_figure(w, df)
                 if w.group in group_ranges:  # mesmo intervalo de tempo nos gráficos do par
@@ -1898,7 +2007,7 @@ def render_dashboard_html(
                             "modeBarButtons": [["toImage"]], "toImageButtonOptions": {"scale": 2}},
                 )
                 needs_plotly = True
-                conclusao = None if _is_law(w, by_id) else chart_conclusion(w, df)
+                conclusao = None if _is_law(w, by_id) else chart_conclusion(w, df, _base_of(w, by_id))
                 aria = html.escape(". ".join(t.rstrip(".") for t in (pt_text(w.title), conclusao, pt_text(w.subtitle)) if t)
                                    + ". A tabela em Ver dados traz os mesmos números.")
                 cards[section].append(_render_valid_card(
