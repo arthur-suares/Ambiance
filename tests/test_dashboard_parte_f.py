@@ -77,7 +77,7 @@ def test_barras_lider_com_participacao_no_total_mostrado():
 
 def test_pizza_com_outros_fala_do_total():
     df = pd.DataFrame({"pais": ["CHINA", "SPAIN", "Outros"], "volume_t": [60.0, 10.0, 30.0]})
-    assert chart_conclusion(_w(kind="pie", x="pais"), df) == "CHINA responde por 60,0% do volume total."
+    assert chart_conclusion(_w(kind="pie", x="pais"), df) == "China responde por 60,0% do volume total."
 
 
 def test_percentual_nunca_vira_participacao_somada():
@@ -95,7 +95,7 @@ def test_varios_anos_no_ranking_nao_somam_anos():
 def test_variacao_por_item_cita_maior_alta_e_maior_queda():
     df = pd.DataFrame({"pais": ["CHINA", "THAILAND", "SPAIN"], "variacao_t": [900.0, -180.0, 90.0]})
     assert chart_conclusion(_w(kind="waterfall", x="pais", y=["variacao_t"]), df) == \
-        "Maior alta: CHINA (+900 t); maior queda: THAILAND (−180 t)."
+        "Maior alta: China (+900 t); maior queda: Tailândia (−180 t)."
 
 
 def test_conclusoes_nunca_alegam_ilegalidade_nem_autoria():

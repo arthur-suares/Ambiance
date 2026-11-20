@@ -189,9 +189,13 @@ Tudo em `src/dashboard/interaction.py`, sem biblioteca nova (só o Plotly embuti
     fixa), linha do tempo por ano e matriz leis × tema;
   - fatos dos trechos recuperados pela busca existente (`src.rag.retrieve`, só importada): lei, artigo,
     tipo, valor mínimo e máximo, unidade por linha, prazo, citação literal e link.
-- **Conferência em código**: a IA só extrai. Cada número e cada citação precisam estar no texto do
-  trecho de onde vieram; lei, artigo e link vêm do trecho, não da IA. O que não passa é descartado e o
-  painel diz quantas informações ficaram de fora. Nada é somado entre leis; nenhuma multa total é calculada.
+- **Conferência em código**: a IA só extrai. A citação precisa estar, palavra por palavra, no texto do
+  trecho; o valor mínimo, o valor máximo e os números do prazo precisam estar DENTRO da citação (não
+  basta aparecer em outra frase do trecho), sem contar números de "art. 70", "§ 3º", inciso ou número
+  de lei; e a unidade precisa ter palavra correspondente na citação (R$ pede "R$" ou "reais", % pede
+  "%" ou "por cento", dias pede "dia", e assim por diante). Lei, artigo e link vêm do trecho, não da IA.
+  O que não passa é descartado e o painel diz quantas informações ficaram de fora. Nada é somado entre
+  leis; nenhuma multa total é calculada.
 - **Visuais** (montados em código, a IA não escolhe): comparativo das normas, faixa de valores por
   artigo (do mínimo ao máximo, um gráfico por unidade, escala logarítmica quando os valores vão de
   dezenas a milhões), valores por artigo, normas por ano, leis × tema e cartões de artigo-chave com a
@@ -200,10 +204,42 @@ Tudo em `src/dashboard/interaction.py`, sem biblioteca nova (só o Plotly embuti
   consolidado; confirme a vigência. Isto não é aconselhamento jurídico."
 - **Regras**: toda linha com link e citação; unidade em cada linha com valor; a faixa só compara a mesma
   unidade. Texto que liga exposição ao desmatamento a infração, multa ou sanção é bloqueado.
-- **Termos jurídicos (R5-e)**: o nome oficial "Lei de Crimes Ambientais" passa só em componente com fonte
-  no acervo de leis; "crime", "ilegal" etc. em qualquer outro uso continuam bloqueados.
+- **Termos jurídicos (R5-e)**: o nome oficial "Lei de Crimes Ambientais" passa só em componente de leis
+  legítimo e só em frase sem acusação; "crime", "ilegal" etc. em qualquer outro uso continuam bloqueados.
+  Detalhes em "Segurança dos textos" abaixo.
 - **Sem acervo** (Postgres desligado): o painel de leis explica em uma frase; o misto entrega os dados.
 - Prévia: `_preview_leis_claro.html` e `_preview_leis_escuro.html`.
+
+## Segurança dos textos (auditoria)
+
+O painel nunca diz que uma empresa ou um município cometeu crime ou agiu contra a lei: os dados medem
+exposição ao desmatamento, não culpa. A checagem (`find_illegality_claim` em `src/dashboard/validator.py`)
+vale para o validador, para a limpeza final do orquestrador e para o monitor de saída.
+
+- **Todos os textos que a IA escreve** são checados: título e subtítulo do painel e de cada componente,
+  avisos, unidade, fonte, grupo, rótulos e unidades de coluna da tabela. O monitor de saída checa também
+  os componentes que não puderam ser mostrados (o título deles aparece na tela).
+  - Título e subtítulo com acusação são trocados por um texto neutro, com um aviso curto.
+  - Textos curtos voltam ao padrão: rótulo de coluna vira o nome da coluna, a unidade some, a fonte
+    volta a ser a do próprio dataset e o grupo é retirado.
+  - O que escapar disso, o monitor de saída bloqueia.
+- **Truques de escrita** não passam: caracteres invisíveis, letras de largura diferente, acentos,
+  maiúsculas e letras separadas ("c r i m e", "c.r.i.m.e") são desfeitos antes da checagem.
+- **Termos bloqueados**: crime (e "crimen"), criminoso, ilegal (e "ilégal"), culpado, ilícito, delito,
+  infrator, infração cometida, multada, autuada, embargada, condenada, "fora da lei", clandestino,
+  irregular como acusação, "violou/descumpriu/desrespeitou/burlou/infringiu a lei, a legislação ou o
+  Código Florestal", "responsável pelo desmatamento", "desmatou ilegalmente", e texto que liga
+  exposição ao desmatamento a infração, multa ou sanção.
+- **Continua permitido**: ressalvas negadas ("exposição não é prova de ilegalidade") e a descrição neutra
+  de uma lei em componente de leis ("a Lei 9.605 prevê multa de R$ 50,00 por hectare").
+- **Nome oficial "Lei de Crimes Ambientais"**: só é liberado quando as duas condições valem:
+  1. o componente é de leis de verdade: a fonte é "Legislação — Planalto [Dn]" E o dataset [Dn] veio do
+     acervo de leis. O texto da fonte, que a IA escreve, sozinho não basta; sem os dados, nada é liberado;
+  2. a frase não tem verbo ou termo de acusação ("violou", "descumpriu", "cometeu", "culpada",
+     "responsável"...). "A Bunge violou a Lei de Crimes Ambientais" é bloqueado mesmo em painel de leis.
+- **Países e biomas** aparecem em português na tela ("CHINA (MAINLAND)" vira "China", "THAILAND" vira
+  "Tailândia", "MATA ATLANTICA" vira "Mata Atlântica"). Os dados e o CSV baixado continuam como vieram.
+  Dicionário em `src/dashboard/place_names.py`.
 
 ## Por qual coluna agrupar (A4, itens 1 a 3)
 

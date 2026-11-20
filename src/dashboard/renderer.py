@@ -34,6 +34,7 @@ from src.dashboard.messages import (
 )
 from src.dashboard.interaction import MOTION_CSS, MOTION_JS, card_actions, csv_template, period_filter, view_switch
 from src.dashboard.law_agent import LAW_FOOTER
+from src.dashboard.place_names import place_name_pt
 from src.dashboard.reviewer_agent import validate_widget_deterministic
 from src.dashboard.schemas import (
     LAWS_DATABASE,
@@ -105,9 +106,17 @@ def _is_name_column(col_name: str) -> bool:
 
 
 def display_label(value, col_name: str = "") -> str:
-    """Rótulo para exibição: "BRAZIL" vira "BRASIL" (com a ressalva em coluna de destino), rótulos
-    técnicos como UNKNOWN ou PROCESSED DOMESTICALLY viram português simples e nomes de empresas e
-    municípios em maiúsculas viram formato de título (H2)."""
+    """Rótulo para a TELA: como `csv_label` e, além disso, países e biomas em português
+    ("CHINA (MAINLAND)" -> "China", "MATA ATLANTICA" -> "Mata Atlântica"). Os dados não mudam."""
+    pt = place_name_pt(value) if not (isinstance(value, float) and pd.isna(value)) else None
+    return pt if pt is not None else csv_label(value, col_name)
+
+
+def csv_label(value, col_name: str = "") -> str:
+    """Rótulo para exibição e para o CSV baixado: "BRAZIL" vira "BRASIL" (com a ressalva em coluna de
+    destino), rótulos técnicos como UNKNOWN ou PROCESSED DOMESTICALLY viram português simples e nomes
+    de empresas e municípios em maiúsculas viram formato de título (H2). Nomes de países continuam
+    como vieram nos dados (a tradução é só da tela)."""
     text = str(value)
     if text.strip().upper() == "BRAZIL":
         return "BRASIL (processamento doméstico)" if col_name.lower() in DESTINATION_COLUMNS else "BRASIL"
@@ -2045,14 +2054,14 @@ def render_dashboard_html(
             elif w.kind == "table":
                 acoes = card_actions(image=False, csv_html=csv_template(
                     _prepare_slice(df, w, default_top_n=50), list(w.columns or df.columns),
-                    header=lambda c, w=w: _csv_header(w, c), label=display_label))
+                    header=lambda c, w=w: _csv_header(w, c), label=csv_label))
                 cards[section].append(_render_valid_card(w, _render_table_html(w, df), df, extra_html=acoes))
             elif w.kind == "quote":
                 cards[section].append(_render_valid_card(w, _render_quote_html(w, df), df))
             elif w.kind == "progress":
                 acoes = card_actions(image=False, csv_html=csv_template(
                     _prepare_slice(df, w), [c for c in (w.x, *w.y) if c],
-                    header=lambda c, w=w: _csv_header(w, c), label=display_label))
+                    header=lambda c, w=w: _csv_header(w, c), label=csv_label))
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df), df,
                                                          chart_conclusion(w, df, _base_of(w, by_id)), acoes))
             else:
@@ -2071,7 +2080,7 @@ def render_dashboard_html(
                     body = period_filter(anos) + body
                 work = _prepare_slice(df, w)
                 csv = csv_template(work, [c for c in dict.fromkeys([w.x, w.color, *w.y]) if c],
-                                   header=lambda c, w=w: _csv_header(w, c), label=display_label)
+                                   header=lambda c, w=w: _csv_header(w, c), label=csv_label)
                 cards[section].append(_render_valid_card(
                     w, body, df, conclusao, card_actions(image=True, csv_html=csv) + _data_view(w, df),
                     orient=w.orientation))

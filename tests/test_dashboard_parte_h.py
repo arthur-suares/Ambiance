@@ -81,7 +81,7 @@ def test_nomes_em_formato_de_titulo_mantendo_siglas():
 def test_titulo_so_na_exibicao_e_so_para_empresas_e_municipios():
     assert display_label("RIO VERDE", "municipality") == "Rio Verde"
     assert display_label("BUNGE", "exporter_group") == "Bunge"
-    assert display_label("CHINA (MAINLAND)", "country_of_first_import") == "CHINA (MAINLAND)"
+    assert display_label("CHINA (MAINLAND)", "country_of_first_import") == "China"  # auditoria item 7: país em português na tela
     df = MUNIS.copy()
     render_dashboard_html(parse_dashboard_spec({"title": "P", "widgets": [_w().to_dict()]}), [_ds(df)])
     assert df["municipality"].iloc[0] == "SORRISO"  # os dados não mudam
