@@ -167,10 +167,15 @@ def _spec_com(titulo, source):
 
 def test_monitor_de_saida_dos_dois_lados():
     mon = OutputMonitor()
-    assert mon.check_dashboard_spec(_spec_com("Lei de Crimes Ambientais: multas", f"{LAWS_SOURCE} [D1]")).allowed
-    assert not mon.check_dashboard_spec(_spec_com("Lei de Crimes Ambientais: multas", "Trase — Soja [D1]")).allowed
+    leis = [DatasetResult("D1", "laws", LAWS_SOURCE, "search_laws", "q", pd.DataFrame({"lei": ["x"]}))]
+    assert mon.check_dashboard_spec(_spec_com("Lei de Crimes Ambientais: multas", f"{LAWS_SOURCE} [D1]"),
+                                    leis).allowed
+    # Sem o dataset de leis, nada é liberado (auditoria, item 2b).
+    assert not mon.check_dashboard_spec(_spec_com("Lei de Crimes Ambientais: multas", f"{LAWS_SOURCE} [D1]")).allowed
+    assert not mon.check_dashboard_spec(_spec_com("Lei de Crimes Ambientais: multas", "Trase — Soja [D1]"),
+                                        leis).allowed
     assert not mon.check_dashboard_spec(_spec_com("Município de Sorriso comete crime ambiental",
-                                                  f"{LAWS_SOURCE} [D1]")).allowed
+                                                  f"{LAWS_SOURCE} [D1]"), leis).allowed
 
 
 def test_validador_metodologico_dos_dois_lados():

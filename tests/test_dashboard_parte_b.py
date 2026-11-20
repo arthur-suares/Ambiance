@@ -116,7 +116,7 @@ VARIACAO = pd.DataFrame({"destino": ["CHINA", "SPAIN", "Outros"], "variacao_t": 
 def test_variacao_por_item_soma_as_contribuicoes():
     w = _w(kind="waterfall", x="destino", y=["variacao_t"])
     wf = build_widget_figure(w, VARIACAO).data[0]
-    assert list(wf.x) == ["CHINA", "SPAIN", "Outros", "Variação total"]
+    assert list(wf.x) == ["China", "Espanha", "Outros", "Variação total"]  # país em português na tela
     assert list(wf.measure) == ["relative", "relative", "relative", "total"]
     assert wf.y[-1] == pytest.approx(4.2e6)
 

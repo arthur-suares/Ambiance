@@ -128,6 +128,48 @@ def numbers_in(text: str) -> set[float]:
     return out
 
 
+# Referências que contêm números mas não são valores: "art. 70", "§ 3º", "inciso 2", "Lei nº 9.605/1998",
+# "Decreto 6.514/2008". Aplicado ao texto já normalizado (sem acento, minúsculo; "º" vira "o").
+_REFERENCE_RE = re.compile(
+    r"(?:\bart(?:igo)?s?\b\.?|§+|\bincisos?\b|\binc\b\.?|\bparagrafos?\b|\balineas?\b"
+    r"|\b(?:lei(?:\s+complementar)?|decreto(?:-lei)?|medida\s+provisoria|resolucao(?:\s+conama)?"
+    r"|portaria|instrucao\s+normativa)\b)"
+    r"\s*(?:n\s*[.o]*\s*)?\d[\d.]*(?:\s*/\s*\d+)?\s*o?(?:\s*(?:,|e)\s*\d+\s*o?)*"
+)
+
+# Palavra que precisa aparecer na citação para cada unidade.
+_UNIT_EVIDENCE = {
+    "R$": (r"r\$", r"\breais\b", r"\breal\b"),
+    "%": (r"%", r"\bpor\s+cento\b"),
+    "dias": (r"\bdias?\b",),
+    "meses": (r"\bmes\b", r"\bmeses\b"),
+    "anos": (r"\banos?\b",),
+    "hectares": (r"\bhectares?\b", r"\bha\b"),
+    "módulos fiscais": (r"\bmodulos?\s+fiscais?\b",),
+}
+_UNIT_EXTRA = {
+    "R$ por hectare": (r"\bhectares?\b", r"\bha\b"),
+    "R$ por m³": (r"\bmetros?\s+cubicos?\b", r"\bm3\b"),
+    "R$ por unidade": (r"\bunidades?\b",),
+}
+
+
+def cited_numbers(citacao: str) -> set[float]:
+    """Números da citação literal, sem os de referência (artigo, parágrafo, inciso, número de lei)."""
+    return numbers_in(_REFERENCE_RE.sub(" ", _norm(citacao)))
+
+
+def unit_in_citation(unidade: str, citacao: str) -> bool:
+    """A unidade da linha tem palavra correspondente dentro da citação (R$ exige "R$" ou "reais" etc.)."""
+    if not unidade:
+        return True
+    texto = _norm(citacao)
+    base = "R$" if unidade.startswith("R$") else unidade
+    needs = [_UNIT_EVIDENCE.get(base, ())]
+    if unidade in _UNIT_EXTRA:
+        needs.append(_UNIT_EXTRA[unidade])
+    return all(any(re.search(pat, texto) for pat in grupo) for grupo in needs if grupo)
+
 def _unit(raw) -> str | None:
     if raw is None:
         return None
@@ -154,7 +196,9 @@ def verify_row(row: dict, chunks: list[dict]) -> dict | None:
     tipo = str(row.get("tipo") or "")
     if tipo not in FACT_TYPES:
         return None
-    nums = numbers_in(texto)
+    # Os números e a unidade precisam estar DENTRO da citação literal (não basta estar no trecho),
+    # sem contar números de "art. N", "§ N", inciso ou numeração de lei.
+    nums = cited_numbers(citacao)
     valores = []
     for campo in ("valor_min", "valor_max"):
         v = row.get(campo)
@@ -166,7 +210,7 @@ def verify_row(row: dict, chunks: list[dict]) -> dict | None:
         except (TypeError, ValueError):
             return None
         if v not in nums:
-            return None  # número que não está no texto do trecho
+            return None  # número sem prova na citação
         valores.append(v)
     vmin, vmax = valores
     if vmin is not None and vmax is not None and vmin > vmax:
@@ -174,10 +218,10 @@ def verify_row(row: dict, chunks: list[dict]) -> dict | None:
     unidade = _unit(row.get("unidade"))
     if (vmin is not None or vmax is not None) and unidade is None:
         return None
-    if unidade and unidade.startswith("R$") and "r$" not in ntexto and "reais" not in ntexto:
+    if unidade and not unit_in_citation(unidade, citacao):
         return None
     prazo = str(row.get("prazo") or "").strip() or None
-    if prazo and (not numbers_in(prazo) <= nums):
+    if prazo and (not numbers_in(prazo) <= nums or not unit_in_citation(_unit(prazo.split()[-1]) or "", citacao)):
         return None
     meta = chunk.get("metadata") or {}
     url = str(chunk.get("url") or "").strip()

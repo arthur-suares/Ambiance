@@ -44,7 +44,7 @@ from src.dashboard.dimensions import (
 )
 from src.dashboard.reviewer_agent import review_dashboard
 from src.dashboard.messages import user_message
-from src.dashboard.validator import find_illegality_claim, is_law_sourced, spec_has_law_source
+from src.dashboard.validator import find_illegality_claim, is_law_sourced, spec_has_law_source, widget_claims
 from src.dashboard.schemas import (
     ALLOWED_WIDGET_KINDS,
     DashboardRunResult,
@@ -248,16 +248,26 @@ def _neutral_widget_title(w) -> str:
     return "Exposição ao desmatamento" if ("expos" in cols or "defor" in cols or "desmat" in cols) else "Gráfico do painel"
 
 
-def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
+def _neutral_source(w, ds) -> str:
+    tag = f"[{w.dataset_id}]"
+    label = (ds.source_label if ds is not None else "") or "Fonte dos dados"
+    return label if tag in label else f"{label} {tag}"
+
+
+def _omit_unresolved_claims(spec: DashboardSpec, question: str, datasets=None) -> None:
     """Reescreve textos com alegação indevida que sobraram após as rodadas de revisão.
 
     - Título/subtítulo do painel ou de um gráfico: o texto é trocado por um neutro, o gráfico continua
       (os dados estão certos) e o leitor recebe UMA frase simples avisando.
+    - Textos curtos (rótulo e unidade de coluna, unidade, fonte, grupo): voltam ao padrão (nome técnico
+      da coluna, sem unidade, fonte do próprio dataset, sem grupo).
     - Avisos que vieram do próprio revisor e citam o termo: descartados em silêncio (ficam no log).
+    O nome oficial "Lei de Crimes Ambientais" só é liberado em componente de leis com dataset de leis.
     O monitor de saída continua com as mesmas regras e bloqueia o que escapar.
     """
+    by_id = {d.dataset_id: d for d in (datasets or [])}
     rewritten = False
-    law_panel = spec_has_law_source(spec)  # G5: só o nome oficial da norma, só com fonte de leis
+    law_panel = spec_has_law_source(spec, by_id)
     if find_illegality_claim(spec.title, law_source=law_panel):
         fallback = f"Dashboard — {question}" if question else ""
         spec.title = (fallback if fallback and not find_illegality_claim(fallback, law_source=law_panel)
@@ -267,13 +277,23 @@ def _omit_unresolved_claims(spec: DashboardSpec, question: str) -> None:
         spec.subtitle = ""
         rewritten = True
     for w in spec.widgets:
-        law_w = is_law_sourced(w)
-        if find_illegality_claim(w.title, law_source=law_w):
-            w.title = _neutral_widget_title(w)
+        ds = by_id.get(w.dataset_id)
+        for _label, attr, key, _claim in widget_claims(w, is_law_sourced(w, ds)):
             rewritten = True
-        if find_illegality_claim(w.subtitle, law_source=law_w):
-            w.subtitle = ""
-            rewritten = True
+            if attr == "title":
+                w.title = _neutral_widget_title(w)
+            elif attr == "subtitle":
+                w.subtitle = ""
+            elif attr == "unit":
+                w.unit = ""
+            elif attr == "source":
+                w.source = _neutral_source(w, ds)
+            elif attr == "group":
+                w.group = None
+            elif attr == "column_labels" and key is not None:
+                w.column_labels.pop(key, None)  # volta ao nome da coluna
+            elif attr == "column_units" and key is not None:
+                w.column_units.pop(key, None)
         if w.validation_error and find_illegality_claim(w.validation_error):
             w.validation_error = user_message(w.validation_codes)
     dropped = [msg for msg in spec.warnings if find_illegality_claim(msg, law_source=law_panel)]
@@ -422,7 +442,7 @@ def generate_dashboard(
     declare_bases(spec, datasets)  # A4: bases diferentes -> cada widget diz a base que usou
     _finish_dimension(spec, plan, question, datasets)
     _finish_chart_choice(spec, plan, datasets)
-    _omit_unresolved_claims(spec, question)
+    _omit_unresolved_claims(spec, question, datasets)
     html_content = build_dashboard_html(spec, datasets, question=question)
 
     saved_path: Path | None = None
@@ -620,7 +640,7 @@ def build_dashboard_from_store(
     declare_bases(spec, render_datasets)  # A4: bases diferentes -> cada widget diz a base que usou
     _finish_dimension(spec, plan, question, render_datasets)
     _finish_chart_choice(spec, plan, datasets)
-    _omit_unresolved_claims(spec, question)
+    _omit_unresolved_claims(spec, question, datasets)
     html_content = build_dashboard_html(spec, render_datasets, question=question)
 
     saved_path: Path | None = None
