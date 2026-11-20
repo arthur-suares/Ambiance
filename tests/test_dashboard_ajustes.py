@@ -35,7 +35,7 @@ def test_brazil_vira_brasil_com_ressalva_so_na_coluna_de_destino():
     assert display_label("BRAZIL", "country_of_first_import") == "BRASIL (processamento doméstico)"
     assert display_label("BRAZIL", "state") == "BRASIL"
     assert display_label("brazil", "") == "BRASIL"
-    assert display_label("CHINA (MAINLAND)", "country_of_first_import") == "CHINA (MAINLAND)"
+    assert display_label("CHINA (MAINLAND)", "country_of_first_import") == "China"  # auditoria item 7: país em português na tela
     assert display_label("BRAZILIAN CO", "country_of_first_import") == "BRAZILIAN CO"  # só o valor exato
 
 

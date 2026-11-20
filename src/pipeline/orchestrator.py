@@ -19,6 +19,8 @@ import re
 import unicodedata
 
 from src.dashboard._llm import call_structured_llm
+from src.dashboard import chart_intent
+from src.dashboard.dimensions import columns_cover, detect_dimension
 from src.rag import resolve_domain
 
 ALLOWED_INTENTS = ("question", "dashboard", "dashboard_edit", "map_edit", "mixed")
@@ -119,6 +121,21 @@ _LAW_TERMS_RE = re.compile(
     re.IGNORECASE,
 )
 
+# G3: termos de lei que, junto com um pedido de painel/gráfico/tabela, pedem um painel sobre as normas.
+_LAW_DASH_RE = re.compile(
+    r"\b(?:codigo\s+florestal|reserva\s+legal|leis?\b|legisla\w*|normas?\s+(?:ambienta\w*|legais|juridic\w*)"
+    r"|decretos?|artigos?\s+d[aeo]s?\s+(?:lei|codigo|decreto)|multas?|penalidad\w*|sancoes|infracoes?"
+    r"|crimes?\s+ambienta\w*|snuc)\b",
+    re.IGNORECASE,
+)
+# Dados do Trase (cadeia, volume, exposição, lugares): com eles, o pedido de leis vira painel misto.
+_TRASE_DATA_RE = re.compile(
+    r"\b(?:soja|soy|carne|bovin\w*|gado|beef|cattle|export\w*|import\w*|volume\w*|tonelad\w*|fob"
+    r"|exposic\w*|municip\w*|destin\w*|trading\w*|frigorific\w*|trase|cadeia)\b",
+    re.IGNORECASE,
+)
+_TABLE_WORD_RE = re.compile(r"\btabelas?\b", re.IGNORECASE)
+
 _MIXED_QUESTION_CONJ_RE = re.compile(
     r"\b(?:quais?|qual|quanto\w*|como|explique|analise|responda|compare)\b"
     r".+\b(?:e\s+(?:monte|monta|faca|faz|crie|cria|gere|gera|mostre|exiba)|alem\s+disso|acompanhad[oa]\s+de)\b",
@@ -141,6 +158,10 @@ _VAGUE_FILLER_WORDS = frozenset({
     "dashboard", "dashboards", "dashbord", "dashboad", "dasboard", "deshboard", "dash",
     "painel", "paineis", "grafico", "graficos", "grafiko", "grafikos", "grfico", "grficos",
     "chart", "charts", "plot", "plotar", "visualizacao", "visualizacoes",
+    # Nomes de formato não são recorte: "faz uma pizza" ainda precisa dizer de quê.
+    "pizza", "piza", "torta", "rosca", "rosquinha", "bolinha", "redondo", "fatias", "barras", "barra",
+    "colunas", "linha", "linhas", "tabela", "lista", "planilha", "medidor", "ponteiro", "cascata",
+    "formato", "jeito", "forma", "ver", "como", "outro", "outra", "tipo",
 })
 
 _SUBSTANTIVE_TOPIC_RE = re.compile(
@@ -164,6 +185,28 @@ _CLEAR_QUESTION_RE = re.compile(
     r"|\b(?:qual|quais|quanto|quantos|quantas|como|onde|quando|quem|por\s+que|porque|o\s+que|oque"
     r"|explique|resuma|defina|definicao|conceito|significa|liste|ranking|compare|calcule)\b"
     r")",
+    re.IGNORECASE,
+)
+
+# "só os 5 maiores", "apenas as 3 primeiras", "top 10", "os 5 maiores"
+_TOP_N_RE = re.compile(
+    r"\b(?:(?:so|apenas|somente)\s+)?(?:(?:os|as)\s+)?(?:top\s*\d+|\d+\s+(?:maior\w*|menor\w*|primeir\w*|ultim\w*))\b",
+    re.IGNORECASE,
+)
+_RESTRICT_EDIT_RE = re.compile(
+    r"\btop\s*\d+\b"
+    r"|\b(?:so|apenas|somente)\s+(?:(?:os|as|o|a)\s+)?\d+\b"
+    r"|^(?:agora\s+)?(?:filtr\w*|limit\w*|foc\w*|deix\w*\s+(?:so|apenas|somente)"
+    r"|mostr\w*\s+(?:so|apenas|somente)|exib\w*\s+(?:so|apenas|somente))\b",
+    re.IGNORECASE,
+)
+# Nomes das categorias já exibidas: "só os 5 maiores municípios" não pede recorte novo.
+_ENTITY_NOUN_RE = re.compile(
+    r"\b(?:municip\w*|destin\w*|pais\w*|empresas?|export\w*|import\w*|trading\w*|estados?|ufs?|biomas?|portos?)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_QUESTION_RE = re.compile(
+    r"\?\s*$|^(?:qual|quais|quanto\w*|como|onde|quando|quem|o\s+que|por\s*que)\b",
     re.IGNORECASE,
 )
 
@@ -238,6 +281,18 @@ def _extract_session_flags(
     return spec_flag, data_flag, cols
 
 
+def _panel_columns(session) -> set[str] | None:
+    spec = getattr(session, "current_spec", None) if session is not None else None
+    if spec is None:
+        return None
+    cols: set[str] = set()
+    for w in getattr(spec, "widgets", []) or []:
+        for c in (getattr(w, "x", None), getattr(w, "color", None), *(getattr(w, "columns", None) or [])):
+            if c:
+                cols.add(str(c).lower())
+    return cols
+
+
 def _build_assumption(norm_msg: str, domain: str) -> str | None:
     if _WORLD_SCOPE_RE.search(norm_msg):
         chain_label = (
@@ -253,12 +308,20 @@ def _build_assumption(norm_msg: str, domain: str) -> str | None:
     return None
 
 
+# Só o nome da cadeia não é recorte: "faz um gráfico da soja" ainda precisa de métrica, lugar ou ano.
+_COMMODITY_ONLY_RE = re.compile(
+    r"\b(?:cadeia|soja|soy|carne|bovin[oa]s?|gado|beef|cattle|pecuaria)\b",
+    re.IGNORECASE,
+)
+
+
 def _is_vague_dashboard_request(norm_msg: str, has_store_data: bool) -> bool:
     if _DEICTIC_STORE_RE.search(norm_msg):
         return not has_store_data
-    if _SUBSTANTIVE_TOPIC_RE.search(norm_msg):
+    sem_cadeia = _COMMODITY_ONLY_RE.sub(" ", norm_msg)
+    if _SUBSTANTIVE_TOPIC_RE.search(sem_cadeia):
         return False
-    tokens = re.findall(r"[a-z0-9]+", norm_msg)
+    tokens = re.findall(r"[a-z0-9]+", sem_cadeia)
     remaining = [t for t in tokens if t not in _VAGUE_FILLER_WORDS]
     return len(remaining) == 0
 
@@ -268,6 +331,9 @@ def _edit_needs_new_data(norm_msg: str, store_columns: set[str]) -> bool:
         return False
     if not store_columns:
         return True
+    names_format = bool((choice := chart_intent.detect(norm_msg)) and choice.explicit)
+    if names_format and not any(p.search(norm_msg) for p, _cols in _METRIC_COLUMN_HINTS):
+        return False  # "coloca em barras": troca de formato, mesmos dados
     matched_any_metric = False
     for pattern, col_substrings in _METRIC_COLUMN_HINTS:
         if pattern.search(norm_msg):
@@ -277,6 +343,27 @@ def _edit_needs_new_data(norm_msg: str, store_columns: set[str]) -> bool:
     return not matched_any_metric
 
 
+_YEAR_RE = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
+def _is_format_only(norm_msg: str) -> bool:
+    """A1: só palavras de formato ("faz em pizza", "mostra de outro jeito", "põe como lista").
+    Entidade, dimensão, filtro, período ou cadeia na mensagem = pedido de painel novo."""
+    return not (
+        _SUBSTANTIVE_TOPIC_RE.search(norm_msg)
+        or _ENTITY_NOUN_RE.search(norm_msg)
+        or _COMMODITY_ONLY_RE.search(norm_msg)
+        or _YEAR_RE.search(norm_msg)
+        or detect_dimension(norm_msg) is not None
+    )
+
+
+def _new_dimension(norm_msg: str, panel_columns: set[str] | None) -> bool:
+    """A1: a mensagem pede agrupar por uma dimensão que o painel aberto não usa."""
+    dim = detect_dimension(norm_msg)
+    return bool(dim is not None and panel_columns is not None and not columns_cover(panel_columns, dim))
+
+
 def classify_intent_deterministic(
     message: str,
     *,
@@ -284,10 +371,15 @@ def classify_intent_deterministic(
     has_spec: bool = False,
     has_store_data: bool = False,
     store_columns: set[str] | None = None,
+    panel_columns: set[str] | None = None,
 ) -> OrchestrationDecision | None:
-    """Tenta decidir a intenção apenas por regras rápidas; devolve `None` se genuinamente ambíguo."""
+    """Tenta decidir a intenção apenas por regras rápidas; devolve `None` se genuinamente ambíguo.
+
+    `panel_columns`: colunas que os gráficos do painel aberto usam (x, cor, colunas da tabela)."""
     norm = _normalize(message)
     resolved_domain = resolve_domain(message, domain)
+    if panel_columns is None and has_spec:
+        panel_columns = store_columns or None
 
     if not norm:
         return OrchestrationDecision(
@@ -313,10 +405,48 @@ def classify_intent_deterministic(
             decided_by="rules",
         )
 
-    has_dash_noun = bool(_DASHBOARD_NOUN_RE.search(norm))
+    # Nomear um formato ("faça uma pizza", "uma bolinha mostrando...") também pede gráfico,
+    # mesmo sem a palavra "gráfico". Tabela/lista sozinhas continuam indo para a resposta em texto.
+    has_dash_noun = bool(_DASHBOARD_NOUN_RE.search(norm)) or chart_intent.names_chart_format(message)
     has_edit_verb = bool(_EDIT_VERB_RE.search(norm))
     has_edit_target = bool(_EDIT_COMPONENT_TARGET_RE.search(norm))
     has_deictic = bool(_DEICTIC_STORE_RE.search(norm))
+
+    # 1b. A1: com painel aberto, pedir outra dimensão (município, empresa, porto, destino...) é painel
+    # NOVO, com dados novos: nunca reaproveitar datasets agrupados por outra coluna.
+    # 1c. G3: painel/gráfico/pizza/tabela sobre LEIS. Sem dado do Trase -> painel de leis (domínio "law");
+    # com dado do Trase -> misto (agente de leis + agente de dados). Pergunta de lei sem pedido de painel
+    # continua em texto (passo 5).
+    pede_visual = has_dash_noun or bool(_TABLE_WORD_RE.search(norm))
+    if pede_visual and _LAW_DASH_RE.search(norm) and not has_edit_verb:
+        sem_lei = _LAW_DASH_RE.sub(" ", norm)
+        if _TRASE_DATA_RE.search(sem_lei) or _MIXED_QUESTION_CONJ_RE.search(norm):
+            return OrchestrationDecision(
+                intent="mixed",
+                domain="mixed",
+                use_previous_results=True,
+                needs_new_data=False,
+                assumption=_build_assumption(norm, resolved_domain),
+                decided_by="rules",
+            )
+        return OrchestrationDecision(
+            intent="dashboard",
+            domain="law",
+            use_previous_results=False,
+            needs_new_data=True,
+            decided_by="rules",
+        )
+
+    # "Adicione um gráfico por estado" continua edição: acrescenta ao painel, com dados novos.
+    if has_spec and has_dash_noun and _new_dimension(norm, panel_columns) and not _ADD_VERB_RE.search(norm):
+        return OrchestrationDecision(
+            intent="dashboard",
+            domain=resolved_domain,
+            use_previous_results=False,
+            needs_new_data=True,
+            assumption=_build_assumption(norm, resolved_domain),
+            decided_by="rules",
+        )
 
     # 2. Edição de painel: verbo de edição + alvo de componente
     is_unambiguous_visual_target = has_dash_noun or bool(
@@ -349,6 +479,33 @@ def classify_intent_deterministic(
             decided_by="rules",
         )
 
+    # 2a. Troca de formato em linguagem leiga com painel aberto: "faz em pizza", "quero ver em linha",
+    # "põe como lista", "mostra de outro jeito".
+    chart_req = chart_intent.detect(message) if has_spec else None
+    if (chart_req is not None and chart_req.explicit and chart_req.requested != "map"
+            and not _EXPLICIT_QUESTION_RE.search(norm) and _is_format_only(norm)):
+        return OrchestrationDecision(
+            intent="dashboard_edit",
+            domain=resolved_domain,
+            use_previous_results=has_store_data,
+            needs_new_data=not has_store_data,
+            decided_by="rules",
+        )
+
+    # 2b. Edição sem verbo de edição, com painel aberto: "mostre só os 5 maiores", "agora só o top 3",
+    # "filtre só Mato Grosso". Perguntas explícitas ("quais os 5 maiores?") seguem como pergunta.
+    if has_spec and _RESTRICT_EDIT_RE.search(norm) and not _EXPLICIT_QUESTION_RE.search(norm):
+        resto = _ENTITY_NOUN_RE.sub(" ", _COMMODITY_ONLY_RE.sub(" ", _TOP_N_RE.sub(" ", norm)))
+        so_top_n = bool(_TOP_N_RE.search(norm)) and not _SUBSTANTIVE_TOPIC_RE.search(resto)
+        needs_new = not (so_top_n and has_store_data)
+        return OrchestrationDecision(
+            intent="dashboard_edit",
+            domain=resolved_domain,
+            use_previous_results=not needs_new,
+            needs_new_data=needs_new,
+            decided_by="rules",
+        )
+
     # 3. Pedido explícito envolvendo painel/gráfico/visualização
     if has_dash_noun:
         # Misto: legislação + dashboard, ou pergunta explícita seguida de "e monte/faça ..."
@@ -373,6 +530,9 @@ def classify_intent_deterministic(
             )
 
         use_prev = bool(has_deictic and has_store_data)
+        dim = detect_dimension(norm)
+        if use_prev and dim is not None and store_columns and not columns_cover(store_columns, dim):
+            use_prev = False  # A1: os dados guardados estão agrupados por outra coluna
         return OrchestrationDecision(
             intent="dashboard",
             domain=resolved_domain,
@@ -499,6 +659,7 @@ def classify_intent(
         has_spec=spec_flag,
         has_store_data=data_flag,
         store_columns=cols,
+        panel_columns=_panel_columns(session),
     )
     if det is not None:
         return det

@@ -9,10 +9,18 @@ diretamente dos catálogos (`src/data_dictionary.py`, `src/soy/territorial.py` e
 from __future__ import annotations
 
 import re
+import unicodedata
 
 import pandas as pd
 
-from src.dashboard.schemas import DashboardSpec, DatasetResult, WidgetIssue, WidgetSpec
+from src.dashboard.schemas import (
+    LAWS_DATABASE,
+    LAWS_SOURCE,
+    DashboardSpec,
+    DatasetResult,
+    WidgetIssue,
+    WidgetSpec,
+)
 from src.data_dictionary import METRICS, TABLES
 from src.soy.catalog import DEFAULT_SOY_MANIFEST
 from src.soy.territorial import SOY_METRICS
@@ -97,37 +105,96 @@ _RATIO_UNIT_RE = re.compile(
 _YEAR_COLUMNS = frozenset({"year", "ano"})
 _MUNICIPALITY_COLUMNS = frozenset({"municipality", "municipality_of_production", "municipio", "município"})
 
+# --- Checagem de alegação (R5-e) ---------------------------------------------------------
+# Todo texto passa por `normalize_claim_text` antes das regras: sem caracteres invisíveis, NFKC,
+# sem acento, minúsculo e com letras soltas juntadas ("c r i m e", "c.r.i.m.e" -> "crime").
+# Por isso os padrões abaixo são escritos SEM acento.
+_INVISIBLE_RE = re.compile("[\u200b\u200c\u200d\u2060\u00ad\ufeff]")
+_SPACED_LETTERS_RE = re.compile(r"(?<![a-z0-9])[a-z](?:[\s.\-_*·]{1,3}[a-z](?![a-z0-9])){2,}")
+_SPACED_SEP_RE = re.compile(r"[\s.\-_*·]+")
+
+
+def normalize_claim_text(text: str | None) -> str:
+    """Texto pronto para as regras de alegação (desfaz truques de escrita comuns)."""
+    t = _INVISIBLE_RE.sub("", text or "")
+    t = unicodedata.normalize("NFKC", t)
+    t = unicodedata.normalize("NFKD", t)
+    t = "".join(c for c in t if not unicodedata.combining(c)).casefold()
+    t = _SPACED_LETTERS_RE.sub(lambda m: _SPACED_SEP_RE.sub("", m.group(0)), t)
+    return re.sub(r"[ \t]+", " ", t)
+
+
 # Isenta apenas ressalvas explícitas de negação (ex.: "exposição não é prova de ilegalidade").
 _NEGATED_DISCLAIMER_RE = re.compile(
-    r"\bn[aã]o\s+(?:[ée]\s+|constitui\s+|representa\s+)?"
-    r"(?:prova|ind[ií]cio|evid[eê]ncia|atestado|sin[oô]nimo|confirma[cç][aã]o)?\s*(?:de\s+)?"
+    r"\bnao\s+(?:e\s+|constitui\s+|representa\s+)?"
+    r"(?:prova|indicio|evidencia|atestado|sinonimo|confirmacao)?\s*(?:de\s+)?"
     r"(?:indica\s+|implica\s+|configura\s+|significa\s+|comprova\s+|demonstra\s+)?"
-    r"(?:desmatamento\s+)?(?:ilegal\w*|crime\w*|culpa\w*|responsabil\w*)",
-    re.IGNORECASE,
+    r"(?:desmatamento\s+)?(?:ilegal\w*|crime\w*|culpa\w*|responsabil\w*|infrac\w*|ilicit\w*|irregular\w*)"
 )
 
 _ILLEGALITY_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bilega(?:l|is|lidade|lmente)\b", re.IGNORECASE), "ilegal/ilegalidade"),
-    (re.compile(r"\bcrimes?\b|\bcriminos[oa]s?\b", re.IGNORECASE), "crime"),
-    (re.compile(r"\bculpad[oa]s?\b", re.IGNORECASE), "culpada/culpado"),
+    # G6: nenhum texto liga causalmente exposição/desmatamento a infração, multa ou sanção.
     (
         re.compile(
-            r"\b(?:viol(?:ou|aram|a|am|a[cç][aã]o)|infring(?:iu|iram)|descumpri(?:u|ram))\s+"
-            r"(?:a\s+|as\s+|da\s+|das\s+)?lei\b",
-            re.IGNORECASE,
+            r"\b(?:exposi\w*|desmat\w*)\b[^.;]{0,80}?\b(?:configura\w*|caracteriza\w*|constitu[ei]\w*|gera\w*"
+            r"|resulta\w*\s+em|implica\w*|sujeit\w*\s+a|passive(?:l|is)\s+de)\b[^.;]{0,40}?"
+            r"\b(?:infrac\w*|crimes?\b|multas?\b|penalidad\w*|sanc(?:ao|oes))"
+        ),
+        "liga exposição a infração",
+    ),
+    (re.compile(r"\bilega(?:l|is|lidade|lmente)\b"), "ilegal/ilegalidade"),
+    (re.compile(r"\bcrimes?\b|\bcrimen\w*|\bcriminos[oa]s?\b"), "crime"),
+    (re.compile(r"\bculpad[oa]s?\b"), "culpada/culpado"),
+    (
+        re.compile(
+            r"\b(?:viol(?:ou|aram|a|am|acao|ando)|infring\w*|descumpr\w*|desrespeit\w*|burl(?:ou|aram|a|am|ando))\s+"
+            r"(?:a\s+|as\s+|o\s+|os\s+|da\s+|das\s+|do\s+)?"
+            r"(?:lei\b|leis\b|legislac\w*|codigo\s+florestal|norma\w*|regras?\b)"
         ),
         "violou a lei",
     ),
     (
         re.compile(
-            r"\b(?:respons[aá]ve(?:l|is)|autora?s?)\s+pelo\s+desmatamento\b"
-            r"|\bautora?s?\s+do\s+desmatamento\b",
-            re.IGNORECASE,
+            r"\b(?:responsave(?:l|is)|autora?s?|autores)\s+pelo\s+desmatamento\b"
+            r"|\b(?:autora?s?|autores)\s+do\s+desmatamento\b"
+            r"|\bdesmat\w*\s+ilegalmente\b"
         ),
         "responsável pelo desmatamento",
     ),
+    (
+        re.compile(
+            r"\binfrac(?:ao|oes)\s+(?:ambienta(?:l|is)\s+)?cometid[ao]s?\b"
+            r"|\b(?:cometeu|cometeram|comete|cometem|praticou|praticaram)\s+(?:\w+\s+){0,2}?"
+            r"(?:infrac\w*|ilicit\w*|delito\w*|crime\w*)"
+            r"|\binfrator(?:a|es|as)?\b"
+        ),
+        "infração cometida",
+    ),
+    (re.compile(r"\bilicit[oa]s?\b|\bdelitos?\b"), "ilícito/delito"),
+    (re.compile(r"\b(?:multad|autuad|embargad|condenad)[oa]s?\b"), "multada/autuada"),
+    (re.compile(r"\bfora\s+da\s+lei\b|\bclandestin\w*"), "fora da lei/clandestino"),
+    (
+        re.compile(
+            r"\birregularmente\b"
+            r"|\b(?:e|sao|esta|estao|foi|foram|era|eram|atua|atuam|opera|operam|agiu|agiram|age|agem)\s+"
+            r"(?:de\s+forma\s+|de\s+modo\s+)?irregular(?:es)?\b"
+            r"|\b(?:desmatamento|exportac\w+|compras?|soja|carne|gado|producao|fazendas?|empresas?|atividades?)\s+"
+            r"irregular(?:es)?\b"
+        ),
+        "irregular",
+    ),
 )
 
+# Verbos e termos de acusação que, na MESMA frase, impedem liberar o nome oficial da norma (G5).
+_ACCUSATION_RE = re.compile(
+    r"\b(?:viol(?:ou|aram|a|am|ando)|descumpr\w*|infring\w*|desrespeit\w*|burl(?:ou|aram|a|am|ando)"
+    r"|cometeu|cometeram|comete|cometem|cometid\w*|praticou|praticaram|praticad\w*"
+    r"|culpad\w*|culpa\b|responsave(?:l|is)|respond\w*|autor(?:a|es|as)?\b|infrator\w*|ilegal\w*"
+    r"|desmat\w*\s+ilegalmente|multad\w*|autuad\w*|condenad\w*|embargad\w*|acusad\w*|denunciad\w*"
+    r"|enquadrad\w*|fora\s+da\s+lei|irregular\w*|ilicit\w*|delito\w*)"
+)
+# Separa frases sem cortar "art. 70", "n. 5" ou "9.605".
+_SENTENCE_SPLIT_RE = re.compile(r"(?<!\bart)(?<!\barts)(?<!\binc)(?<!\bn)(?<!\bno)[.!?;]+(?=\s|$)|\n+")
 
 def is_five_year_window_column(col: str | None, df: pd.DataFrame | None = None) -> bool:
     """True se a coluna (ou métrica em formato longo) representa exposição/emissões em janela de 5 anos."""
@@ -205,16 +272,88 @@ def distinct_year_count(df: pd.DataFrame) -> tuple[str | None, int]:
     return year_col, int(cleaned.nunique())
 
 
-def find_illegality_claim(text: str | None) -> str | None:
-    """Se `text` contiver alegação de ilegalidade/crime/autoria de desmatamento, devolve o termo detectado."""
+# G5 (SEGURANÇA, escopo estreito): o NOME OFICIAL de uma norma que contém termo jurídico ("Lei de Crimes
+# Ambientais") é permitido SÓ em texto de componente de leis legítimo (`law_source=True`) e SÓ em frase
+# sem verbo ou termo de acusação ("Bunge violou a Lei de Crimes Ambientais" continua bloqueado).
+# "Componente de leis legítimo" = fonte "Legislação — Planalto [Dn]" E dataset [Dn] com database "laws";
+# o texto do campo `source` sozinho (escrito pela IA) nunca basta.
+_LAW_OFFICIAL_NAME_RE = re.compile(r"\blei\s+d[eo]s?\s+crimes\s+ambientais\b")
+_DATASET_TAG_RE = re.compile(r"\[D\d+\]")
+
+
+def is_law_sourced(w: WidgetSpec, ds: DatasetResult | None) -> bool:
+    """Componente de leis legítimo: fonte do acervo de leis com [Dn] E dataset de leis de verdade."""
+    source = w.source or ""
+    if LAWS_SOURCE not in source or not _DATASET_TAG_RE.search(source):
+        return False
+    return ds is not None and ds.database == LAWS_DATABASE and ds.dataset_id == w.dataset_id
+
+
+def _datasets_map(datasets) -> dict[str, DatasetResult]:
+    if not datasets:
+        return {}
+    if isinstance(datasets, dict):
+        return datasets
+    return {d.dataset_id: d for d in datasets}
+
+
+def widget_is_law(w: WidgetSpec, datasets) -> bool:
+    return is_law_sourced(w, _datasets_map(datasets).get(w.dataset_id))
+
+
+def spec_has_law_source(spec: DashboardSpec, datasets=None) -> bool:
+    """Painel com pelo menos um componente de leis legítimo. Sem datasets, nada é liberado."""
+    by_id = _datasets_map(datasets)
+    return any(is_law_sourced(w, by_id.get(w.dataset_id)) for w in spec.widgets)
+
+
+def _release_official_name(text: str) -> str:
+    """Retira o nome oficial só das frases sem acusação; as demais ficam como estão (e serão checadas)."""
+    parts = _SENTENCE_SPLIT_RE.split(text)
+    kept = [p if _ACCUSATION_RE.search(p) else _LAW_OFFICIAL_NAME_RE.sub(" ", p) for p in parts]
+    return " . ".join(kept)
+
+
+def find_illegality_claim(text: str | None, *, law_source: bool = False) -> str | None:
+    """Se `text` contiver alegação de ilegalidade/crime/autoria de desmatamento, devolve o termo detectado.
+
+    `law_source=True` só para textos de componentes de leis legítimos: aí o nome oficial
+    "Lei de Crimes Ambientais" deixa de contar, mas só em frase sem verbo/termo de acusação (G5)."""
     if not text or not text.strip():
         return None
-    sanitized = _NEGATED_DISCLAIMER_RE.sub(" ", text)
+    sanitized = _NEGATED_DISCLAIMER_RE.sub(" ", normalize_claim_text(text))
+    if law_source:
+        sanitized = _release_official_name(sanitized)
     for pattern, label in _ILLEGALITY_PATTERNS:
         if pattern.search(sanitized):
             return label
     return None
 
+
+def widget_free_texts(w: WidgetSpec) -> list[tuple[str, str, str | None, str]]:
+    """Todos os textos livres de um componente que vão para a tela (escritos pela IA).
+
+    Cada item: (nome simples do campo, atributo, chave do dicionário ou None, texto)."""
+    out: list[tuple[str, str, str | None, str]] = [
+        ("título", "title", None, w.title or ""),
+        ("subtítulo", "subtitle", None, w.subtitle or ""),
+        ("unidade", "unit", None, w.unit or ""),
+        ("fonte", "source", None, w.source or ""),
+        ("grupo", "group", None, w.group or ""),
+    ]
+    out += [("rótulo de coluna", "column_labels", k, str(v or "")) for k, v in (w.column_labels or {}).items()]
+    out += [("unidade de coluna", "column_units", k, str(v or "")) for k, v in (w.column_units or {}).items()]
+    return out
+
+
+def widget_claims(w: WidgetSpec, law_source: bool) -> list[tuple[str, str, str | None, str]]:
+    """Campos do componente com alegação: (nome do campo, atributo, chave, termo detectado)."""
+    found = []
+    for label, attr, key, txt in widget_free_texts(w):
+        claim = find_illegality_claim(txt, law_source=law_source)
+        if claim:
+            found.append((label, attr, key, claim))
+    return found
 
 def _title_mentions_average(title: str | None) -> bool:
     if not title:
@@ -229,16 +368,19 @@ def validate_widget_methodological(
     """Aplica as regras metodológicas bloqueantes (R5-a, R5-b, R5-c, R5-e por widget) em código."""
     issues: list[WidgetIssue] = []
 
-    for field_label, text_val in (("título", w.title), ("subtítulo", w.subtitle)):
-        claim = find_illegality_claim(text_val)
-        if claim:
-            issues.append(WidgetIssue(
-                w.id,
-                "methodological",
-                f"O {field_label} do componente contém alegação indevida ('{claim}'). "
-                "Os dados do Trase medem apenas exposição associada à cadeia, não ilegalidade ou autoria direta; "
-                "reescreva usando 'exposição ao desmatamento'.",
-            ))
+    law_source = is_law_sourced(w, ds)
+    # R5-e em TODOS os textos livres do componente (título, subtítulo, unidade, fonte, grupo,
+    # rótulos e unidades de coluna). Título e subtítulo são reescritos; textos curtos voltam ao padrão.
+    for field_label, _attr, key, claim in widget_claims(w, law_source):
+        where = f"{field_label} '{key}'" if key else field_label
+        issues.append(WidgetIssue(
+            w.id,
+            "methodological",
+            f"O campo {where} do componente contém alegação indevida ('{claim}'). "
+            "Os dados do Trase medem apenas exposição associada à cadeia, não ilegalidade ou autoria direta; "
+            "reescreva usando 'exposição ao desmatamento'.",
+            code="alegacao",
+        ))
 
     if ds is None or ds.df.empty:
         return issues
@@ -255,6 +397,7 @@ def validate_widget_methodological(
                 f"KPI não pode usar agg='{w.agg}' sobre '{w.column}' em {w.dataset_id} porque o dataset "
                 f"contém {n_years} anos distintos ({year_col}) e o indicador usa janela móvel de 5 anos "
                 "(janelas sobrepostas contariam o mesmo desmatamento várias vezes). Filtre um único ano.",
+                code="janela_5_anos",
             ))
 
         if w.agg == "sum" and is_non_additive_column_or_unit(w.column, w.unit, df):
@@ -263,6 +406,7 @@ def validate_widget_methodological(
                 "methodological",
                 f"KPI não pode somar (agg='sum') a coluna não aditiva '{w.column}' (unidade '{w.unit}'). "
                 "Percentuais, intensidades e produtividade não se somam entre regiões ou entidades.",
+                code="soma_percentual",
             ))
         elif (
             w.agg == "mean"
@@ -274,6 +418,7 @@ def validate_widget_methodological(
                 "methodological",
                 f"KPI com agg='mean' sobre percentual ('{w.column}') só é permitido quando o título "
                 "indica explicitamente tratar-se de 'média' simples.",
+                code="media_percentual",
             ))
 
     # R5-b: gráficos bar/line com coluna y de janela de 5 anos em dataset multianual
@@ -290,7 +435,21 @@ def validate_widget_methodological(
                     f"Gráfico '{w.kind}' não pode agregar indicador de janela de 5 anos ({cols_str}) "
                     f"num dataset com {n_years} anos distintos sem separar por ano em 'x' ou 'color' "
                     "nem filtrar um único ano (série anual é permitida; total multianual é bloqueado).",
+                    code="janela_5_anos",
                 ))
+
+    # R5-b: exibir o percentual de cada grupo é permitido; SOMAR (empilhar) percentuais ou
+    # intensidades entre grupos não é.
+    stacks = (w.kind == "bar" and w.barmode == "stack" and bool(w.color or len(w.y) > 1)) or (
+        w.kind == "line" and w.stacked
+    )
+    if stacks and any(c in df.columns and is_non_additive_column_or_unit(c, w.unit, df) for c in w.y):
+        issues.append(WidgetIssue(
+            w.id,
+            "methodological",
+            f"Gráfico empilhado soma percentuais/intensidades entre grupos ({', '.join(w.y)}).",
+            code="soma_percentual",
+        ))
 
     return issues
 
@@ -322,24 +481,27 @@ def validate_spec_methodological(
     """Valida metadados gerais do `DashboardSpec` (R5-e) e acrescenta avisos não bloqueantes (R5-d)."""
     issues: list[WidgetIssue] = []
 
+    law_panel = spec_has_law_source(spec, datasets_by_id)
     for field_label, text_val in (("título do painel", spec.title), ("subtítulo do painel", spec.subtitle)):
-        claim = find_illegality_claim(text_val)
+        claim = find_illegality_claim(text_val, law_source=law_panel)
         if claim:
             issues.append(WidgetIssue(
                 None,
                 "methodological",
                 f"O {field_label} contém alegação indevida ('{claim}'). "
                 "Substitua por linguagem neutra baseada em 'exposição ao desmatamento'.",
+                code="alegacao",
             ))
 
     for warn_msg in list(spec.warnings):
-        claim = find_illegality_claim(warn_msg)
+        claim = find_illegality_claim(warn_msg, law_source=law_panel)
         if claim:
             issues.append(WidgetIssue(
                 None,
                 "methodological",
                 f"Um aviso do painel contém alegação indevida ('{claim}'). "
                 "Substitua por linguagem neutra baseada em 'exposição ao desmatamento'.",
+                code="alegacao",
             ))
 
     # R5-d: rankings municipais da cadeia da soja com linhas UNKNOWN -> aviso em spec.warnings (não bloqueia)
@@ -359,8 +521,8 @@ def validate_spec_methodological(
         values = sliced[muni_col].dropna().astype(str).str.strip().str.upper()
         if (values == "UNKNOWN").any() or values.str.startswith("UNKNOWN ").any():
             msg = (
-                f"O recorte municipal da soja em [{w.dataset_id}] ('{w.title or w.id}') contém fluxos com "
-                "origem 'UNKNOWN' (município não rastreado na cadeia); considere destacar os municípios identificados."
+                f"“{w.title or 'Ranking de municípios'}” inclui volume de origem não identificada "
+                "(município não rastreado); essa linha aparece no fim."
             )
             if msg not in spec.warnings:
                 spec.warnings.append(msg)

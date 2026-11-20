@@ -95,7 +95,10 @@ def test_r8_dashboard_route_blocks_symlink_outside_dir_and_serves_valid_html(mon
 
     # Link simbólico dentro de DASHBOARD_OUTPUT_DIR apontando para fora -> 404
     symlink_path = dash_dir / "link_externo.html"
-    symlink_path.symlink_to(outside_file)
+    try:
+        symlink_path.symlink_to(outside_file)
+    except OSError as exc:  # Windows sem modo de desenvolvedor não deixa criar links simbólicos
+        pytest.skip(f"Sistema não permite criar link simbólico: {exc}")
 
     valid_html = dash_dir / "20261118_soja_destinos.html"
     valid_html.write_text("<!doctype html><html><body>Painel OK</body></html>", encoding="utf-8")

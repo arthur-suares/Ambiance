@@ -112,7 +112,7 @@ def test_area_empilhada_usa_stackgroup_e_parte_de_zero():
 
 def test_ranking_de_barras_ordena_do_maior_para_o_menor():
     fig = build_widget_figure(_w(kind="bar", x="municipality", y=["volume_t"], orientation="h"), RANK)
-    assert list(fig.data[0].y)[-1] == "RIO VERDE"  # horizontal: o maior fica no topo
+    assert list(fig.data[0].y)[-1] == "Rio Verde"  # horizontal: o maior fica no topo (H2: título)
     assert list(fig.data[0].text)[-1] == "1,63 mi"
 
 
@@ -155,14 +155,64 @@ def test_secoes_na_ordem_com_ancoras_e_sem_secao_vazia():
 def test_nenhum_recurso_externo_alem_do_plotly():
     widgets = [{"id": "l", "kind": "line", "title": "L", "dataset_id": "D1", "x": "year", "y": ["volume_t"],
                 "unit": "t", "source": "Trase [D1]"}]
-    cdn = _page(widgets, [_ds("D1", SERIE)])
+    cdn = _page([dict(w) for w in widgets], [_ds("D1", SERIE)], plotlyjs="cdn")
     externos = re.findall(r'(?:src|href)="(https?://[^"]+)"', cdn)
     assert externos and all("cdn.plot.ly" in u for u in externos)
-    inline = _page(widgets, [_ds("D1", SERIE)], plotlyjs="inline")
+    inline = _page(widgets, [_ds("D1", SERIE)])  # padrão: Plotly embutido
     # O código-fonte do Plotly embutido contém textos com URLs; o que importa é a marcação da página.
     marcacao = re.sub(r"<script\b[^>]*>.*?</script>", "", inline, flags=re.S)
     assert "<script" not in marcacao and not re.findall(r'(?:src|href)="https?://', marcacao)
     assert '<script src="http' not in inline
+
+
+@pytest.mark.parametrize("modo", ["inline", "cdn"])
+def test_plotly_carrega_antes_de_todo_grafico_mesmo_com_barra_antes_da_linha(modo):
+    """Regressão: com a barra antes da linha no JSON, o Plotly ia para a seção Rankings, que fica
+    depois da Evolução na página; a linha era desenhada antes de o Plotly existir e ficava em branco."""
+    widgets = [
+        {"id": "b", "kind": "bar", "title": "B", "dataset_id": "D2", "x": "municipality", "y": ["volume_t"],
+         "unit": "t", "source": "Trase [D2]"},
+        {"id": "l", "kind": "line", "title": "L", "dataset_id": "D1", "x": "year", "y": ["volume_t"],
+         "unit": "t", "source": "Trase [D1]"},
+    ]
+    page = _page(widgets, [_ds("D1", SERIE), _ds("D2", RANK)], plotlyjs=modo)
+    carga = [m.start() for m in re.finditer(r"cdn\.plot\.ly/|plotly\.js v\d", page)]
+    desenhos = [m.start() for m in re.finditer(r"Plotly\.newPlot\(", page)]
+    # D3: a barra traz também a visão "pizza" já montada (mesmos dados), então há 3 desenhos
+    assert len(desenhos) == 3 and page.index('id="evolucao"') < page.index('id="rankings"')
+    assert len(carga) >= 1 and page.index("</head>") > carga[0]
+    assert all(pos > carga[0] for pos in desenhos)
+
+
+def _serie_municipios(n_munis=5, anos=range(2020, 2023)):
+    linhas = [{"year": a, "municipality": f"M{i}", "volume_t": float((i + 1) * 100 + (a - 2020))}
+              for i in range(n_munis) for a in anos]
+    # Ordem embaralhada por volume, como sai de um ORDER BY volume DESC.
+    return pd.DataFrame(linhas).sort_values("volume_t", ascending=False)
+
+
+def test_top_n_em_linha_com_color_limita_series_e_nao_linhas():
+    """Regressão: top_n=3 cortava as 3 primeiras linhas da tabela (um único ano), e cada
+    município ficava com um ponto só, deixando o gráfico praticamente vazio."""
+    df = _serie_municipios()
+    df.loc[(df.municipality == "M0") & (df.year == 2022), "volume_t"] = 9999.0  # maior só no último ano
+    w = _w(kind="line", x="year", y=["volume_t"], color="municipality", top_n=3)
+    fig = build_widget_figure(w, df)
+    assert sorted(t.name for t in fig.data) == ["M0", "M3", "M4"]  # ranking pelo ano mais recente
+    assert all(len(t.x) == 3 for t in fig.data)  # todos os anos de cada município
+
+
+def test_top_n_em_linha_sem_color_mantem_periodos_mais_recentes():
+    w = _w(kind="line", x="year", y=["volume_t"], top_n=2)
+    fig = build_widget_figure(w, SERIE)
+    assert sorted(fig.data[0].x) == [2021, 2022]
+
+
+def test_pagina_sem_grafico_plotly_nao_carrega_plotly():
+    page = _page([{"id": "t", "kind": "table", "title": "T", "dataset_id": "D1", "unit": "t",
+                   "source": "Trase [D1]"}], [_ds("D1", SERIE)])
+    # A biblioteca não carrega (o script de interação só verifica se window.Plotly existe)
+    assert "cdn.plot.ly" not in page and not re.search(r"plotly\.js v\d", page) and "Plotly.newPlot(" not in page
 
 
 def test_texto_da_ia_e_escapado():

@@ -34,7 +34,7 @@ def test_dashboard_message_writes_expected_ordered_stages_to_daily_jsonl(monkeyp
 
     monkeypatch.setattr(
         "src.dashboard.orchestrator.create_plan",
-        lambda q, d: OrchestratorPlan(question=q, domain=d, dashboard_goal="Destinos 2022"),
+        lambda q, d, chart=None: OrchestratorPlan(question=q, domain=d, dashboard_goal="Destinos 2022"),
     )
     monkeypatch.setattr(
         "src.dashboard.orchestrator.run_data_agent",

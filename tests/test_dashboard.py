@@ -145,7 +145,9 @@ def temp_beef_duckdb(tmp_path, monkeypatch):
 # --- Testes de contratos, truncamento e isolamento de erros ----------------------
 
 def test_supported_widget_kinds_exclude_map():
-    assert ALLOWED_WIDGET_KINDS == ("kpi", "bar", "line", "area", "progress", "table")
+    assert ALLOWED_WIDGET_KINDS == ("kpi", "bar", "line", "area", "progress", "table",
+                                    "pie", "donut", "gauge", "waterfall")
+    assert "map" not in ALLOWED_WIDGET_KINDS
     spec = parse_dashboard_spec({
         "title": "Painel Teste",
         "subtitle": "Subtítulo",
@@ -386,9 +388,10 @@ def test_renderer_renders_all_4_types_and_shows_warning_for_invalid_chart(sample
     for wid, kind in (("w_kpi", "kpi"), ("w_bar", "bar"), ("w_line", "line"), ("w_table", "table")):
         assert f'data-widget-id="{wid}"' in html_out
         assert f'data-widget-kind="{kind}"' in html_out
-    assert 'class="card card-warning"' in html_out
-    assert "Este gráfico não pôde ser exibido" in html_out
-    assert "nao_existe" in html_out
+    # Gráfico reprovado com dados: mostra os mesmos dados como lista, com frase simples e sem nome de campo.
+    assert 'data-widget-id="w_quebrado"' in html_out
+    assert "Mostrei os mesmos dados como lista." in html_out
+    assert "nao_existe" not in html_out
     assert "Trase — Carne bovina [D1]" in html_out
     assert "Trase — Carne bovina [D2]" in html_out
 
@@ -544,7 +547,9 @@ def test_orchestrator_caps_at_2_revisions_and_keeps_valid_charts(monkeypatch, te
     assert 'data-widget-id="bar_ok"' in res.html
     assert 'data-widget-kind="bar"' in res.html
     assert 'data-widget-id="kpi_bad"' in res.html
-    assert "Este gráfico não pôde ser exibido" in res.html
+    assert "Os dados encontrados não têm todas as informações que este gráfico precisa." in res.html
+    assert "coluna_fantasma" not in res.html
+    assert "Mostrei os mesmos dados como lista." in res.html
 
 
 # --- Teste da CLI (`python -m src.cli dashboard "..."`) --------------------------

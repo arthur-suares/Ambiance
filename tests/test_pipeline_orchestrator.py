@@ -47,6 +47,60 @@ def test_vague_requests_return_concrete_clarification():
         assert "1." in dec.clarification and "2." in dec.clarification
 
 
+@pytest.mark.parametrize("msg, dominio", [
+    ("faz um gráfico da soja", "soy"),
+    ("monta um painel da carne bovina", "beef"),
+    ("quero um dashboard da cadeia da soja", "soy"),
+])
+def test_so_o_nome_da_cadeia_nao_e_recorte_e_pede_esclarecimento(msg, dominio):
+    """Regressão: 'soja' contava como recorte e o painel era montado sem métrica, lugar ou ano."""
+    dec = classify_intent(msg, has_store_data=False, use_llm=False)
+    assert dec.intent == "dashboard"
+    assert dec.domain == dominio
+    assert dec.clarification is not None
+
+
+@pytest.mark.parametrize("msg", [
+    "Monte um painel da soja em Goiás de 2015 a 2022",
+    "Faça um dashboard dos 10 maiores municípios exportadores de soja por exposição ao desmatamento",
+    "Gráfico das exportações de carne bovina por destino em 2023",
+])
+def test_pedido_com_recorte_monta_direto(msg):
+    dec = classify_intent(msg, has_store_data=False, use_llm=False)
+    assert dec.intent == "dashboard" and dec.clarification is None
+
+
+COLUNAS = {"year", "municipality", "volume_tonnes", "exposure_ha"}
+
+
+@pytest.mark.parametrize("msg", [
+    "mostre só os 5 maiores",
+    "agora só os 5 maiores",
+    "só os 5 maiores municípios",
+    "deixa só o top 3",
+])
+def test_so_os_n_maiores_com_painel_aberto_e_edicao_com_dados_salvos(msg):
+    """Regressão: sem verbo de edição, essas frases viravam pergunta comum (ou iam para o LLM)."""
+    dec = classify_intent(msg, has_spec=True, has_store_data=True, store_columns=COLUNAS, use_llm=False)
+    assert dec.intent == "dashboard_edit"
+    assert dec.use_previous_results and not dec.needs_new_data
+
+
+def test_filtro_com_painel_aberto_e_edicao_que_busca_dados_novos():
+    dec = classify_intent("filtre só Mato Grosso", has_spec=True, has_store_data=True,
+                          store_columns=COLUNAS, use_llm=False)
+    assert dec.intent == "dashboard_edit" and dec.needs_new_data
+
+
+@pytest.mark.parametrize("msg, tem_painel", [
+    ("quais os 5 maiores municípios em 2022?", True),
+    ("mostre só os 5 maiores", False),
+])
+def test_pergunta_ou_sem_painel_nao_vira_edicao(msg, tem_painel):
+    dec = classify_intent(msg, has_spec=tem_painel, has_store_data=tem_painel, use_llm=False)
+    assert dec.intent != "dashboard_edit"
+
+
 def test_assumable_world_request_declares_premise():
     dec = classify_intent("faz um grafiko da soja para todo o mundo?")
     assert dec.intent == "dashboard"

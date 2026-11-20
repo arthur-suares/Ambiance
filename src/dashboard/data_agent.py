@@ -20,6 +20,8 @@ import pandas as pd
 from src import queries
 from src.agent import QUERY_FUNCS, SOY_RULES, SOY_TOOLS, SOY_UNAVAILABLE, TOOLS, ToolCall, tool_call_summary
 from src.config import DUCKDB_PATH, LLM_MODEL
+from src.dashboard.data_base import common_base_line
+from src.dashboard.dimensions import DIMENSIONS, GLOSSARY_PROMPT, dimension_line
 from src.dashboard.schemas import DataAgentResult, DatasetResult, MAX_ROWS_TO_LLM, OrchestratorPlan, round_sig
 from src.data_dictionary import render_prompt
 from src.database import SqlError, run_readonly_sql
@@ -52,7 +54,21 @@ de janela de 5 anos entre anos diferentes; exclua 'UNKNOWN' em rankings municipa
 - Na soja, `country_of_first_import = 'BRAZIL'` é soja processada no próprio Brasil (consumo doméstico), \
 não é exportação. Ao contar países de destino, exclua BRAZIL (`country_of_first_import <> 'BRAZIL'`). \
 Em rankings de destino, mantenha BRAZIL só se a pergunta pedir o consumo doméstico.
+- Evolução anual dos N maiores (municípios, empresas, destinos): escolha os N num ÚNICO ano de referência \
+(o pedido ou o mais recente) numa CTE e traga todos os anos só desses N, numa tabela longa \
+(ano, entidade, valor). Não reclassifique a cada ano (o gráfico teria mais de N linhas), não classifique pela \
+soma de vários anos e não use LIMIT sobre linhas ano×entidade (sobrariam poucos anos). Se o valor for volume \
+"exportado" da soja, exclua BRAZIL e 'UNKNOWN' tanto na CTE do ranking quanto na série. Ex.: \
+`WITH top AS (SELECT municipality_of_production m FROM soy_supply_chain WHERE TRY_CAST(year AS INTEGER) = 2022 \
+AND municipality_of_production <> 'UNKNOWN' AND country_of_first_import <> 'BRAZIL' GROUP BY 1 \
+ORDER BY SUM(TRY_CAST(volume AS DOUBLE)) DESC LIMIT 10) SELECT TRY_CAST(year AS INTEGER) AS year, \
+municipality_of_production AS municipality, SUM(TRY_CAST(volume AS DOUBLE)) AS volume_tonnes \
+FROM soy_supply_chain WHERE municipality_of_production IN (SELECT m FROM top) \
+AND country_of_first_import <> 'BRAZIL' GROUP BY ALL ORDER BY year`.
 - Para contar compradores use `importer_group` (grupos importadores); para vendedores, `exporter_group`.
+- Se o plano trouxer "DIMENSÃO PEDIDA", o recorte principal agrupa por essa coluna (veja o glossário).
+
+{glossary}
 - Se uma consulta falhar ou voltar vazia, ajuste e tente novamente (no máximo 2 tentativas por recorte).
 - Quando todos os datasets necessários já tiverem sido obtidos ([D1], [D2]...), encerre com um resumo curto \
 dizendo o que cada [Dn] representa.
@@ -166,7 +182,28 @@ def _format_plan_message(question: str, plan: OrchestratorPlan) -> str:
     )
     if notes:
         msg += f"\n\nCuidados metodológicos:\n{notes}"
+    dim = DIMENSIONS.get(getattr(plan, "requested_dimension", None) or "")
+    if dim is not None:
+        msg += f"\n\n{dimension_line(dim)}"
+    base = common_base_line(getattr(plan, "common_base", None))
+    if base:
+        msg += f"\n\n{base}"
+    chart = getattr(plan, "requested_chart", None)
+    if chart is not None:
+        msg += f"\n\n{chart.prompt_line()}"
+        if chart.kind in ("pie", "donut", "progress", "bar") and chart.requested in ("pie", "donut"):
+            msg += f"\n{SHARE_DATA_RULE}"
     return msg
+
+
+# A5: participação ("pizza") sempre com "Outros" calculado no SQL, nunca pelo modelo.
+SHARE_DATA_RULE = """\
+Para participação (pizza): devolva no máximo os 7 maiores e uma linha 'Outros' = total menos a soma \
+dos 7, calculada NA PRÓPRIA CONSULTA (CTE com o total do recorte); inclua uma coluna `total` com o total \
+do recorte. Se o total do recorte não puder ser calculado, devolva só os N maiores sem 'Outros' e diga \
+isso no resumo ("participação entre os N maiores"). Nunca trate os N maiores como 100% do Brasil. \
+Não faça participação de percentuais, médias, intensidades nem de exposição de janela de 5 anos \
+somada entre anos."""
 
 
 def run_data_agent(question: str, plan: OrchestratorPlan, *, start_index: int = 1) -> DataAgentResult:
@@ -188,6 +225,7 @@ def run_data_agent(question: str, plan: OrchestratorPlan, *, start_index: int = 
         "text": DATA_AGENT_PROMPT.format(
             latest_year=latest_beef,
             soy_latest_year=latest_soy,
+            glossary=GLOSSARY_PROMPT,
             dictionary=render_prompt() if beef_ok else BEEF_UNAVAILABLE,
             soy=(soy_queries.schema_prompt() + "\n" + SOY_RULES) if soy_ok else SOY_UNAVAILABLE,
         ),

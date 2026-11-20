@@ -158,5 +158,15 @@ Resumo do que foi implementado na entrega do pipeline de dashboards (`src/pipeli
 ### Desvios intencionais nesta versão
 - **Renderizador Plotly em HTML estático em vez de ECharts/Vega-Lite no cliente**: manteve-se `src/dashboard/renderer.py` gerando arquivos HTML auto-contidos com Plotly em `DASHBOARD_OUTPUT_DIR`, servidos de forma restrita em `GET /dashboards/<nome>.html` e exibidos em `web/index.html` via link **"Abrir painel"** e `<iframe>`.
 - **Traces em arquivo JSONL diário em vez de PostgreSQL**: `src/pipeline/traces.py` grava um registro por etapa (`monitor_in`, `orchestrator`, `rag`, `data_agent`, `dashboard_agent`, `validator`, `monitor_out`) em `outputs/traces/AAAA-MM-DD.jsonl`, truncando a prévia da mensagem em 120 caracteres (com hash SHA-256 e redação de chaves). A escrita está isolada em `write_trace_record()` para troca direta por Postgres futuramente.
-- **Monitor apenas determinístico (sem LLM-juiz online nem classificador externo)**: `src/pipeline/monitor.py` implementa guardrails determinísticos de entrada (tamanho, vazio, prompt injection, mutação/exclusão de dados, pedido para acusar empresa de crime, CPF/CNPJ/e-mail) e de saída (`DashboardSpec` válida, sem alegação de ilegalidade e com `source` + `[Dn]` em todos os componentes), expondo `InputMonitor.add_check()` como ponto de extensão.
+- **Monitor apenas determinístico (sem LLM-juiz online nem classificador externo)**: `src/pipeline/monitor.py` implementa guardrails determinísticos de entrada (tamanho, vazio, prompt injection, pedido de segredo, mutação/exclusão de dados, pedido para acusar empresa de crime, CPF/CNPJ/e-mail) e de saída (`DashboardSpec` válida, sem alegação de ilegalidade e com `source` + `[Dn]` em todos os componentes), expondo `InputMonitor.add_check()` como ponto de extensão.
+  - **Entrada (reforço da auditoria)**: o texto é normalizado antes das regras (sem acento, sem maiúscula, sem caracteres invisíveis, letras separadas juntadas). Passam a ser recusados:
+    - "ignore/esqueça/desconsidere" + instruções, regras ou prompt (também "Ignora as instruções acima");
+    - troca de papel ("you are now", "você agora é", DAN) e mensagem fingindo ser do sistema ("system:");
+    - pedido de segredo: chave, API key, `.env`, senha, token, credenciais (regra nova `secret_request`);
+    - acusação: "mostre que / prove que / diga que / faça um painel provando que" + alguém + crime, ilegal, culpado ou criminoso, e "incrimine".
+    - Continuam passando pedidos legítimos como "painel de multas do Código Florestal", "o que a Lei de Crimes Ambientais diz" e "ignore o ano de 2020 no gráfico".
+  - **Saída (reforço da auditoria)**:
+    - o monitor recebe os datasets do painel, e o nome oficial "Lei de Crimes Ambientais" só é liberado em componente cujo dataset veio do acervo de leis (`database == "laws"`), nunca só pelo texto do campo `source`, e só em frase sem verbo de acusação;
+    - a checagem cobre todos os textos que a IA escreve (título, subtítulo, avisos, unidade, fonte, grupo, rótulos e unidades de coluna), inclusive de componentes degradados.
+    - Detalhes em `docs/dashboard_visual.md`, seção "Segurança dos textos".
 - **Sem Agente de Mapa**: pedidos classificados como `map_edit` recebem resposta amigável informando que a visualização geográfica ainda não está disponível nesta versão, sem erro.

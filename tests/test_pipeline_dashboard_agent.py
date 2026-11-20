@@ -288,7 +288,7 @@ def test_r4_edit_adds_fob_kpi_fetching_new_data_when_needed(monkeypatch, stored_
         }],
     })
 
-    def fake_create_plan(question, domain):
+    def fake_create_plan(question, domain, chart=None):
         return OrchestratorPlan(
             question=question,
             domain=domain,
