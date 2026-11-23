@@ -20,7 +20,12 @@
     <header class="header">
         <a href="/" class="brand"><span class="brand-arrow">↖</span><span>AMBIANCE</span></a>
         <nav class="navigation" aria-label="Navegação">
-            <a class="nav-tab" href="index.html">← Apresentação</a>
+            <a class="header-cta header-back-cta" href="index.html">
+                <span class="header-cta-label">Apresentação</span>
+                <span class="header-cta-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false"><path d="M20 12H5m6 6-6-6 6-6"/></svg>
+                </span>
+            </a>
             <details class="filters-tab">
                 <summary class="nav-tab"><span class="nav-mark"></span><span>Filtros</span><span class="filter-chevron" aria-hidden="true">⌄</span></summary>
                 <div class="filter-fields">
@@ -57,74 +62,93 @@
 
     <main>
         <section class="hero" id="consulta">
-            <div class="hero-content">
-                <div class="hologram-stage">
-                    <svg class="hologram-hand" viewBox="0 0 800 420" aria-hidden="true">
-                        <defs>
-                            <linearGradient id="hand-stroke" x1="0" y1="0" x2="1" y2="1">
-                                <stop offset="0" stop-color="#b6e36b"/>
-                                <stop offset=".48" stop-color="#76cbb0"/>
-                                <stop offset="1" stop-color="#839AAB"/>
-                            </linearGradient>
-                            <filter id="hand-glow" x="-30%" y="-30%" width="160%" height="160%">
-                                <feGaussianBlur stdDeviation="5" result="blur"/>
-                                <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-                            </filter>
-                        </defs>
-                        <g class="hand-trace" filter="url(#hand-glow)">
-                            <path class="hand-outline" d="M730 254c-49-12-93-31-137-48l-61-24c-18-7-32 13-14 25l47 29-78-36c-20-9-34 12-15 24l68 42-84-34c-20-8-34 13-15 25l75 41-77-24c-22-6-34 16-11 29l109 51c36 17 76 20 114 10l72-20c23-6 40-12 60-18z"/>
-                            <path d="M538 210c-22 8-44 17-70 25m-3 10c-21 7-43 15-65 23m-6 8c-18 6-37 12-56 17m223-45c-18 6-38 12-57 18"/>
-                            <path d="M290 319c64 4 120-6 172-30m-119 60c53 1 98-10 140-29m-158 49c42 0 76-8 108-22"/>
-                            <path d="M694 274c-24-3-47-10-67-18m80 44c-25-3-48-10-71-19"/>
-                            <path d="M80 335h640m-594 18h534" class="hand-scanline"/>
-                            <circle cx="550" cy="210" r="4"/><circle cx="464" cy="243" r="4"/>
-                            <circle cx="390" cy="270" r="4"/><circle cx="326" cy="290" r="4"/>
-                        </g>
-                    </svg>
-                    <form id="form" class="query-card">
-                        <label for="question">Sua pergunta</label>
-                        <textarea id="question" name="question" placeholder="Ex.: Como evoluiu a produção de soja no Mato Grosso?" rows="3" required></textarea>
-                        <div class="form-footer">
-                            <span id="status">Aguardando sua pergunta.</span>
-                            <button type="submit" id="send">ENVIAR <span>→</span></button>
+            <div class="consultation-stage">
+                <div class="consultation-cube" id="consultation-cube">
+                    <div class="cube-face cube-front" id="question-face" aria-hidden="false">
+                        <div class="hero-content">
+                            <div class="consultation-kicker">
+                                <span class="eyebrow"><span class="eyebrow-dot"></span>AMBIANCE / INTELIGÊNCIA TERRITORIAL</span>
+                                <button class="flip-preview" type="button" data-preview-results aria-label="Virar para pré-visualizar o painel de evidências">
+                                    <span aria-hidden="true">↻</span><span>Ver verso</span>
+                                </button>
+                            </div>
+                            <h1 class="consultation-title">Pergunte ao território.<br><span>Siga as evidências.</span></h1>
+                            <p class="consultation-intro">Cruze legislação, produção e dados ambientais em uma única investigação.</p>
+                            <form id="form" class="query-card">
+                                <div class="query-label-row">
+                                    <label for="question">Sua pergunta</label>
+                                    <span>CAMPO DE INVESTIGAÇÃO</span>
+                                </div>
+                                <textarea id="question" name="question" placeholder="Ex.: Como evoluiu a produção de soja no Mato Grosso?" rows="3" required></textarea>
+                                <div class="form-footer">
+                                    <span id="status">Aguardando sua pergunta.</span>
+                                    <button type="submit" id="send"><span>Analisar</span><span aria-hidden="true">↗</span></button>
+                                </div>
+                            </form>
+                            <div class="prompt-trails">
+                                <span class="prompt-heading">EXPLORAR UMA TRILHA</span>
+                                <div class="prompt-list">
+                                    <button class="prompt-chip" type="button" data-query="Como evoluiu a produção de soja no Mato Grosso?">Soja / Mato Grosso <span aria-hidden="true">↗</span></button>
+                                    <button class="prompt-chip" type="button" data-query="Quais regras do Código Florestal se aplicam ao Cadastro Ambiental Rural?">Código Florestal / CAR <span aria-hidden="true">↗</span></button>
+                                    <button class="prompt-chip" type="button" data-query="Como funciona a rastreabilidade da cadeia bovina no Brasil?">Rastreabilidade / bovinos <span aria-hidden="true">↗</span></button>
+                                </div>
+                            </div>
+                            <div class="hero-indicators">
+                                <span>CONSULTAS NA SESSÃO <strong id="query-count">0</strong></span>
+                                <span>FONTES LEGAIS + TERRITORIAIS</span>
+                            </div>
                         </div>
-                    </form>
+                    </div>
+                    <div class="cube-face cube-back" id="results-face" aria-hidden="true" inert>
+                        <section class="results-area" id="resultados">
+                            <div class="results-heading">
+                                <div class="results-heading-meta">
+                                    <span class="eyebrow">REGISTRO / INVESTIGAÇÃO 01</span>
+                                    <span class="report-status"><span class="status-dot"></span><span id="connection-status">Aguardando</span></span>
+                                </div>
+                                <h2>Evidências</h2>
+                                <button class="return-query" id="return-query" type="button" data-return-query>
+                                    <span aria-hidden="true">↶</span><span>Nova pergunta</span>
+                                </button>
+                            </div>
+                            <div class="response-dashboard" aria-label="Painel de dados da consulta">
+                                <article class="answer-section">
+                                    <div class="result-section-heading"><span>01</span><h3>Resposta</h3></div>
+                                    <div id="answer" class="answer-content"><p class="empty-state">Sua resposta aparecerá aqui após o envio.</p></div>
+                                </article>
+                                <section class="dashboard-summary" aria-label="Resumo da consulta">
+                                    <div><span>FONTES</span><strong id="source-count">—</strong></div>
+                                    <div><span>FERRAMENTAS</span><strong id="tool-count">—</strong></div>
+                                    <div><span>ÁREA</span><strong id="domain-summary">Automático</strong></div>
+                                </section>
+                                <section class="sources-section">
+                                    <div class="result-section-heading"><span>02</span><h3>Fontes consultadas</h3></div>
+                                    <div id="sources" class="sources-list"><p class="empty-state">As referências usadas na resposta aparecerão aqui.</p></div>
+                                </section>
+                                <details class="analysis-details">
+                                    <summary><span>03 / RASTRO DE ANÁLISE</span><span class="details-toggle">ABRIR <span aria-hidden="true">＋</span></span></summary>
+                                    <div class="analysis-grid">
+                                        <section>
+                                            <h3>Ferramentas utilizadas</h3>
+                                            <div id="calls"><p class="empty-state">Nenhuma ferramenta utilizada.</p></div>
+                                        </section>
+                                        <section>
+                                            <h3>Informações de processamento</h3>
+                                            <div id="usage"><p class="empty-state">Aguardando processamento.</p></div>
+                                        </section>
+                                        <section class="context-section">
+                                            <h3>Contexto recuperado</h3>
+                                            <div id="context"><p class="empty-state">Nenhum contexto disponível.</p></div>
+                                        </section>
+                                    </div>
+                                </details>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="cube-edge cube-edge-left" aria-hidden="true"></div>
+                    <div class="cube-edge cube-edge-right" aria-hidden="true"></div>
                 </div>
-                <div class="hero-indicators">
-                    <span><span class="status-dot"></span><span id="connection-status">Aguardando</span></span>
-                    <span>Consultas realizadas: <strong id="query-count">0</strong></span>
-                </div>
             </div>
-        </section>
-
-        <section class="results-area" id="resultados">
-            <div class="results-heading">
-                <span class="eyebrow">INTELIGÊNCIA ARTIFICIAL</span>
-                <h2>Resultados da consulta</h2>
-                <p>Resposta, referências e contexto recuperado.</p>
-            </div>
-            <article class="result-card">
-                <h3>Resposta</h3>
-                <div id="answer" class="answer-content"><p class="empty-state">Sua resposta aparecerá aqui após o envio.</p></div>
-            </article>
-            <div class="results-grid">
-                <article class="result-card">
-                    <h3>Fontes consultadas</h3>
-                    <div id="sources"><p class="empty-state">Nenhuma fonte disponível.</p></div>
-                </article>
-                <article class="result-card">
-                    <h3>Ferramentas utilizadas</h3>
-                    <div id="calls"><p class="empty-state">Nenhuma ferramenta utilizada.</p></div>
-                </article>
-            </div>
-            <article class="result-card">
-                <h3>Informações de processamento</h3>
-                <div id="usage"><p class="empty-state">Aguardando processamento.</p></div>
-            </article>
-            <article class="result-card">
-                <h3>Contexto recuperado</h3>
-                <div id="context"><p class="empty-state">Nenhum contexto disponível.</p></div>
-            </article>
         </section>
     </main>
 </body>

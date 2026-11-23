@@ -8,6 +8,24 @@ const $ = (id) => document.getElementById(id);
 
 let queryCount = 0;
 
+function showResultsFace() {
+    $("consultation-cube").classList.add("is-turned");
+    $("question-face").setAttribute("aria-hidden", "true");
+    $("question-face").inert = true;
+    $("results-face").setAttribute("aria-hidden", "false");
+    $("results-face").inert = false;
+    $("return-query").focus({ preventScroll: true });
+}
+
+function showQuestionFace() {
+    $("consultation-cube").classList.remove("is-turned");
+    $("results-face").setAttribute("aria-hidden", "true");
+    $("results-face").inert = true;
+    $("question-face").setAttribute("aria-hidden", "false");
+    $("question-face").inert = false;
+    $("question").focus({ preventScroll: true });
+}
+
 
 /* =========================================
    PROTEÇÃO DE CONTEÚDO
@@ -254,6 +272,13 @@ function renderResults(data) {
         data.context ??
         data.retrieved_context
     );
+
+    const sources = data.sources ?? data.references ?? data.documents;
+    const calls = data.tool_calls ?? data.calls ?? data.tools;
+
+    $("source-count").textContent = Array.isArray(sources) ? sources.length : 0;
+    $("tool-count").textContent = Array.isArray(calls) ? calls.length : 0;
+    $("domain-summary").textContent = $("domain").selectedOptions[0].textContent;
 }
 
 
@@ -419,6 +444,8 @@ async function handleSubmit(event) {
             "success"
         );
 
+        showResultsFace();
+
 
     } catch (error) {
 
@@ -450,6 +477,10 @@ async function handleSubmit(event) {
         );
 
         setStatus(error.message, "error");
+        $("source-count").textContent = "0";
+        $("tool-count").textContent = "0";
+        $("domain-summary").textContent = $("domain").selectedOptions[0].textContent;
+        showResultsFace();
 
 
     } finally {
@@ -475,6 +506,16 @@ $("form").addEventListener(
     "submit",
     handleSubmit
 );
+
+document.querySelectorAll("[data-query]").forEach((prompt) => {
+    prompt.addEventListener("click", () => {
+        $("question").value = prompt.dataset.query;
+        $("question").focus();
+    });
+});
+
+$("return-query").addEventListener("click", showQuestionFace);
+document.querySelector("[data-preview-results]").addEventListener("click", showResultsFace);
 
 
 $("question").addEventListener("keydown", (event) => {
