@@ -74,10 +74,13 @@ DASHBOARD_OUTPUT_DIR = resolve_project_path(
     os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
 )
 
-# --- Entrada por voz (multimodal via Gemini) ---
+# --- Entrada e saída por voz (multimodal via Gemini) ---
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 VOICE_PROVIDER = os.getenv("VOICE_PROVIDER", "gemini").strip().lower() or "gemini"
 VOICE_MODEL = os.getenv("VOICE_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+VOICE_TTS_MODEL = os.getenv("VOICE_TTS_MODEL", "gemini-2.5-flash-preview-tts").strip() or "gemini-2.5-flash-preview-tts"
+VOICE_TTS_VOICE = os.getenv("VOICE_TTS_VOICE", "Kore").strip() or "Kore"
+VOICE_TTS_MAX_CHARS = int(os.getenv("VOICE_TTS_MAX_CHARS", "4000"))
 VOICE_MAX_SECONDS = int(os.getenv("VOICE_MAX_SECONDS", "60"))
 _VOICE_RECORD_DIR_RAW = os.getenv("VOICE_RECORD_DIR", "").strip()
 VOICE_RECORD_DIR: Path | None = (

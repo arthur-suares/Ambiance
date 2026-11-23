@@ -8,10 +8,12 @@ em JSON com esquema fixo. O áudio é mantido apenas em memória durante a requi
 from __future__ import annotations
 
 from dataclasses import dataclass
+import io
 import json
 import re
 import time
 from typing import Any, Protocol
+import wave
 
 import src.config as config_mod
 
@@ -258,7 +260,8 @@ class GeminiVoiceProvider:
             ) from exc
 
         try:
-            client = genai.Client(api_key=self.api_key)
+            # speech_config requer api_version="v1beta" no google-genai >= 3.x (o padrão v1 recusa speechConfig).
+            client = genai.Client(api_key=self.api_key, http_options={"api_version": "v1beta"})
             response = client.models.generate_content(
                 model=model,
                 contents=[
@@ -280,6 +283,128 @@ class GeminiVoiceProvider:
         if not text:
             raise VoiceProviderError("O Gemini devolveu resposta vazia para o áudio.")
         return text
+
+    def synthesize_speech(self, text: str, model: str, voice_name: str) -> bytes:
+        """Gera áudio WAV a partir do texto usando Gemini TTS (nível gratuito do AI Studio)."""
+        if not self.api_key:
+            raise VoiceUnavailableError("GEMINI_API_KEY não configurada no ambiente.")
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise VoiceUnavailableError(
+                "Pacote 'google-genai' não instalado. Rode: pip install google-genai"
+            ) from exc
+
+        prompt = (
+            "Leia o texto abaixo em português brasileiro, de forma clara, natural e objetiva, "
+            "sem adicionar comentários, saudações ou explicações extras:\n\n"
+            + text
+        )
+        try:
+            # speech_config requer api_version="v1beta" no google-genai >= 3.x (o padrão v1 recusa speechConfig).
+            client = genai.Client(api_key=self.api_key, http_options={"api_version": "v1beta"})
+            response = client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_modalities=["AUDIO"],
+                    speech_config=types.SpeechConfig(
+                        voice_config=types.VoiceConfig(
+                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                                voice_name=voice_name,
+                            )
+                        )
+                    ),
+                ),
+            )
+        except VoiceError:
+            raise
+        except Exception as exc:
+            raise VoiceProviderError(f"Falha ao gerar áudio no Gemini TTS ({model}): {type(exc).__name__}: {exc}") from exc
+
+        raw_audio: bytes | None = None
+        mime_type = ""
+        for cand in getattr(response, "candidates", None) or []:
+            content = getattr(cand, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                inline = getattr(part, "inline_data", None)
+                data = getattr(inline, "data", None) if inline is not None else None
+                if data:
+                    raw_audio = bytes(data)
+                    mime_type = str(getattr(inline, "mime_type", "") or "")
+                    break
+            if raw_audio:
+                break
+
+        if not raw_audio:
+            raise VoiceProviderError("O Gemini TTS não retornou dados de áudio na resposta.")
+
+        if raw_audio.startswith(b"RIFF") or mime_type.lower().startswith("audio/wav"):
+            return raw_audio
+
+        rate_match = re.search(r"rate=(\d+)", mime_type, re.IGNORECASE)
+        sample_rate = int(rate_match.group(1)) if rate_match else 24000
+        return pcm_to_wav(raw_audio, sample_rate=sample_rate)
+
+
+def pcm_to_wav(
+    pcm: bytes,
+    *,
+    sample_rate: int = 24000,
+    channels: int = 1,
+    sample_width: int = 2,
+) -> bytes:
+    """Empacota PCM linear 16-bit (retornado pelo Gemini TTS) em um WAV padrão reproduzível no navegador."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sample_width)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm)
+    return buf.getvalue()
+
+
+def limpar_texto_para_fala(texto: str, max_chars: int | None = None) -> str:
+    """Remove tabelas Markdown, citações ([D1], [L1]) e marcações antes de sintetizar a fala."""
+    limit = int(max_chars if max_chars is not None else config_mod.VOICE_TTS_MAX_CHARS)
+    kept: list[str] = []
+    for line in (texto or "").splitlines():
+        if re.match(r"^\s*\|.*\|\s*$", line):
+            continue
+        clean = re.sub(r"\[(?:D|L)\d+[^\]]*\]", "", line)
+        clean = re.sub(r"^\s*#{1,6}\s+", "", clean)
+        clean = re.sub(r"^\s*[-*•]\s+", "", clean)
+        clean = re.sub(r"\*\*(.+?)\*\*", r"\1", clean)
+        clean = re.sub(r"`([^`]+)`", r"\1", clean)
+        clean = re.sub(r"\s+", " ", clean).strip()
+        if clean:
+            kept.append(clean)
+    joined = ". ".join(kept)
+    if len(joined) > limit:
+        joined = joined[:limit].rsplit(" ", 1)[0].rstrip(".,;:") + "."
+    return joined
+
+
+def falar_resposta(
+    texto: str,
+    *,
+    model: str | None = None,
+    voice_name: str | None = None,
+    provider: Any = None,
+) -> bytes:
+    """Converte a resposta do agente em áudio WAV usando o Gemini TTS (nível gratuito)."""
+    clean = limpar_texto_para_fala(texto)
+    if not clean:
+        raise VoiceBadRequestError("Texto vazio para leitura em voz.")
+
+    active_provider = provider if provider is not None else get_voice_provider()
+    if not hasattr(active_provider, "synthesize_speech"):
+        raise VoiceUnavailableError("Provedor de voz configurado não suporta síntese de fala (TTS).")
+
+    active_model = (model or config_mod.VOICE_TTS_MODEL or "gemini-2.5-flash-preview-tts").strip()
+    active_voice = (voice_name or config_mod.VOICE_TTS_VOICE or "Kore").strip()
+    return active_provider.synthesize_speech(clean, active_model, active_voice)
 
 
 def get_voice_provider(provider_name: str | None = None) -> VoiceProvider:

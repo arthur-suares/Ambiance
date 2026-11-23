@@ -254,7 +254,7 @@ function renderAnswer(text) {
 function showResult(question, data) {
   stopSpeaking();
   lastAnswerText = data.answer || "";
-  $("speak-btn").hidden = !("speechSynthesis" in window) || !lastAnswerText;
+  $("speak-btn").hidden = (!voiceAvailable && !("speechSynthesis" in window)) || !lastAnswerText;
   $("answer").innerHTML = renderAnswer(data.answer);
   // Painel gerado pelo Agente de Dashboard (pipeline): link e pré-visualização embutida.
   const dashboards = data.dashboards || [];
@@ -324,8 +324,11 @@ document.querySelectorAll(".chip").forEach((chip) => {
 });
 
 let lastAnswerText = "";
+let voiceAvailable = false;
 let voiceMaxSeconds = 60;
 let activeRecorder = null;
+let activeAudio = null;
+let activeAudioUrl = null;
 
 function formatTimer(sec) {
   const m = Math.floor(sec / 60);
@@ -469,19 +472,26 @@ function textForSpeech(markdown) {
 }
 
 function stopSpeaking() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+  }
+  if (activeAudioUrl) {
+    URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = null;
+  }
   if ("speechSynthesis" in window) {
     window.speechSynthesis.cancel();
   }
-  if ($("speak-btn")) $("speak-btn").textContent = "🔊 Ouvir resposta";
+  if ($("speak-btn")) {
+    $("speak-btn").disabled = false;
+    $("speak-btn").textContent = "🔊 Ouvir resposta";
+  }
 }
 
-$("speak-btn").addEventListener("click", () => {
+function speakWithBrowser(text) {
   if (!("speechSynthesis" in window)) return;
-  if (window.speechSynthesis.speaking) {
-    stopSpeaking();
-    return;
-  }
-  const spoken = textForSpeech(lastAnswerText);
+  const spoken = textForSpeech(text);
   if (!spoken) return;
   const utter = new SpeechSynthesisUtterance(spoken);
   utter.lang = "pt-BR";
@@ -489,6 +499,43 @@ $("speak-btn").addEventListener("click", () => {
   utter.onerror = () => { $("speak-btn").textContent = "🔊 Ouvir resposta"; };
   $("speak-btn").textContent = "⏹ Parar leitura";
   window.speechSynthesis.speak(utter);
+}
+
+$("speak-btn").addEventListener("click", async () => {
+  if (activeAudio || ("speechSynthesis" in window && window.speechSynthesis.speaking)) {
+    stopSpeaking();
+    return;
+  }
+  if (!lastAnswerText) return;
+
+  if (!voiceAvailable) {
+    speakWithBrowser(lastAnswerText);
+    return;
+  }
+
+  $("speak-btn").disabled = true;
+  $("speak-btn").textContent = "⏳ Gerando áudio...";
+  try {
+    const res = await fetch("/api/voice/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: lastAnswerText }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    activeAudioUrl = URL.createObjectURL(blob);
+    activeAudio = new Audio(activeAudioUrl);
+    activeAudio.onended = () => stopSpeaking();
+    activeAudio.onerror = () => stopSpeaking();
+    $("speak-btn").disabled = false;
+    $("speak-btn").textContent = "⏹ Parar leitura (Gemini)";
+    await activeAudio.play();
+  } catch (err) {
+    stopSpeaking();
+    // Fallback gratuito automático para a voz do navegador se a cota do Gemini TTS estiver esgotada
+    $("status").textContent = `Gemini TTS indisponível (${err.message}); usando voz do navegador.`;
+    speakWithBrowser(lastAnswerText);
+  }
 });
 
 async function finishVoiceQuestion() {
@@ -641,7 +688,8 @@ fetch("/api/health").then((r) => r.json()).then((h) => {
     $("domain").value = "law";
   }
   if (h.voice_max_seconds) voiceMaxSeconds = Number(h.voice_max_seconds) || 60;
-  if (h.voice_available) $("voice-btn").hidden = false;
+  voiceAvailable = Boolean(h.voice_available);
+  if (voiceAvailable) $("voice-btn").hidden = false;
   if (h.voice_record_mode) {
     fetch("/api/voice/record/questions").then((r) => r.json()).then((d) => {
       evalQuestions = d.questions || [];

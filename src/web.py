@@ -32,6 +32,7 @@ from src.rag import AGENT_DOMAINS, answer, build_context, resolve_domain
 from src.voice import (
     ALLOWED_WAV_MIMES,
     VoiceError,
+    falar_resposta,
     max_audio_bytes,
     ouvir_pergunta,
     voice_available,
@@ -126,6 +127,8 @@ class Handler(BaseHTTPRequestHandler):
         clean_path, _, _ = self.path.partition("?")
         if clean_path == "/api/voice":
             return self._handle_voice()
+        if clean_path == "/api/voice/speak":
+            return self._handle_voice_speak()
         if clean_path == "/api/voice/record" or clean_path.startswith("/api/voice/record/"):
             return self._handle_voice_record()
         if clean_path == "/api/chat":
@@ -224,6 +227,32 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(exc.http_status, {"error": str(exc)})
         except Exception as exc:
             return self._json(502, {"error": f"Falha ao processar áudio: {type(exc).__name__}: {exc}"})
+
+    def _handle_voice_speak(self):
+        if not voice_available():
+            return self._json(503, {"error": "Leitura por Gemini TTS indisponível (GEMINI_API_KEY não configurada)."})
+        try:
+            raw_len = int(self.headers.get("Content-Length", 0) or 0)
+            body = json.loads(self.rfile.read(raw_len) or b"{}") if raw_len > 0 else {}
+            if not isinstance(body, dict):
+                return self._json(400, {"error": "Corpo JSON inválido."})
+        except Exception:
+            return self._json(400, {"error": "Corpo JSON inválido."})
+
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return self._json(400, {"error": "Texto vazio para leitura."})
+
+        start = time.perf_counter()
+        try:
+            wav_bytes = falar_resposta(text)
+            elapsed = round(time.perf_counter() - start, 2)
+            print(f"[voice-tts] {elapsed:.2f}s | {len(wav_bytes)} bytes")
+            return self._send(200, "audio/wav", wav_bytes)
+        except VoiceError as exc:
+            return self._json(exc.http_status, {"error": str(exc)})
+        except Exception as exc:
+            return self._json(502, {"error": f"Falha ao gerar áudio: {type(exc).__name__}: {exc}"})
 
     def _handle_voice_record_questions(self):
         rec_dir = config_mod.VOICE_RECORD_DIR

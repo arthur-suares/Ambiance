@@ -13,8 +13,11 @@ import src.config as config_mod
 from src.voice import (
     ResultadoVoz,
     VoiceProviderError,
+    falar_resposta,
+    limpar_texto_para_fala,
     max_audio_bytes,
     ouvir_pergunta,
+    pcm_to_wav,
     seletores_para_resultado,
     validar_payload_voz,
 )
@@ -228,3 +231,74 @@ def test_voice_compare_metrics():
         {"local": "Sorriso (MT)", "commodity": "soja", "ano": 2020, "tipo": "dados"},
         {"local": "Sorriso", "commodity": "soja", "ano": 2020, "tipo": "dados"},
     ) == {"local": True, "commodity": True, "ano": True, "tipo": True}
+
+
+def test_pcm_to_wav_and_text_cleaning_for_tts():
+    wav = pcm_to_wav(b"\x00\x01" * 160, sample_rate=24000)
+    assert wav.startswith(b"RIFF")
+    assert b"WAVE" in wav[:16]
+
+    md = (
+        "## Resposta curta\n"
+        "Em 2023 a **JBS** liderou com 277,6 mil ha [D1] e a multa está no art. 51 [L1, Decreto 6.514/2008].\n"
+        "| Col1 | Col2 |\n|---|---|\n| A | B |\n"
+    )
+    cleaned = limpar_texto_para_fala(md)
+    assert "JBS" in cleaned and "277,6 mil ha" in cleaned
+    assert "[D1]" not in cleaned and "[L1" not in cleaned and "Col1" not in cleaned and "**" not in cleaned
+
+
+def test_falar_resposta_and_api_voice_speak_endpoint(monkeypatch):
+    class _FakeTtsProvider:
+        def __init__(self):
+            self.calls = []
+
+        def synthesize_speech(self, text: str, model: str, voice_name: str) -> bytes:
+            self.calls.append((text, model, voice_name))
+            return pcm_to_wav(b"\x00\x00" * 100)
+
+    prov = _FakeTtsProvider()
+    wav = falar_resposta("Resposta com **negrito** [D1].", provider=prov)
+    assert wav.startswith(b"RIFF")
+    assert len(prov.calls) == 1
+    assert "[D1]" not in prov.calls[0][0]
+
+    # Sem chave -> 503
+    monkeypatch.setattr(config_mod, "GEMINI_API_KEY", "")
+    st503, _, _ = _http_call(
+        "POST", "/api/voice/speak",
+        json.dumps({"text": "Olá"}).encode("utf-8"),
+        content_type="application/json",
+    )
+    assert st503 == 503
+
+    # Com chave -> 400 vazio, 200 WAV, 502 erro do provedor
+    monkeypatch.setattr(config_mod, "GEMINI_API_KEY", "fake-key")
+    st400, _, _ = _http_call(
+        "POST", "/api/voice/speak",
+        json.dumps({"text": "   "}).encode("utf-8"),
+        content_type="application/json",
+    )
+    assert st400 == 400
+
+    monkeypatch.setattr(web_mod, "falar_resposta", lambda text: pcm_to_wav(b"\x00\x00" * 64))
+    st200, headers200, body200 = _http_call(
+        "POST", "/api/voice/speak",
+        json.dumps({"text": "A multa é de R$ 5.000 por hectare."}).encode("utf-8"),
+        content_type="application/json",
+    )
+    assert st200 == 200
+    assert headers200.get("content-type") == "audio/wav"
+    assert body200.startswith(b"RIFF")
+
+    def _boom(text):
+        raise VoiceProviderError("Cota atingida")
+
+    monkeypatch.setattr(web_mod, "falar_resposta", _boom)
+    st502, _, _ = _http_call(
+        "POST", "/api/voice/speak",
+        json.dumps({"text": "Teste erro"}).encode("utf-8"),
+        content_type="application/json",
+    )
+    assert st502 == 502
+
