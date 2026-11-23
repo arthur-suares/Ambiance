@@ -143,3 +143,30 @@ Gargalos reais (não a GPU) e mitigação:
 2. **Geometria dos municípios** (5.570 polígonos IBGE) → simplificar (TopoJSON) ou usar vector tiles.
 3. **Poluição visual** → limitar a top-N fluxos (500–2.000) e detalhar sob zoom/filtro.
 4. **Memória em máquinas fracas** → evitar carregar todas as camadas municipais de uma vez.
+
+## 7. Decisões e desvios
+
+Resumo do que foi implementado na entrega do pipeline de dashboards (`src/pipeline/` + `src/dashboard/`) em relação ao desenho acima:
+
+### O que seguiu integralmente o documento
+- **API de chat com sessão (`POST /api/chat`)**: mantém estado por `session_id` (`^[A-Za-z0-9_-]{8,64}$`), histórico, `ResultStore`, `DashboardSpec` ativa e HTML atual (`src/pipeline/session.py`, `src/pipeline/chat.py`), preservando `POST /api/ask` intacto para retrocompatibilidade.
+- **Orquestrador na frente (`src/pipeline/orchestrator.py`)**: classifica `question`, `dashboard`, `dashboard_edit`, `map_edit` e `mixed`. Aplica regras determinísticas primeiro (incluindo tolerância a erros de digitação como `grafiko`/`dashbord`, pedidos vagos com pergunta de esclarecimento e premissas explícitas como escopo mundial → destinos das exportações brasileiras) e só faz 1 chamada LLM estruturada nos casos ambíguos, mantendo `question` como caminho seguro sem custo adicional quando as regras decidem.
+- **Result Store (`src/pipeline/result_store.py`)**: `src/agent.py` passa a gravar de forma retrocompatível os `DataFrame`s de cada ferramenta (`[D1]..[Dn]`) com numeração contínua entre turnos da sessão, limite em memória (20 conjuntos, 5.000 linhas cada) e persistência em Parquet + `meta.json` em `outputs/sessions/<session_id>/`.
+- **Agente de Dashboard como tradutor estruturado (`1 chamada LLM por tentativa`)**: tanto `propose_dashboard_spec` quanto `edit_dashboard_spec` recebem os `DatasetResult` do `ResultStore` (fazendo 0 chamadas ao agente de dados quando `use_previous_results=True` e já há dados salvos) e devolvem exclusivamente JSON declarativo (`DashboardSpec`), preservando os `id`s dos componentes não alterados em `dashboard_edit`.
+- **Validador metodológico em código (`src/dashboard/validator.py`)**: deriva dos dicionários (`src/data_dictionary.py`, `src/soy/territorial.py`, `src/soy/catalog.py`) as colunas de janela de 5 anos e as métricas não aditivas, bloqueando deterministicamente (sem chamar LLM) soma/média multianual de janela de 5 anos, soma de percentuais/intensidades/produtividade, média de percentual sem "média" no título e alegações de ilegalidade/autoria, além de registrar aviso em `spec.warnings` quando `UNKNOWN` aparece em rankings municipais da soja.
+
+### Desvios intencionais nesta versão
+- **Renderizador Plotly em HTML estático em vez de ECharts/Vega-Lite no cliente**: manteve-se `src/dashboard/renderer.py` gerando arquivos HTML auto-contidos com Plotly em `DASHBOARD_OUTPUT_DIR`, servidos de forma restrita em `GET /dashboards/<nome>.html` e exibidos em `web/index.html` via link **"Abrir painel"** e `<iframe>`.
+- **Traces em arquivo JSONL diário em vez de PostgreSQL**: `src/pipeline/traces.py` grava um registro por etapa (`monitor_in`, `orchestrator`, `rag`, `data_agent`, `dashboard_agent`, `validator`, `monitor_out`) em `outputs/traces/AAAA-MM-DD.jsonl`, truncando a prévia da mensagem em 120 caracteres (com hash SHA-256 e redação de chaves). A escrita está isolada em `write_trace_record()` para troca direta por Postgres futuramente.
+- **Monitor apenas determinístico (sem LLM-juiz online nem classificador externo)**: `src/pipeline/monitor.py` implementa guardrails determinísticos de entrada (tamanho, vazio, prompt injection, pedido de segredo, mutação/exclusão de dados, pedido para acusar empresa de crime, CPF/CNPJ/e-mail) e de saída (`DashboardSpec` válida, sem alegação de ilegalidade e com `source` + `[Dn]` em todos os componentes), expondo `InputMonitor.add_check()` como ponto de extensão.
+  - **Entrada (reforço da auditoria)**: o texto é normalizado antes das regras (sem acento, sem maiúscula, sem caracteres invisíveis, letras separadas juntadas). Passam a ser recusados:
+    - "ignore/esqueça/desconsidere" + instruções, regras ou prompt (também "Ignora as instruções acima");
+    - troca de papel ("you are now", "você agora é", DAN) e mensagem fingindo ser do sistema ("system:");
+    - pedido de segredo: chave, API key, `.env`, senha, token, credenciais (regra nova `secret_request`);
+    - acusação: "mostre que / prove que / diga que / faça um painel provando que" + alguém + crime, ilegal, culpado ou criminoso, e "incrimine".
+    - Continuam passando pedidos legítimos como "painel de multas do Código Florestal", "o que a Lei de Crimes Ambientais diz" e "ignore o ano de 2020 no gráfico".
+  - **Saída (reforço da auditoria)**:
+    - o monitor recebe os datasets do painel, e o nome oficial "Lei de Crimes Ambientais" só é liberado em componente cujo dataset veio do acervo de leis (`database == "laws"`), nunca só pelo texto do campo `source`, e só em frase sem verbo de acusação;
+    - a checagem cobre todos os textos que a IA escreve (título, subtítulo, avisos, unidade, fonte, grupo, rótulos e unidades de coluna), inclusive de componentes degradados.
+    - Detalhes em `docs/dashboard_visual.md`, seção "Segurança dos textos".
+- **Sem Agente de Mapa**: pedidos classificados como `map_edit` recebem resposta amigável informando que a visualização geográfica ainda não está disponível nesta versão, sem erro.

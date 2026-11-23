@@ -12,10 +12,13 @@ Cada resultado recebe um rótulo ([D1], [D2]... para dados, [L1], [L2]... para
 trechos de lei) que o LLM usa para citar a origem de cada número ou afirmação.
 """
 
+import csv
+import io
 import json
 import math
 import time
 from dataclasses import dataclass, field
+from typing import Any
 
 import pandas as pd
 
@@ -24,11 +27,55 @@ from src import result_meta as rm
 from src.config import LLM_EXTRA_PARAMS, LLM_MAX_TOKENS, LLM_MODEL
 from src.data_dictionary import render_prompt
 from src.database import SqlError, run_readonly_sql
-from src.rag import get_client
+from src.fts_query import extract_legal_subqueries, split_mixed_question
+from src.rag import get_client, retrieve_multi
 from src.soy import queries as soy_queries
+from src.soy.routing import route_question
+from src.vector_store import _chunk_identity
 
 MAX_TURNS = 10
 MAX_ROWS_TO_LLM = 60
+MAX_SUBQUERIES = 6
+
+DECOMPOSE_TOOL = {
+    "name": "create_retrieval_plan",
+    "description": "Decompõe uma pergunta mista em subconsultas limpas por domínio (dados da soja, dados da carne bovina e legislação ambiental).",
+    "input_schema": {
+        "type": "object",
+        "required": ["question_type", "subqueries"],
+        "properties": {
+            "question_type": {"type": "string", "enum": ["data", "legislation", "mixed"]},
+            "subqueries": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_SUBQUERIES,
+                "items": {
+                    "type": "object",
+                    "required": ["id", "domain", "question"],
+                    "properties": {
+                        "id": {"type": "string"},
+                        "domain": {"type": "string", "enum": ["soy_data", "beef_data", "legislation"]},
+                        "question": {"type": "string"},
+                        "depends_on": {"type": "array", "items": {"type": "string"}},
+                    },
+                },
+            },
+        },
+    },
+}
+
+DECOMPOSE_PROMPT = """\
+Você é o Agente Decompositor de um sistema RAG sobre cadeias agropecárias (soja e carne bovina) e legislação ambiental brasileira.
+Sua tarefa é dividir a pergunta do usuário em subconsultas independentes e limpas por domínio, sem respondê-la:
+- `soy_data`: métricas, rankings, séries temporais ou instalações da cadeia da soja (Trase).
+- `beef_data`: métricas, rankings, séries temporais, pastagem ou frigoríficos da cadeia da carne bovina (Trase).
+- `legislation`: regras, percentuais de Reserva Legal/APP, multas, penas, definições (CAR, Amazônia Legal, UC) ou licenciamento nas leis ambientais.
+
+Regras críticas para separar os domínios:
+1. Na subconsulta `legislation`, NUNCA inclua nomes de empresas (ex.: JBS, Cargill), volumes de exportação, anos de safra ou termos exclusivos da cadeia ("grupo exportador", "cadeia da soja", "carne bovina", "capacidade de processamento"). Escreva apenas a pergunta jurídica pura para não poluir os embeddings da busca vetorial.
+2. Preserve na subconsulta `legislation` qualquer bioma, região, diploma legal (Código Florestal, Decreto 6.514/2008, PNMC, PNMA, Lei da Mata Atlântica, Lei de Crimes Ambientais, SNUC) ou condição jurídica mencionada na pergunta.
+3. Se a pergunta jurídica usar expressão anafórica como "nesses biomas" ou "nesse bioma", explicite o bioma caso ele apareça na pergunta, ou marque `depends_on` apontando para o `id` da subconsulta de dados.
+"""
 
 SYSTEM_PROMPT = """\
 Você é o assistente de dados de um sistema que monitora riscos ambientais nas cadeias da \
@@ -404,6 +451,7 @@ class ToolCall:
     output: str
     rows: int | None = None
     seconds: float = 0.0
+    subqueries_fused: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -415,7 +463,10 @@ class AgentAnswer:
     stop_reason: str | None = None
     input_tokens: int = 0  # tudo o que o modelo leu, incluindo o que veio do cache
     output_tokens: int = 0
+    datasets: list = field(default_factory=list)
     cached_input_tokens: int = 0  # parte de input_tokens lida do cache de prompt
+    question_type: str | None = None
+    subqueries: list[dict] = field(default_factory=list)
 
 
 def _usage_input(usage) -> tuple[int, int]:
@@ -423,7 +474,171 @@ def _usage_input(usage) -> tuple[int, int]:
     cache: somar só ele faz o custo cair quando o provedor acerta o cache, sem nada ter mudado."""
     read = getattr(usage, "cache_read_input_tokens", None) or 0
     written = getattr(usage, "cache_creation_input_tokens", None) or 0
-    return usage.input_tokens + read + written, read
+    return (getattr(usage, "input_tokens", 0) or 0) + read + written, read
+
+
+def build_fallback_plan(question: str) -> dict:
+    """Constrói um plano de subconsultas determinístico (sem LLM) caso o decompositor falhe ou seja omitido."""
+    split = split_mixed_question(question)
+    subqueries: list[dict] = []
+
+    for clause in split["data_clauses"]:
+        dom = route_question(clause)["domain"]
+        if dom == "soy":
+            sub_domains = ["soy_data"]
+        elif dom == "beef":
+            sub_domains = ["beef_data"]
+        else:
+            # Cláusula que compara soja e carne bovina (ex.: M01, M09)
+            sub_domains = ["soy_data", "beef_data"]
+        for sd in sub_domains:
+            sq_id = f"sq{len(subqueries) + 1}"
+            subqueries.append({
+                "id": sq_id,
+                "domain": sd,
+                "question": clause,
+                "depends_on": [],
+            })
+
+    data_ids = [sq["id"] for sq in subqueries]
+    for clause in split["legal_clauses"]:
+        sq_id = f"sq{len(subqueries) + 1}"
+        subqueries.append({
+            "id": sq_id,
+            "domain": "legislation",
+            "question": clause,
+            "depends_on": [],
+        })
+
+    domains = {sq["domain"] for sq in subqueries}
+    if "legislation" in domains and (domains & {"soy_data", "beef_data"}):
+        q_type = "mixed"
+    elif domains == {"legislation"}:
+        q_type = "legislation"
+    else:
+        q_type = "data"
+        if not subqueries:
+            dom = route_question(question)["domain"]
+            subqueries.append({
+                "id": "sq1",
+                "domain": "soy_data" if dom == "soy" else "beef_data",
+                "question": question,
+                "depends_on": [],
+            })
+
+    return {"question_type": q_type, "subqueries": subqueries[:MAX_SUBQUERIES]}
+
+
+def validate_retrieval_plan(raw: Any, fallback_question: str | None = None) -> dict:
+    """Valida e normaliza o plano de subconsultas de forma resiliente (sem abortar a execução por detalhes de grafo)."""
+    if not isinstance(raw, dict):
+        if fallback_question:
+            return build_fallback_plan(fallback_question)
+        raise ValueError("Plano de recuperação inválido: esperado um objeto JSON.")
+
+    items = raw.get("subqueries")
+    if not isinstance(items, list) or not items:
+        if fallback_question:
+            return build_fallback_plan(fallback_question)
+        raise ValueError("Plano de recuperação inválido: subqueries deve conter ao menos 1 item.")
+
+    valid_domains = {"soy_data", "beef_data", "legislation"}
+    normalized: list[dict] = []
+    seen_ids: set[str] = set()
+    seen_queries: set[tuple[str, str]] = set()
+
+    for idx, item in enumerate(items[:MAX_SUBQUERIES], start=1):
+        if not isinstance(item, dict):
+            continue
+        domain = item.get("domain")
+        question = item.get("question")
+        if domain not in valid_domains or not isinstance(question, str) or not question.strip():
+            continue
+
+        raw_id = item.get("id")
+        subquery_id = raw_id.strip() if isinstance(raw_id, str) and raw_id.strip() else f"sq{idx}"
+        if subquery_id in seen_ids:
+            subquery_id = f"sq{idx}_{len(seen_ids) + 1}"
+
+        norm_q = " ".join(question.lower().split())
+        dedupe_key = (domain, norm_q)
+        if dedupe_key in seen_queries:
+            continue
+
+        raw_deps = item.get("depends_on")
+        deps: list[str] = []
+        if isinstance(raw_deps, list):
+            for d in raw_deps:
+                if isinstance(d, str) and d in seen_ids and d not in deps:
+                    deps.append(d)
+
+        seen_ids.add(subquery_id)
+        seen_queries.add(dedupe_key)
+        normalized.append({
+            "id": subquery_id,
+            "domain": domain,
+            "question": question.strip(),
+            "depends_on": deps,
+        })
+
+    if not normalized:
+        if fallback_question:
+            return build_fallback_plan(fallback_question)
+        raise ValueError("Plano de recuperação inválido: nenhuma subconsulta válida.")
+
+    domains = {sq["domain"] for sq in normalized}
+    if "legislation" in domains and (domains & {"soy_data", "beef_data"}):
+        question_type = "mixed"
+    elif domains == {"legislation"}:
+        question_type = "legislation"
+    else:
+        question_type = "data"
+
+    # Se a pergunta era mista mas o LLM esqueceu um dos lados (dados ou legislação), complementa com o fallback determinístico
+    if fallback_question:
+        fb = build_fallback_plan(fallback_question)
+        if fb["question_type"] == "mixed" and question_type != "mixed":
+            for fb_sq in fb["subqueries"]:
+                if fb_sq["domain"] not in domains and len(normalized) < MAX_SUBQUERIES:
+                    new_id = f"sq{len(normalized) + 1}"
+                    normalized.append({**fb_sq, "id": new_id, "depends_on": []})
+                    domains.add(fb_sq["domain"])
+            if "legislation" in domains and (domains & {"soy_data", "beef_data"}):
+                question_type = "mixed"
+
+    return {"question_type": question_type, "subqueries": normalized}
+
+
+def decompose_question(
+    question: str, history: list[dict] | None = None
+) -> tuple[dict, int, int]:
+    """Aciona o Agente Decompositor para quebrar uma pergunta mista em sub-buscas limpas, com fallback determinístico."""
+    try:
+        response = get_client().messages.create(
+            model=LLM_MODEL,
+            max_tokens=1024,
+            system=[{"type": "text", "text": DECOMPOSE_PROMPT}],
+            tools=[DECOMPOSE_TOOL],
+            tool_choice={"type": "tool", "name": DECOMPOSE_TOOL["name"]},
+            messages=list(history or []) + [{"role": "user", "content": question}],
+            **LLM_EXTRA_PARAMS,
+        )
+        block = next(
+            (
+                c for c in response.content
+                if getattr(c, "type", None) == "tool_use"
+                and getattr(c, "name", None) == DECOMPOSE_TOOL["name"]
+            ),
+            None,
+        )
+        in_tok, _ = _usage_input(response.usage)
+        out_tok = getattr(response.usage, "output_tokens", 0) or 0
+        if block is not None:
+            plan = validate_retrieval_plan(block.input, fallback_question=question)
+            return plan, in_tok, out_tok
+    except Exception:
+        pass
+    return build_fallback_plan(question), 0, 0
 
 
 def _round(v):
@@ -444,17 +659,80 @@ def df_to_text(df: pd.DataFrame, truncated: bool = False, meta: dict | None = No
     return head + text + (f"\n(... mostrando {len(shown)} linhas; há mais)" if extra else f"\n({len(df)} linhas)")
 
 
+def _dataset_source_meta(tool_name: str) -> tuple[str, str]:
+    if tool_name == "run_soy_sql" or tool_name.startswith("soy_"):
+        return "soy.duckdb", "Trase — Cadeia da soja (soy.duckdb)"
+    return "trase.duckdb", "Trase — Cadeia da carne bovina (trase.duckdb)"
+
+
 class _Session:
-    def __init__(self, k_laws: int):
+    def __init__(self, k_laws: int, planned_law_queries: list[str] | None = None,
+                 session_id: str | None = None, result_store=None):
         self.k_laws = k_laws
-        self.data_n = 0
+        self.session_id = session_id
+        self.result_store = result_store if (result_store is not None and session_id) else None
+        self.data_n = self.result_store.last_index(session_id) if self.result_store is not None else 0
         self.law_sources: list[dict] = []
         self.calls: list[ToolCall] = []
+        self.datasets: list = []
         self.laws_down = False
+        self.planned_law_queries: list[str] = list(planned_law_queries or [])
+        self.discovered_regions: list[str] = []
+        self._law_index_by_key: dict[tuple, int] = {}
+        self._last_subqueries_fused: list[str] = []
+
+    def _record_regions(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        region_cols = ("biome", "state", "state_of_production", "region")
+        for col in df.columns:
+            if col.strip().lower() in region_cols:
+                for val in df[col].head(5).dropna().astype(str):
+                    v = val.strip()
+                    if v and v.upper() not in ("UNKNOWN", "BRAZIL", "NONE", "NAN") and v not in self.discovered_regions:
+                        self.discovered_regions.append(v)
+
+    def _next_label(self) -> str:
+        if self.result_store is not None and self.session_id:
+            label = self.result_store.allocate_label(self.session_id)
+            self.data_n = self.result_store.last_index(self.session_id)
+            return label
+        self.data_n += 1
+        return f"D{self.data_n}"
+
+    def _save_dataset(self, label: str, name: str, args: dict, df: pd.DataFrame,
+                      truncated: bool, seconds: float) -> None:
+        if self.result_store is None or not self.session_id:
+            return
+        from src.dashboard.schemas import DatasetResult
+
+        db_name, src_label = _dataset_source_meta(name)
+        if name in ("run_sql", "run_soy_sql"):
+            summary = str(args.get("sql") or "").strip()
+            purpose = str(args.get("purpose") or "").strip()
+        else:
+            summary = f"{name}({json.dumps(args, ensure_ascii=False)})"
+            purpose = f"Consulta pronta {name}"
+        ds = DatasetResult(
+            dataset_id=label,
+            database=db_name,
+            source_label=src_label,
+            tool_name=name,
+            query_summary=summary,
+            df=df.copy(),
+            purpose=purpose,
+            truncated=truncated,
+            seconds=seconds,
+        )
+        stored = self.result_store.put(self.session_id, ds)
+        self.datasets.append(stored)
 
     def run(self, name: str, args: dict) -> tuple[str, bool]:
         start = time.perf_counter()
         label, rows = "", None
+        df_captured: pd.DataFrame | None = None
+        truncated = False
+        self._last_subqueries_fused = []
         try:
             if name == "search_laws" and self.laws_down:
                 raise RuntimeError("base de leis indisponível")
@@ -462,11 +740,11 @@ class _Session:
                 text, label = self._search_laws(args)
             elif name in ("run_sql", "run_soy_sql"):
                 connect = soy_queries.connect_readonly if name == "run_soy_sql" else None
-                df, truncated = run_readonly_sql(args["sql"], connect=connect)
-                self.data_n += 1
-                label, rows = f"D{self.data_n}", len(df)
+                df_captured, truncated = run_readonly_sql(args["sql"], connect=connect)
+                self._record_regions(df_captured)
+                label, rows = self._next_label(), len(df_captured)
                 cadeia = soy_queries.SOY if name == "run_soy_sql" else queries.BEEF
-                text = df_to_text(df, truncated, meta={"cadeia": cadeia, "escopo": rm.FREE_SQL})
+                text = df_to_text(df_captured, truncated, meta={"cadeia": cadeia, "escopo": rm.FREE_SQL})
             elif name in QUERY_FUNCS:
                 _check_required(name, args)
                 df = QUERY_FUNCS[name](**args)
@@ -474,8 +752,9 @@ class _Session:
                 if name == "find_entity":
                     text = df_to_text(df)
                 else:
-                    self.data_n += 1
-                    label = f"D{self.data_n}"
+                    df_captured = df
+                    self._record_regions(df)
+                    label = self._next_label()
                     text = df_to_text(df)
             else:
                 raise ValueError(f"Ferramenta desconhecida: {name}")
@@ -489,26 +768,71 @@ class _Session:
                 text = ("Erro: a base de leis está indisponível (sem conexão com o Postgres). "
                         "Não tente de novo; responda sem os trechos de lei e avise o usuário.")
 
-        self.calls.append(ToolCall(label or name, name, args, ok, text, rows,
-                                   round(time.perf_counter() - start, 2)))
+        elapsed = round(time.perf_counter() - start, 2)
+        if ok and label and df_captured is not None:
+            self._save_dataset(label, name, args, df_captured, truncated, elapsed)
+
+        self.calls.append(ToolCall(
+            label=label or name,
+            name=name,
+            input=args,
+            ok=ok,
+            output=text,
+            rows=rows,
+            seconds=elapsed,
+            subqueries_fused=list(self._last_subqueries_fused),
+        ))
         if label and ok:
             text = f"Resultado [{label}]\n{text}"
         return text, ok
 
     def _search_laws(self, args: dict) -> tuple[str, str]:
-        from src.rag import retrieve
-        chunks = retrieve(args["query"], k=args.get("k") or self.k_laws)
+        k = args.get("k") or self.k_laws
+        raw_query = args.get("query", "")
+        seeds = [raw_query] + self.planned_law_queries
+        self.planned_law_queries = []
+
+        subqueries: list[str] = []
+        seen_sq: set[str] = set()
+        for seed in seeds:
+            if not seed or not seed.strip():
+                continue
+            for sq in extract_legal_subqueries(seed, extra_regions=self.discovered_regions[:4]):
+                key = sq.lower().strip()
+                if key and key not in seen_sq:
+                    seen_sq.add(key)
+                    subqueries.append(sq)
+
+        if not subqueries and raw_query:
+            subqueries = [raw_query]
+
+        self._last_subqueries_fused = list(subqueries)
+        chunks = retrieve_multi(subqueries, k=k)
         if not chunks:
             return "(nenhum trecho encontrado)", ""
+
         docs = []
+        new_indices: list[int] = []
+        all_indices: list[int] = []
         for c in chunks:
-            self.law_sources.append(c)
-            i = len(self.law_sources)
-            m = c["metadata"]
+            ckey = _chunk_identity(c)
+            if ckey in self._law_index_by_key:
+                i = self._law_index_by_key[ckey]
+            else:
+                self.law_sources.append(c)
+                i = len(self.law_sources)
+                self._law_index_by_key[ckey] = i
+                new_indices.append(i)
+            all_indices.append(i)
+            m = c.get("metadata") or {}
             parte = f' parte="{m["parte"]}/{m["partes"]}"' if m.get("partes", 1) > 1 else ""
             docs.append(f'<documento rotulo="L{i}" lei="{c["title"]}" artigo="{m.get("artigo")}"{parte} '
                         f'fonte="{c["url"]}">\n{c["content"]}\n</documento>')
-        first, last = len(self.law_sources) - len(chunks) + 1, len(self.law_sources)
+
+        if new_indices:
+            first, last = new_indices[0], new_indices[-1]
+        else:
+            first, last = min(all_indices), max(all_indices)
         return "<documentos>\n" + "\n".join(docs) + "\n</documentos>", f"L{first}-L{last}"
 
 
@@ -521,8 +845,10 @@ DOMAIN_HINTS = {
 
 
 def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
-        domain: str | None = None) -> AgentAnswer:
+        domain: str | None = None, session_id: str | None = None,
+        result_store=None) -> AgentAnswer:
     soy_ok = soy_queries.is_available()
+    effective_domain = domain if (domain and domain != "auto") else route_question(question)["domain"]
     system = [{
         "type": "text",
         "text": SYSTEM_PROMPT.format(
@@ -533,12 +859,43 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
         ),
         "cache_control": {"type": "ephemeral"},
     }]
-    if domain in DOMAIN_HINTS:
-        system.append({"type": "text", "text": f"Roteamento: {DOMAIN_HINTS[domain]}"})
+    if effective_domain in DOMAIN_HINTS:
+        system.append({"type": "text", "text": f"Roteamento: {DOMAIN_HINTS[effective_domain]}"})
+
+    result = AgentAnswer(question, "")
+    planned_law_queries: list[str] = []
+
+    if effective_domain == "mixed":
+        plan, plan_in, plan_out = decompose_question(question, history)
+        result.input_tokens += plan_in
+        result.output_tokens += plan_out
+        result.question_type = plan["question_type"]
+        result.subqueries = plan["subqueries"]
+        planned_law_queries = [
+            sq["question"] for sq in plan["subqueries"] if sq["domain"] == "legislation"
+        ]
+        plan_lines = "\n".join(
+            f"- [{sq['id']} | {sq['domain']}] {sq['question']}"
+            for sq in plan["subqueries"]
+        )
+        system.append({
+            "type": "text",
+            "text": (
+                "Subperguntas identificadas pelo Agente Decompositor:\n"
+                f"{plan_lines}\n"
+                "Para responder com precisão: chame as ferramentas de dados para cada subpergunta de dados "
+                "e chame `search_laws` passando apenas a subpergunta jurídica limpa (sem termos de soja/carne). "
+                "Ao final, integre tudo numa única resposta citando [D...] e [L...]."
+            ),
+        })
+
+    # Nunca removemos ferramentas do agente: se o roteamento inicial for parcial, o agente mantém acesso total.
     tools = TOOLS + SOY_TOOLS if soy_ok else TOOLS
     messages = list(history or []) + [{"role": "user", "content": question}]
-    session = _Session(k_laws)
-    result = AgentAnswer(question, "")
+    session = _Session(k_laws, planned_law_queries=planned_law_queries,
+                       session_id=session_id, result_store=result_store)
+    forced_law_check = False
+    forced_data_check = False
 
     for _ in range(MAX_TURNS):
         response = get_client().messages.create(
@@ -552,6 +909,38 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
         result.stop_reason = response.stop_reason
 
         if response.stop_reason != "tool_use":
+            # Guardrail de completude para perguntas mistas: garante que tanto dados [D] quanto leis [L] foram consultados
+            if effective_domain == "mixed" and response.stop_reason == "end_turn":
+                has_data = any(c.ok and c.label.startswith("D") for c in session.calls)
+                has_law = any(c.ok and c.name == "search_laws" for c in session.calls)
+                if not has_law and not session.laws_down and not forced_law_check:
+                    forced_law_check = True
+                    law_q = planned_law_queries[0] if planned_law_queries else question
+                    law_text, law_ok = session.run("search_laws", {"query": law_q, "k": k_laws})
+                    if law_ok:
+                        messages.append({"role": "assistant", "content": response.content})
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "A parte jurídica desta pergunta mista ainda não havia sido consultada em `search_laws`. "
+                                f"Aqui estão os trechos de lei recuperados e fundidos:\n\n{law_text}\n\n"
+                                "Reescreva a resposta completa integrando os dados já consultados e estes trechos de lei, "
+                                "citando os rótulos [D...] e [L...]."
+                            ),
+                        })
+                        continue
+                if not has_data and not forced_data_check:
+                    forced_data_check = True
+                    messages.append({"role": "assistant", "content": response.content})
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "A parte quantitativa (dados do Trase) desta pergunta mista ainda não foi consultada. "
+                            "Chame a ferramenta de dados correspondente antes de concluir a resposta."
+                        ),
+                    })
+                    continue
+
             result.text = "".join(b.text for b in response.content if b.type == "text").strip()
             if response.stop_reason == "refusal":
                 result.text = "O modelo recusou responder a esta pergunta."
@@ -573,6 +962,7 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
 
     result.tool_calls = session.calls
     result.law_sources = session.law_sources
+    result.datasets = session.datasets
     return result
 
 
