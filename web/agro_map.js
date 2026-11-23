@@ -1156,10 +1156,13 @@
     if (charts.length) {
       $("view-charts-desc").textContent = `${charts.length} ${charts.length === 1 ? "gráfico" : "gráficos"} com os números usados na resposta`;
     }
+    // Painel completo: só para perguntas de dados (o agente usa a base Trase/DuckDB).
+    const dashOk = mode !== "laws" && data.domain !== "law" && (mapOk || charts.length > 0);
     $("view-map").hidden = !mapOk;
     $("view-charts").hidden = !charts.length;
-    $("views").hidden = !mapOk && !charts.length;
-    $("views-none").hidden = mapOk || charts.length;
+    $("view-dash").hidden = !dashOk;
+    $("views").hidden = !mapOk && !charts.length && !dashOk;
+    $("views-none").hidden = mapOk || charts.length || dashOk;
     $("views-none").textContent = data.domain === "law" || mode === "laws"
       ? "Resposta jurídica: não há mapa nem gráfico para esta pergunta."
       : "Esta resposta não tem números ou lugares para mostrar em mapa ou gráfico.";
@@ -1170,6 +1173,7 @@
     $("app").classList.remove("charts-open");
     $("view-map").classList.remove("is-active");
     $("view-charts").classList.remove("is-active");
+    $("view-dash").classList.remove("is-active");
   }
 
   async function openMapView() {
@@ -1186,9 +1190,63 @@
     if (!lastAnswer?._charts?.length) return;
     hideMap();
     $("view-map").classList.remove("is-active");
+    $("view-dash").classList.remove("is-active");
     $("view-charts").classList.add("is-active");
+    $("dash-wrap").hidden = true;
+    $("charts-body").hidden = false;
     renderCharts(lastAnswer._charts, lastAnswer);
     $("app").classList.add("charts-open");
+  }
+
+  // Painel completo: pede ao agente de dashboard (uma vez por resposta) e embute o HTML gerado.
+  async function openDashView() {
+    const ans = lastAnswer;
+    if (!ans) return;
+    hideMap();
+    $("view-map").classList.remove("is-active");
+    $("view-charts").classList.remove("is-active");
+    $("view-dash").classList.add("is-active");
+    $("charts-body").hidden = true;
+    $("dash-wrap").hidden = false;
+    $("charts-title").textContent = $("asked-q").textContent || "Painel";
+    $("charts-desc").textContent = "Painel montado pelo agente de dashboard: ele escolhe os dados na base Trase (carne e soja), desenha os gráficos e um revisor confere antes de mostrar. " +
+      "Por usar uma consulta própria, alguns números podem diferir dos da resposta (que vêm do MapBiomas, IBGE e SEEG). Passe o mouse nos gráficos para ver os valores.";
+    $("app").classList.add("charts-open");
+    const frame = $("dash-frame");
+    if (ans._dashUrl) { showDashFrame(ans._dashUrl); return; }
+    frame.hidden = true;
+    $("dash-loading").hidden = false;
+    $("dash-loading-txt").textContent = "O agente está montando o painel: escolhe os dados, desenha os gráficos e revisa… (cerca de 1 minuto)";
+    try {
+      const res = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question: $("asked-q").textContent}),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Falha ao gerar o painel.");
+      ans._dashUrl = d.url;
+      if (lastAnswer === ans && $("view-dash").classList.contains("is-active")) showDashFrame(d.url);
+    } catch (err) {
+      $("dash-loading-txt").textContent = `Não foi possível gerar o painel: ${err.message}`;
+      $("dash-loading").querySelector(".dots").hidden = true;
+    }
+  }
+
+  function showDashFrame(url) {
+    const frame = $("dash-frame");
+    $("dash-loading").hidden = true;
+    frame.hidden = false;
+    frame.onload = () => {
+      try {
+        const doc = frame.contentDocument;
+        doc.documentElement.classList.add("is-embed");
+        const fit = () => { frame.style.height = `${doc.documentElement.scrollHeight + 4}px`; };
+        fit();
+        new ResizeObserver(fit).observe(doc.body);
+      } catch { /* mesma origem; se falhar, fica a altura mínima */ }
+    };
+    frame.src = `${url}?embed=1`;
   }
 
   // Texto "o que você está vendo" do mapa, montado a partir do recorte aplicado.
@@ -1310,7 +1368,12 @@
     $("open-map-btn").addEventListener("click", () => { $("map-desc").hidden = true; showMap(null); });
     $("view-map").addEventListener("click", openMapView);
     $("view-charts").addEventListener("click", openChartsView);
-    $("close-charts").addEventListener("click", () => { $("app").classList.remove("charts-open"); $("view-charts").classList.remove("is-active"); });
+    $("view-dash").addEventListener("click", openDashView);
+    $("close-charts").addEventListener("click", () => {
+      $("app").classList.remove("charts-open");
+      $("view-charts").classList.remove("is-active");
+      $("view-dash").classList.remove("is-active");
+    });
     $("new-chat").addEventListener("click", () => {
       AppState.undoSnapshot = null;
       closeViews();

@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
   <title>Agro · Assistente Socioambiental</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-  <link rel="stylesheet" href="/explorar/agro_map.css?v=14">
+  <link rel="stylesheet" href="/explorar/agro_map.css?v=15">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script defer src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
-  <script defer src="/explorar/agro_map.js?v=14"></script>
+  <script defer src="/explorar/agro_map.js?v=15"></script>
 </head>
 <body>
 <!-- Estados da página:
@@ -52,6 +52,10 @@
             <button id="view-charts" type="button" class="view-card" hidden>
               <span class="vc-ico vc-chart" aria-hidden="true"></span>
               <span class="vc-txt"><strong>Gráficos</strong><small id="view-charts-desc"></small></span>
+            </button>
+            <button id="view-dash" type="button" class="view-card" hidden>
+              <span class="vc-ico vc-dash" aria-hidden="true"></span>
+              <span class="vc-txt"><strong>Painel completo</strong><small id="view-dash-desc">Gerado pelo agente de dashboard (leva ~1 min)</small></span>
             </button>
           </div>
         </div>
@@ -118,6 +122,10 @@
       </button>
     </header>
     <div id="charts-body" class="charts-body"></div>
+    <div id="dash-wrap" class="dash-wrap" hidden>
+      <div id="dash-loading" class="dash-loading"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span id="dash-loading-txt">O agente está montando o painel: escolhe os dados, desenha os gráficos e revisa…</span></div>
+      <iframe id="dash-frame" title="Painel do agente de dashboard" hidden></iframe>
+    </div>
   </section>
 
   <main class="stage" aria-label="Mapa">

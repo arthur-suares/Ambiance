@@ -164,7 +164,8 @@ def test_r7_api_chat_validates_session_id_and_preserves_legacy_api_ask(monkeypat
 
 
 def test_index_html_uses_api_chat_session_storage_and_dashboard_iframe():
-    st, headers, body = _http_call("GET", "/")
+    # A página do pipeline de dashboards fica em /chat ("/" é o chat com mapa e gráficos).
+    st, headers, body = _http_call("GET", "/chat")
     assert st == 200
     assert "text/html" in headers.get("content-type", "")
     html_txt = body.decode("utf-8")

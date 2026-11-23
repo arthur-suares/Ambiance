@@ -494,3 +494,11 @@ html, body { touch-action: pan-x pan-y; }
   .app.charts-open .charts-panel { order: -1; }
   .app.charts-open .chat-col { border-right: 0; border-top: 1px solid var(--line); }
 }
+
+/* Painel completo (agente de dashboard) embutido */
+.vc-dash { background: rgba(212, 162, 76, .2); }
+.vc-dash::after { content: ""; position: absolute; inset: 8px; border-radius: 3px;
+  background: linear-gradient(#d9a441 0 0) 0 0 / 100% 4px no-repeat, linear-gradient(#d9a441 0 0) 0 100% / 45% 8px no-repeat, linear-gradient(#d9a441 0 0) 100% 100% / 45% 8px no-repeat; opacity: .9; }
+.dash-wrap { margin-top: 4px; }
+.dash-loading { display: flex; align-items: center; gap: 10px; color: #4a5049; font-size: 13px; padding: 18px; background: #fff; border: 1px solid #e2e4df; border-radius: 12px; }
+#dash-frame { width: 100%; min-height: 70vh; border: 1px solid #e2e4df; border-radius: 12px; background: #fff; display: block; }

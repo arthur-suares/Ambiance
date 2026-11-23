@@ -205,6 +205,8 @@ class Handler(BaseHTTPRequestHandler):
         clean_path, _, _ = self.path.partition("?")
         if clean_path == "/api/chat":
             return self._handle_chat()
+        if clean_path == "/api/dashboard":
+            return self._handle_dashboard()
         if clean_path != "/api/ask":
             return self._send(404, "text/plain", b"not found")
         try:
@@ -311,6 +313,29 @@ class Handler(BaseHTTPRequestHandler):
                 "seconds": 0.0,
                 "trace_id": "",
             })
+
+    def _handle_dashboard(self):
+        """Gera um painel completo com o agente de dashboard (Orquestrador → Dados → Dashboard → Revisor)."""
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            question = (body.get("question") or "").strip() if isinstance(body, dict) else ""
+            if not question:
+                return self._json(400, {"error": "Pergunta vazia."})
+            if not _analytics_available():
+                return self._json(503, {"error": "O painel completo precisa da base DuckDB (Trase) em data/processed/."})
+            from src.dashboard.orchestrator import generate_dashboard
+            result = generate_dashboard(question)
+            if not result.output_path:
+                return self._json(500, {"error": "O agente não gerou o arquivo do painel."})
+            return self._json(200, {
+                "url": f"/dashboards/{Path(result.output_path).name}",
+                "title": result.spec.title if getattr(result.spec, "title", None) else result.plan.dashboard_goal,
+                "domain": result.domain,
+                "seconds": round(result.seconds, 1),
+                "revisions": result.revisions_used,
+            })
+        except Exception as exc:
+            return self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
 
     def _agent(self, question, k, start, domain):
         from src.agent import ask as agent_ask, tool_call_summary
