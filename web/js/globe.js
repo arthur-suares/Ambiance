@@ -632,6 +632,7 @@ if (host) {
         new THREE.SphereGeometry(earthRadius + 0.012, 88, 64),
         cityMaterial,
     );
+    cityLights.rotation.z = earth.rotation.z;
     globe.add(cityLights);
 
     const cloudsMaterial = new THREE.MeshStandardMaterial({
