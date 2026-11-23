@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trase · Explorar rotas</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/mapa/map.css">
+  <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script defer src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
+  <script defer src="/mapa/map.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">TRASE<span>EXPLORADOR GEOGRÁFICO</span></div>
+    <span class="experiment">Experimento · Soja <span id="dataset-year">2022</span></span>
+  </header>
+  <main>
+    <aside aria-label="Controles e informações do fluxo">
+      <div class="eyebrow">DA PRODUÇÃO À LOGÍSTICA</div>
+      <h1>O caminho da soja</h1>
+      <p class="intro">Explore fluxos da Trase e visualize um percurso estimado entre o município produtor e o hub logístico.</p>
+
+      <label for="flow">Escolha um fluxo</label>
+      <select id="flow" disabled><option>Carregando fluxos…</option></select>
+      <p id="sample-description" class="muted"></p>
+
+      <div class="itinerary" aria-label="Origem e destino">
+        <div class="stop origin"><span>Município produtor</span><strong id="origin">—</strong></div>
+        <div class="stop destination"><span>Hub logístico</span><strong id="destination">—</strong></div>
+      </div>
+
+      <div class="metrics">
+        <div><span>Volume no fluxo Trase</span><strong id="volume">—</strong><small id="volume-note">Agregado no ano de 2022</small></div>
+        <div><span>Distância estimada</span><strong id="distance">—</strong><small id="distance-note">Percurso pela rede viária</small></div>
+      </div>
+
+      <fieldset>
+        <legend>Visualização</legend>
+        <div class="segmented">
+          <button id="mode-road" type="button" aria-pressed="true">Pelas estradas</button>
+          <button id="mode-direct" type="button" aria-pressed="false">Ligação direta</button>
+        </div>
+      </fieldset>
+      <div id="status" class="status" role="status" aria-live="polite">Preparando o mapa…</div>
+      <div id="road-info" hidden>
+        <span class="label">Vias identificadas no percurso</span>
+        <p id="road-refs"></p>
+      </div>
+
+      <details>
+        <summary>Empresas e destinos do fluxo</summary>
+        <span class="label">Grupos exportadores</span>
+        <ul id="exporters"></ul>
+        <span class="label">Países informados na base</span>
+        <ul id="countries"></ul>
+      </details>
+      <details class="sources">
+        <summary>Fontes e limites deste experimento</summary>
+        <p id="scope"></p>
+        <p>O volume descreve o fluxo comercial da Trase. A linha representa um caminho calculado, sem comprovar que a carga passou por essas estradas.</p>
+        <p>Os pontos são referências municipais, sem localizar a fazenda ou o silo. O roteamento usa perfil de carro e não considera restrições específicas de caminhões, condições históricas ou trechos ferroviários e hidroviários da cadeia.</p>
+        <p id="route-source"></p>
+        <a href="https://resources.trase.earth/documents/data_methods/SEI_PCS_Brazil_soy_2.6_External_January%202025%20Revision.pdf" target="_blank" rel="noopener">Metodologia Trase</a>
+        <a id="coordinate-source" target="_blank" rel="noopener">Referências municipais</a>
+        <a href="https://project-osrm.org/docs/v5.24.0/api/" target="_blank" rel="noopener">Roteamento OSRM</a>
+      </details>
+    </aside>
+
+    <section class="map-panel" aria-label="Mapa interativo dos fluxos da soja">
+      <div id="map" role="region" aria-label="Mapa. Arraste para navegar e use a roda do mouse para ampliar." data-state="loading"></div>
+      <div class="map-heading"><span id="map-mode">PERCURSO ESTIMADO</span><strong id="map-title">Fluxos da soja · Brasil</strong></div>
+      <div class="map-controls" aria-label="Navegação do mapa">
+        <button id="fit" type="button" title="Enquadrar o fluxo selecionado">Enquadrar</button>
+        <button id="zoom-in" type="button" aria-label="Aproximar mapa">+</button>
+        <button id="zoom-out" type="button" aria-label="Afastar mapa">−</button>
+      </div>
+      <div id="map-warning" class="map-warning" role="alert" hidden></div>
+      <div class="legend"><span><i class="dot green"></i>Produtor</span><span><i class="dot blue"></i>Hub logístico</span><span><i class="line" id="legend-line"></i><span id="legend-path">Trajeto estimado</span></span></div>
+      <div class="map-note">Pontos de referência municipais · Arraste para navegar</div>
+    </section>
+  </main>
+  <noscript>Ative o JavaScript para carregar o mapa interativo.</noscript>
+</body>
+</html>

@@ -68,6 +68,9 @@
   th, td { border: 1px solid var(--border); padding: 5px 9px; text-align: left; }
   .history-item { padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 8px; cursor: pointer; background: var(--bg); }
   .history-item:hover { border-color: var(--accent); }
+  .map-result { margin-top: 12px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 8px; }
+  .map-result p { margin: 0 0 8px; }
+  .map-result a { font-weight: 650; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -75,6 +78,7 @@
 <main>
   <header>
     <h1>Trase RAG — Carne Bovina, Soja e Leis Ambientais</h1>
+    <p><a href="/explorar"><strong>Abrir Mapa Interativo V1 (PostGIS + IA Híbrida) →</strong></a> · <a href="/mapa">Explorar rotas da Trase no mapa →</a></p>
     <p class="subtitle">Busca jurídica híbrida com <strong>BAAI/bge-m3</strong> em <strong>29 leis federais</strong> (1.893 trechos) + dados analíticos da cadeia agroindustrial. Atalho: <code>Cmd/Ctrl + Enter</code>.</p>
   </header>
 
@@ -85,11 +89,12 @@
       <button id="clear" type="button" class="secondary">Limpar</button>
       <label>Modo:
         <select id="mode">
+          <option value="map">Soja no mapa</option>
           <option value="agent">Dados + leis</option>
           <option value="laws">Só leis</option>
         </select>
       </label>
-      <label>Domínio:
+      <label id="domain-field">Domínio:
         <select id="domain">
           <option value="auto">Automático</option>
           <option value="law">Legislação ambiental</option>
@@ -103,6 +108,7 @@
     </div>
 
     <div class="examples" aria-label="Exemplos de perguntas">
+      <button type="button" class="chip" data-mode="map" data-domain="soy" data-q="Quais municípios abasteceram as exportações de soja para a China via Barcarena em 2022?">Soja para a China via Barcarena</button>
       <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="Qual a diferença entre licenciamento ambiental geral na PNMA (Lei 6.938/1981) e a supressão de vegetação no Código Florestal?">Licenciamento PNMA vs Código Florestal</button>
       <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="Como o Decreto 7.830/2012 define o CAR e o PRA para regularização de imóveis rurais?">CAR e PRA (Decreto 7.830/2012)</button>
       <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="O que a Lei 14.595/2023 alterou nos prazos de adesão ao PRA no Código Florestal?">Prazos do PRA (Lei 14.595/2023)</button>
@@ -113,6 +119,14 @@
   <section id="result" hidden>
     <h2>Resposta</h2>
     <div id="answer"></div>
+    <div id="map-result" class="map-result" hidden>
+      <p id="map-filters" class="meta"></p>
+      <a id="map-link" target="_blank" rel="noopener">Ver no mapa</a>
+    </div>
+    <section id="data-sources-section" hidden>
+      <h2>Fonte dos dados</h2>
+      <ul id="data-sources"></ul>
+    </section>
 
     <section id="calls-section" hidden>
       <h2>Consultas aos dados</h2>
@@ -208,6 +222,24 @@ function renderAnswer(text) {
 
 function showResult(question, data) {
   $("answer").innerHTML = renderAnswer(data.answer);
+  const mapContext = data.map_context;
+  $("map-result").hidden = !mapContext;
+  if (mapContext) {
+    $("map-link").href = mapContext.url;
+    $("map-filters").textContent = mapContext.filters.map(f => `${f.name}: ${f.value}`).join(" · ");
+  }
+  const dataSources = data.data_sources || [];
+  $("data-sources-section").hidden = dataSources.length === 0;
+  $("data-sources").replaceChildren(...dataSources.map(source => {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = source.url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = source.title;
+    item.append(link);
+    return item;
+  }));
   const sources = data.sources || [];
   $("sources").innerHTML = sources.map((s) => {
     const parte = s.partes > 1 ? ` (parte ${s.parte}/${s.partes})` : "";
@@ -218,7 +250,8 @@ function showResult(question, data) {
            `<span class="meta">(score ${Number(s.score).toFixed(4)}; ${ranks})</span></li>`;
   }).join("");
   $("usage").textContent =
-    `${data.domain || "auto"} · ${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s · stop_reason: ${data.stop_reason}`;
+    `${data.domain || "auto"} · ${data.input_tokens} tokens de entrada, ${data.output_tokens} de saída · ${data.seconds}s` +
+    (data.stop_reason ? ` · stop_reason: ${data.stop_reason}` : "");
   const calls = data.tool_calls || [];
   $("calls").innerHTML = calls.map((c) =>
     `<details class="call"><summary>[${escapeHtml(c.label)}] <code>${escapeHtml(c.summary)}</code> ` +
@@ -260,9 +293,16 @@ document.querySelectorAll(".chip").forEach((chip) => {
       $("mode").value = "laws";
     }
     $("domain").value = chip.dataset.domain;
+    updateMode();
     $("form").requestSubmit();
   });
 });
+
+function updateMode() {
+  $("domain-field").hidden = $("mode").value === "map";
+}
+$("mode").addEventListener("change", updateMode);
+updateMode();
 
 fetch("/api/health").then((r) => r.json()).then((h) => {
   if (!h.analytics_available) {
@@ -271,9 +311,13 @@ fetch("/api/health").then((r) => r.json()).then((h) => {
       agentOpt.disabled = true;
       agentOpt.textContent = "Dados + leis (requer DuckDB)";
     }
-    $("mode").value = "laws";
-    $("domain").value = "law";
   }
+  if (!h.map_chat_available) {
+    $("mode").querySelector('option[value="map"]').disabled = true;
+    for (const chip of document.querySelectorAll('[data-mode="map"]')) chip.hidden = true;
+    if ($("mode").value === "map") $("mode").value = h.analytics_available ? "agent" : "laws";
+  }
+  updateMode();
 }).catch(() => {});
 
 $("clear").addEventListener("click", () => {

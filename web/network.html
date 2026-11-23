@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Trase · Rede da soja</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/mapa/network.css">
+  <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script defer src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
+  <script defer src="/mapa/network.js"></script>
+</head>
+<body>
+  <header>
+    <span class="brand">TRASE</span>
+    <span class="header-title">Rede da soja brasileira</span>
+    <a href="/mapa/fluxo">Ver exemplo rodoviário →</a>
+  </header>
+  <main>
+    <section class="map-panel" aria-label="Mapa dos fluxos de soja">
+      <div id="network-map" data-state="loading"></div>
+      <div class="map-controls" aria-label="Enquadramento">
+        <button id="brazil" type="button">Brasil</button>
+        <button id="world" type="button">Mundo</button>
+        <button id="fit-record" type="button" hidden>Enquadrar registro</button>
+      </div>
+      <div id="map-error" role="alert" hidden></div>
+      <div id="map-legend" class="legend" aria-label="Legenda">
+        <span id="road-legend"><i class="road"></i> Rota rodoviária estimada</span>
+        <span id="domestic-legend"><i class="domestic"></i> Ligação esquemática no Brasil</span>
+        <span id="international-legend"><i class="international"></i> Ligação comercial</span>
+      </div>
+    </section>
+    <aside aria-label="Filtros e detalhes dos fluxos">
+      <h1>Fluxos da soja</h1>
+      <p class="intro">Do município produtor ao primeiro destino informado pela Trase.</p>
+      <p id="status" role="status" aria-live="polite">Lendo os fluxos da Trase…</p>
+      <section id="record-detail" hidden>
+        <div class="record-heading"><h2 id="record-title"></h2><button id="clear-record" type="button">Voltar à rede</button></div>
+        <p id="record-volume"></p>
+        <ol id="record-steps"></ol>
+        <p id="record-international-note" class="note" hidden>A Trase informa o país de destino.</p>
+        <button id="record-international" type="button" aria-pressed="false" hidden>Ver ligação comercial</button>
+        <section id="record-roads" class="inspector" hidden>
+          <h3>Traçado dentro do Brasil</h3>
+          <p id="record-road-status" class="note" role="status"></p>
+          <ul id="record-road" class="road-stages"></ul>
+          <button id="estimate-road" type="button" hidden>Tentar calcular novamente</button>
+        </section>
+      </section>
+      <div id="overview-controls">
+      <form id="network-filters" class="network-filters">
+        <label for="year">Ano</label>
+        <select id="year"><option value="">Todos os anos</option></select>
+        <details>
+          <summary>Filtros de origem e destino</summary>
+          <label for="filter-origin">Município produtor</label>
+          <select id="filter-origin"><option value="">Todos os municípios</option></select>
+          <label for="filter-exit">Saída do Brasil</label>
+          <select id="filter-exit"><option value="">Todas as saídas</option></select>
+          <label for="filter-country">País informado pela Trase</label>
+          <select id="filter-country"><option value="">Todos os países</option></select>
+          <div class="panel-actions">
+            <button type="submit">Aplicar filtros</button>
+            <button id="reset-filters" type="reset">Limpar filtros</button>
+          </div>
+        </details>
+      </form>
+      <div class="stats">
+        <div><strong id="mapped">—</strong><span>Registros com trecho</span></div>
+        <div><strong id="edges">—</strong><span>Trechos no mapa</span></div>
+      </div>
+      <p id="coverage" class="note"></p>
+      <fieldset>
+        <legend>Fluxos da Trase</legend>
+        <label><input type="checkbox" id="domestic" checked> Dentro do Brasil</label>
+        <label for="domestic-stage">Trechos internos</label>
+        <select id="domestic-stage">
+          <option value="all">Ambas as etapas</option>
+          <option value="origin">Produção → hub</option>
+          <option value="exit">Hub → saída</option>
+        </select>
+        <label><input type="checkbox" id="international" checked> Ligações comerciais internacionais</label>
+      </fieldset>
+      </div>
+      <div class="playback">
+        <button id="playback" type="button">Pausar</button>
+        <label for="speed">Velocidade
+          <select id="speed"><option value="0.5">0,5×</option><option selected value="1">1×</option><option value="2">2×</option></select>
+        </label>
+      </div>
+      <section id="edge-picker" class="inspector" hidden>
+        <label for="edge-choice">Trechos de maior volume no mapa</label>
+        <select id="edge-choice" aria-describedby="edge-help"></select>
+        <p class="note" id="edge-help">Você também pode clicar em qualquer linha ou arco.</p>
+      </section>
+      <section id="edge-detail" class="inspector" hidden>
+        <div class="record-heading"><h2 id="edge-title"></h2><button id="clear-edge" type="button">Fechar</button></div>
+        <p id="edge-summary"></p>
+        <p id="edge-international-note" class="note" hidden>O arco liga a saída do Brasil ao país informado pela Trase.</p>
+        <div id="edge-road-panel" hidden>
+          <p id="edge-road-status" class="note" role="status"></p>
+          <button id="edge-estimate-road" type="button">Calcular rota pelas rodovias</button>
+        </div>
+        <p id="edge-status" class="note" role="status"></p>
+        <ol id="edge-records" class="edge-records"></ol>
+        <div id="edge-pages" class="panel-actions" hidden>
+          <button id="edge-prev" type="button">Anterior</button>
+          <span id="edge-page"></span>
+          <button id="edge-next" type="button">Próxima</button>
+        </div>
+      </section>
+      <form id="find-record">
+        <label for="record">Inspecionar registro do CSV</label>
+        <div class="record-controls">
+          <input id="record" type="number" min="1" step="1" required placeholder="Ex.: 1" aria-describedby="record-note">
+          <button type="submit">Mostrar</button>
+        </div>
+        <p class="note" id="record-note">Numeração a partir de 1, sem o cabeçalho.</p>
+      </form>
+      <details>
+        <summary>Como ler o mapa</summary>
+        <p>Trechos em comum somam o volume das linhas da Trase. A mesma linha pode contribuir para vários trechos da cadeia.</p>
+        <p>Linhas laranjas seguem o traçado estimado pelo OSRM entre referências municipais. Linhas tracejadas ligam os pontos informados pela Trase. Arcos azuis mostram ligações comerciais internacionais.</p>
+        <p>A animação indica o sentido do fluxo. As referências geográficas incluem <a href="https://github.com/kelvins/municipios-brasileiros">municípios brasileiros</a> e <a href="https://www.naturalearthdata.com/downloads/50m-cultural-vectors/">Natural Earth</a>.</p>
+      </details>
+    </aside>
+  </main>
+</body>
+</html>

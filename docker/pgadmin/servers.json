@@ -1,0 +1,13 @@
+{
+  "Servers": {
+    "1": {
+      "Name": "Agro PostgreSQL (PostGIS + pgvector)",
+      "Group": "Agro",
+      "Host": "postgres",
+      "Port": 5432,
+      "MaintenanceDB": "trase_rag",
+      "Username": "rag",
+      "SSLMode": "prefer"
+    }
+  }
+}

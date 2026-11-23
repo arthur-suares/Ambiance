@@ -1,5 +1,9 @@
 # Trase RAG
 
+Experimento com a [rede animada de fluxos da Trase em deck.gl](docs/mapa_trase.md).
+Execute `.venv/bin/python -m src.web --port 8001`. Abra `http://127.0.0.1:8001/`
+para perguntar sobre soja ou `http://127.0.0.1:8001/mapa` para filtrar diretamente.
+
 Chatbot que responde perguntas sobre as cadeias da **carne bovina** e da **soja** brasileiras e sobre a **legislação ambiental federal**, citando a origem de cada número e de cada artigo de lei.
 
 O sistema combina duas formas de recuperação, uma para cada tipo de fonte:

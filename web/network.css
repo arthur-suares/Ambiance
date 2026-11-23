@@ -1,0 +1,130 @@
+:root {
+  color-scheme: light;
+  --ink: #172d29;
+  --green: #235e49;
+  --muted: #50645b;
+  --border: #d8e2d9;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #f9fbf7;
+  color: var(--ink);
+  font: 14px/1.5 system-ui, sans-serif;
+}
+header {
+  min-height: 62px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 12px 24px;
+  background: #132e27;
+  color: white;
+}
+.brand { font-weight: 800; font-size: 22px; letter-spacing: .13em; }
+.header-title { color: #d0e2d7; }
+header a { color: #e7f4ec; margin-left: auto; font-size: 12px; }
+main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 330px;
+  height: calc(100dvh - 62px);
+  min-height: 490px;
+}
+aside {
+  padding: 24px 22px;
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+}
+h1 { font-size: 26px; line-height: 1.1; margin: 0 0 7px; }
+h2 { font-size: 15px; margin: 0; }
+p { margin: 8px 0; }
+.intro { color: var(--muted); margin-bottom: 20px; }
+label, legend, summary { font-weight: 650; }
+label[for="year"], label[for="record"] { display: block; margin-bottom: 6px; }
+button, select, input[type="number"] {
+  border: 1px solid #bccdc0;
+  border-radius: 5px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  padding: 7px 10px;
+}
+button { cursor: pointer; }
+button:hover { background: #e8f2e9; }
+:focus-visible { outline: 2px solid #137bbb; outline-offset: 2px; }
+#year { width: 100%; }
+#record-detail { margin: 16px 0; }
+#record-detail button[aria-pressed="true"] { background: #e3f0ea; }
+#status, .note { font-size: 12px; color: var(--muted); }
+#status.error { color: #a12f1d; }
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px 0;
+  border-block: 1px solid var(--border);
+}
+.stats strong { display: block; font-size: 24px; line-height: 1.15; }
+.stats span { font-size: 11px; color: var(--muted); }
+fieldset { border: 0; padding: 0; margin: 18px 0 12px; }
+fieldset label { display: block; margin: 5px 0; font-weight: 500; }
+input[type="checkbox"] { accent-color: var(--green); }
+.playback { display: flex; align-items: center; gap: 12px; }
+.playback label { font-size: 12px; }
+form, details, #record-detail { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--border); }
+.record-controls, .record-heading { display: flex; align-items: center; gap: 7px; }
+.record-controls input { width: 100%; min-width: 0; }
+.network-filters { border: 0; margin: 0; padding: 0; }
+.network-filters details { margin: 8px 0; padding-top: 8px; }
+.network-filters details label { display: block; margin-top: 8px; }
+.network-filters select, #edge-choice { width: 100%; }
+.inspector { margin-top: 16px; padding-top: 13px; border-top: 1px solid var(--border); }
+.panel-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 9px; }
+.edge-records { list-style: none; padding: 0; margin: 0; }
+.edge-records button { width: 100%; text-align: left; font-size: 12px; }
+.edge-records strong, .edge-records span { display: block; }
+.edge-records span { color: var(--muted); }
+.record-heading h2 { flex: 1; }
+ol { padding-left: 19px; }
+li { padding: 3px 0; }
+details { font-size: 12px; }
+details a { color: var(--green); }
+summary { cursor: pointer; }
+.map-panel { position: relative; overflow: hidden; background: #e3ecdf; }
+#network-map { position: absolute; inset: 0; }
+.map-controls, .legend, #map-error {
+  position: absolute;
+  z-index: 1;
+  left: 16px;
+}
+.map-controls { display: flex; flex-wrap: wrap; gap: 6px; top: 16px; right: 16px; }
+.legend {
+  bottom: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  border-radius: 5px;
+  padding: 8px 12px;
+  background: #fffffff2;
+  font-size: 11px;
+  pointer-events: none;
+}
+.legend span { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 17px; height: 3px; border-radius: 4px; }
+.road { background: #cb641f; }
+.domestic { background: #16805d; }
+.international { background: #1970cc; }
+.legend .domestic { height: 0; background: none; border-top: 2px dashed #57746f; border-radius: 0; }
+.road-stages { padding-left: 18px; font-size: 12px; }
+.road-stages strong { display: block; }
+#record-roads h3 { margin: 0; font-size: 14px; }
+#map-error { top: 66px; padding: 10px; background: #fff2dd; }
+[hidden] { display: none !important; }
+@media (max-width: 680px) {
+  main { display: block; height: auto; }
+  .map-panel { height: 49dvh; min-height: 295px; }
+  header { padding: 10px 14px; gap: 10px; }
+  .header-title { display: none; }
+  aside { border-left: 0; padding: 18px; }
+  .legend { right: 12px; width: fit-content; }
+}
