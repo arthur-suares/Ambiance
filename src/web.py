@@ -56,6 +56,7 @@ class Handler(BaseHTTPRequestHandler):
             "/index.html": ("agro_map.html", "text/html; charset=utf-8"),
             "/explorar/agro_map.css": ("agro_map.css", "text/css; charset=utf-8"),
             "/explorar/agro_map.js": ("agro_map.js", "text/javascript; charset=utf-8"),
+            "/explorar/ufs.geojson": ("data/ufs.geojson", "application/geo+json; charset=utf-8"),
         }
         if p in assets:
             name, ctype = assets[p]
@@ -234,6 +235,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
+        # Página, CSS e JS mudam com frequência: o navegador nunca deve usar uma cópia velha.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(payload)
 

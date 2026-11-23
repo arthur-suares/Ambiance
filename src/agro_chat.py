@@ -121,11 +121,10 @@ def _format_table_for_llm(cols: list[str], rows: list[dict[str, Any]], label: st
 
 def _run_law_search(query: str, k: int) -> list[dict[str, Any]]:
     from src.embeddings import embed_query
-    from src.vector_store import get_connection, hybrid_search
+    from src.vector_store import hybrid_search
 
     q_emb = embed_query(query)
-    with get_connection() as con:
-        return hybrid_search(con, query, q_emb, k=k)
+    return hybrid_search(query, q_emb, limit=k)
 
 
 def _format_view_context(view_context: dict[str, Any] | None) -> str:

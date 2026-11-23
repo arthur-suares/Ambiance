@@ -2,155 +2,202 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Agro · Mapa 3D Interativo &amp; IA Socioambiental</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <title>Agro · Assistente Socioambiental</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
-  <link rel="stylesheet" href="/explorar/agro_map.css">
+  <link rel="stylesheet" href="/explorar/agro_map.css?v=14">
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script defer src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
-  <script defer src="/explorar/agro_map.js"></script>
+  <script defer src="/explorar/agro_map.js?v=14"></script>
 </head>
 <body>
-  <!-- ZONA 1: BARRA SUPERIOR ÚNICA (4 Visões Temáticas + Filtros Globais + Busca) -->
-  <header class="topbar" aria-label="Visões e filtros globais">
-    <div class="brand">
-      <span class="badge">AGRO 3D</span>
-      <strong>Mapa Socioambiental</strong>
+<!-- Estados da página:
+     .is-home   → só a pergunta, centralizada (sem mapa)
+     .has-answer → resposta da IA na coluna
+     .map-open  → o mapa aparece ao lado, focado no lugar que a resposta citou -->
+<div class="app is-home" id="app">
+
+  <!-- COLUNA DA CONVERSA -->
+  <section class="chat-col" aria-label="Conversa com a IA">
+    <header class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <strong>Agro</strong>
+        <span>assistente socioambiental</span>
+      </div>
+      <button id="new-chat" type="button" class="ghost-btn small-txt" hidden>Nova pergunta</button>
+    </header>
+
+    <div class="hero">
+      <h1>Pergunte sobre desmatamento, emissões e produção no Brasil.</h1>
+      <p>A IA consulta os dados (Trase, MapBiomas, IBGE, SEEG, INPE) e as leis ambientais. Quando a resposta falar de um lugar, o mapa abre direto nele.</p>
     </div>
 
-    <nav class="presets" aria-label="Visões temáticas">
-      <button type="button" class="preset-btn is-active" data-preset="risco">Risco &amp; Desmatamento</button>
-      <button type="button" class="preset-btn" data-preset="emissoes">Emissões (SEEG)</button>
-      <button type="button" class="preset-btn" data-preset="cadeias">Cadeias &amp; Exportação</button>
-      <button type="button" class="preset-btn" data-preset="producao">Produção (IBGE)</button>
-    </nav>
-
-    <div class="global-filters">
-      <label title="Cadeia produtiva">
-        <span class="sr-only">Cadeia</span>
-        <select id="chain-select" aria-label="Cadeia produtiva">
-          <option value="all">Todas cadeias</option>
-          <option value="bovinos" selected>Bovinos</option>
-          <option value="soja">Soja</option>
-        </select>
-      </label>
-
-      <label title="Filtrar por Bioma">
-        <span class="sr-only">Bioma</span>
-        <select id="bioma-select" aria-label="Bioma">
-          <option value="">Todos biomas</option>
-        </select>
-      </label>
-
-      <label title="Filtrar por Estado (UF)">
-        <span class="sr-only">UF</span>
-        <select id="uf-select" aria-label="Estado">
-          <option value="">Brasil (UFs)</option>
-        </select>
-      </label>
-
-      <div class="search-wrap">
-        <input id="mun-search" type="search" placeholder="Buscar município ou IBGE…" autocomplete="off" aria-label="Buscar município">
-        <div id="mun-search-results" class="search-results" hidden></div>
+    <div class="thread" id="thread">
+      <p id="asked-q" class="asked-q" hidden></p>
+      <div id="pending" class="pending" hidden>
+        <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span id="pending-txt">Consultando dados e leis…</span>
       </div>
 
-      <button id="btn-presentation" type="button" class="secondary small" title="Alternar modo apresentação">Tela cheia</button>
-    </div>
-  </header>
+      <section id="ai-result" class="ai-result" hidden>
+        <!-- Depois da resposta: o que dá para ver a partir dela (avaliado resposta a resposta) -->
+        <div id="views" class="views" hidden>
+          <p class="views-title">Ver esta resposta de outro jeito</p>
+          <div class="view-cards">
+            <button id="view-map" type="button" class="view-card" hidden>
+              <span class="vc-ico vc-map" aria-hidden="true"></span>
+              <span class="vc-txt"><strong>Mapa</strong><small id="view-map-desc"></small></span>
+            </button>
+            <button id="view-charts" type="button" class="view-card" hidden>
+              <span class="vc-ico vc-chart" aria-hidden="true"></span>
+              <span class="vc-txt"><strong>Gráficos</strong><small id="view-charts-desc"></small></span>
+            </button>
+          </div>
+        </div>
+        <p id="views-none" class="views-none" hidden></p>
+        <div id="ai-answer" class="prose"></div>
+        <div id="ai-tables"></div>
+        <details id="ai-laws-box" hidden>
+          <summary id="ai-laws-summary">Fontes jurídicas</summary>
+          <ol id="ai-laws" class="law-list"></ol>
+        </details>
+        <details id="ai-sql-box" hidden>
+          <summary>Consultas executadas (PostgreSQL somente-leitura)</summary>
+          <div id="ai-sql"></div>
+        </details>
+        <p id="ai-usage" class="meta"></p>
+      </section>
 
-  <!-- ZONA 3 BASE: CANVAS FULL-SCREEN + OVERLAYS -->
-  <main class="stage">
+      <div id="ai-spec-banner" class="spec-banner" hidden>
+        <span>Mapa ajustado pela IA</span>
+        <button id="undo-ai-spec" type="button" class="secondary small">Desfazer</button>
+      </div>
+
+      <details id="history-box" class="history-box" hidden>
+        <summary>Perguntas anteriores (<span id="history-count">0</span>)</summary>
+        <ol id="history-list" class="top-list"></ol>
+      </details>
+    </div>
+
+    <form id="ask-form" class="ask-form">
+      <label for="question" class="sr-only">Sua pergunta</label>
+      <textarea id="question" rows="3" placeholder="Ex.: Quais municípios de Goiás mais desmataram em 2022 e o que diz o Código Florestal?" required></textarea>
+      <div class="form-row">
+        <select id="ask-mode" aria-label="Fontes da resposta">
+          <option value="agro">Dados + Leis</option>
+          <option value="laws">Só Leis</option>
+        </select>
+        <span id="context-pill" class="context-pill"></span>
+        <span id="ask-status" class="meta"></span>
+        <button id="ask-btn" type="submit">Perguntar</button>
+      </div>
+    </form>
+
+    <div class="chips" aria-label="Exemplos de perguntas">
+      <button type="button" class="chip" data-q="Quais municípios de Goiás tiveram mais desmatamento em 2022 e o que o Código Florestal exige de Reserva Legal no Cerrado?">Desmatamento em Goiás + Código Florestal</button>
+      <button type="button" class="chip" data-q="Quais municípios do Pará tiveram maiores emissões por mudança de uso da terra no SEEG em 2022?">Emissões por desmatamento no Pará</button>
+      <button type="button" class="chip" data-q="Quais municípios do Pantanal concentraram mais alertas do INPE DETER em 2025?">Alertas DETER no Pantanal</button>
+      <button type="button" class="chip" data-q="O que a Lei da Mata Atlântica proíbe sobre supressão de vegetação primária?">Só leis: Mata Atlântica</button>
+    </div>
+
+    <button id="open-map-btn" type="button" class="link-btn">ou explore o mapa do Brasil →</button>
+  </section>
+
+  <!-- MAPA (só aparece depois de uma resposta com lugar, ou pelo link acima) -->
+  <!-- GRÁFICOS da resposta (abre só quando o usuário escolhe) -->
+  <section id="charts" class="charts-panel" aria-label="Gráficos da resposta">
+    <header class="charts-head">
+      <div>
+        <p class="legend-kicker">Gráficos desta resposta</p>
+        <h2 id="charts-title">—</h2>
+        <p id="charts-desc" class="charts-desc"></p>
+      </div>
+      <button id="close-charts" type="button" class="tool" title="Fechar gráficos" aria-label="Fechar gráficos">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </header>
+    <div id="charts-body" class="charts-body"></div>
+  </section>
+
+  <main class="stage" aria-label="Mapa">
     <div id="map-canvas"></div>
     <div id="map-tooltip" class="tooltip" hidden></div>
 
-    <!-- Botão discreto para sair do Modo Apresentação -->
+    <!-- Temas do mapa -->
+    <nav class="presets" aria-label="Tema do mapa">
+      <button type="button" class="preset-btn is-active" data-preset="risco"><span class="ico ico-risco" aria-hidden="true"></span>Desmatamento</button>
+      <button type="button" class="preset-btn" data-preset="emissoes"><span class="ico ico-emissoes" aria-hidden="true"></span>Emissões</button>
+      <button type="button" class="preset-btn" data-preset="cadeias"><span class="ico ico-cadeias" aria-hidden="true"></span>Exportação</button>
+      <button type="button" class="preset-btn" data-preset="producao"><span class="ico ico-producao" aria-hidden="true"></span>Produção</button>
+    </nav>
+    <div class="crumb"><span id="crumb-text">Brasil</span></div>
+
     <button id="exit-presentation" type="button" class="exit-pres-btn" hidden>Sair da tela cheia</button>
+    <nav id="reopen-left" class="rail" hidden aria-hidden="true"></nav>
 
-    <!-- Botão para reabrir Gaveta Esquerda quando recolhida -->
-    <button id="reopen-left" type="button" class="reopen-left-btn" hidden>Painel IA &amp; Camadas</button>
+    <section id="legend-card" class="legend-card" aria-label="Legenda">
+      <div class="legend-top">
+        <span class="legend-kicker">Legenda</span>
+        <button id="toggle-caveat" type="button" class="info-btn" title="Nota metodológica e limitações" aria-expanded="false">i</button>
+      </div>
+      <p id="map-desc" class="map-desc" hidden></p>
+      <h2 id="legend-title" class="legend-title">Métrica</h2>
+      <ol id="legend-steps" class="legend-steps"></ol>
+      <div id="legend-bar" class="legend-bar" hidden></div>
+      <div class="legend-ticks" hidden><span>0</span><span id="legend-mid">—</span><span id="legend-max">—</span></div>
+      <div id="legend-extra" class="legend-extra"></div>
+      <div id="ub-source" class="ub-line">Fonte: —</div>
+      <div id="ub-coverage" class="ub-sub"></div>
+      <div id="ub-caveat" class="ub-caveat" hidden></div>
+    </section>
 
-    <!-- ZONA 2: GAVETA ESQUERDA COLAPSÁVEL (3 Abas Limpas) -->
-    <aside id="left-drawer" class="left-drawer" aria-label="Painel de análise e camadas">
+    <!-- Painel: filtros, camadas e ranking -->
+    <aside id="left-drawer" class="left-drawer" aria-label="Filtros e camadas" hidden>
       <div class="drawer-tabs">
-        <button type="button" class="tab-btn is-active" data-tab="ai">Assistente IA</button>
-        <button type="button" class="tab-btn" data-tab="layers">Camadas &amp; 3D</button>
+        <button type="button" class="tab-btn is-active" data-tab="layers">Filtros e camadas</button>
         <button type="button" class="tab-btn" data-tab="ranking">Ranking</button>
-        <button id="toggle-left" type="button" class="icon-btn" title="Recolher painel" aria-label="Recolher painel">‹</button>
+        <button id="toggle-left" type="button" class="icon-btn" title="Fechar painel" aria-label="Fechar painel">×</button>
       </div>
 
-      <!-- ABA 1: ASSISTENTE IA -->
-      <section id="tab-ai" class="tab-panel is-active">
-        <form id="ask-form" class="ask-form">
-          <div class="ctx-row">
-            <span id="context-pill" class="context-pill">Contexto: Brasil · 2022</span>
-            <select id="ask-mode" aria-label="Modo da consulta">
-              <option value="agro">Dados + Leis</option>
-              <option value="laws">Só Leis</option>
+      <section id="tab-layers" class="tab-panel is-active">
+        <div class="search-wrap">
+          <input id="mun-search" type="search" placeholder="Buscar município ou código IBGE" autocomplete="off" aria-label="Buscar município">
+          <div id="mun-search-results" class="search-results" hidden></div>
+        </div>
+        <div class="global-filters">
+          <label class="field"><span>Cadeia</span>
+            <select id="chain-select" aria-label="Cadeia produtiva">
+              <option value="all">Todas</option>
+              <option value="bovinos" selected>Bovinos</option>
+              <option value="soja">Soja</option>
             </select>
-          </div>
-          <label for="question" class="sr-only">Pergunte sobre dados agroambientais ou leis</label>
-          <textarea id="question" rows="3" placeholder="Ex.: Quais os piores municípios neste recorte e o que exige o Código Florestal? (Cmd/Ctrl+Enter)" required></textarea>
-          <div class="form-row">
-            <button id="ask-btn" type="submit">Analisar com IA</button>
-            <span id="ask-status" class="meta"></span>
-          </div>
-        </form>
-
-        <div class="chips" aria-label="Exemplos de consultas">
-          <button type="button" class="chip" data-q="Quais os 5 municípios com maior exposição ao desmatamento neste recorte e o que o Código Florestal exige para Reserva Legal?">Top risco + Código Florestal</button>
-          <button type="button" class="chip" data-q="Quais municípios do Pantanal concentraram mais alertas do INPE DETER em 2025 e 2026?">DETER Pantanal (2025–2026)</button>
-          <button type="button" class="chip" data-q="Quais municípios do Pará tiveram maiores emissões de Mudança de Uso da Terra no SEEG em 2024 e quantos frigoríficos eles possuem?">SEEG + Frigoríficos (PA)</button>
-          <button type="button" class="chip" data-q="Compare a exportação oficial do Comex Stat com os fluxos rastreados da Trase para soja em 2022.">Comex Stat × Trase (Soja)</button>
+          </label>
+          <label class="field"><span>Bioma</span>
+            <select id="bioma-select" aria-label="Bioma"><option value="">Todos</option></select>
+          </label>
+          <label class="field"><span>Estado</span>
+            <select id="uf-select" aria-label="Estado"><option value="">Brasil</option></select>
+          </label>
         </div>
 
-        <div id="ai-spec-banner" class="spec-banner" hidden>
-          <span>Recorte aplicado ao mapa pela IA</span>
-          <button id="undo-ai-spec" type="button" class="secondary small">Desfazer</button>
-        </div>
-
-        <section id="ai-result" class="ai-result" hidden>
-          <div id="ai-answer" class="prose"></div>
-          <div id="ai-tables"></div>
-          <details id="ai-laws-box" hidden>
-            <summary id="ai-laws-summary">Fontes jurídicas</summary>
-            <ol id="ai-laws" class="law-list"></ol>
-          </details>
-          <details id="ai-sql-box" hidden>
-            <summary>Consultas executadas (PostgreSQL somente-leitura)</summary>
-            <div id="ai-sql"></div>
-          </details>
-          <p id="ai-usage" class="meta"></p>
-        </section>
-
-        <details id="history-box" class="history-box" hidden>
-          <summary>Histórico desta sessão (<span id="history-count">0</span>)</summary>
-          <ol id="history-list" class="top-list"></ol>
-        </details>
-      </section>
-
-      <!-- ABA 2: CAMADAS & 3D (Único centro de controle visual) -->
-      <section id="tab-layers" class="tab-panel" hidden>
         <div class="layer-card">
-          <div class="layer-head">
-            <label><input type="checkbox" id="toggle-choro" checked> <strong>Coroplético Municipal</strong></label>
-          </div>
-          <select id="metric-select" aria-label="Métrica do coroplético"></select>
+          <div class="layer-head"><label><input type="checkbox" id="toggle-ufs" checked> <strong>Limites dos estados</strong></label></div>
         </div>
-
+        <div class="layer-card">
+          <div class="layer-head"><label><input type="checkbox" id="toggle-choro" checked> <strong>Municípios (cor por indicador)</strong></label></div>
+          <select id="metric-select" aria-label="Indicador dos municípios"></select>
+        </div>
         <div class="layer-card">
           <div class="layer-head">
             <label><input type="checkbox" id="toggle-deter" checked> <strong>Alertas INPE DETER</strong></label>
             <span class="pill-tag">até 2026</span>
           </div>
-          <p class="meta">Alertas de desmatamento e queimada (Amazônia, Cerrado e Pantanal).</p>
         </div>
-
         <div class="layer-card">
-          <div class="layer-head">
-            <label><input type="checkbox" id="toggle-flows"> <strong>Fluxos Comerciais (Trase)</strong></label>
-          </div>
+          <div class="layer-head"><label><input type="checkbox" id="toggle-flows"> <strong>Fluxos comerciais (Trase)</strong></label></div>
           <select id="flow-country" aria-label="País de destino">
-            <option value="">Todos países de destino</option>
+            <option value="">Todos os países de destino</option>
             <option value="CN">China</option>
             <option value="NL">Países Baixos</option>
             <option value="ES">Espanha</option>
@@ -159,44 +206,34 @@
             <option value="HK">Hong Kong</option>
           </select>
         </div>
-
         <div class="layer-card">
           <div class="layer-head">
-            <label><input type="checkbox" id="toggle-facilities"> <strong>Frigoríficos &amp; Silos</strong></label>
-            <span class="pill-tag">31,5k pontos</span>
+            <label><input type="checkbox" id="toggle-facilities"> <strong>Frigoríficos e silos</strong></label>
+            <span class="pill-tag">31,5 mil pontos</span>
           </div>
-          <p class="meta">Segue automaticamente o filtro global de cadeia (Bovinos / Soja / Todas).</p>
         </div>
-
         <div class="layer-card">
-          <div class="layer-head"><strong>Visualização &amp; Relevo 3D</strong></div>
-          <label class="field-label">Base / Terreno
+          <div class="layer-head"><strong>Mapa de fundo e 3D</strong></div>
+          <label class="field-label">Mapa de fundo
             <select id="basemap-mode">
-              <option value="dark">Escuro 3D (Alto contraste)</option>
-              <option value="terrain">Relevo 3D + Satélite (TerrainExtension)</option>
-              <option value="light">Claro (Cartográfico)</option>
+              <option value="light">Claro (cartográfico)</option>
+              <option value="dark">Escuro</option>
+              <option value="terrain">Relevo 3D + satélite</option>
             </select>
           </label>
-
           <div class="checks-2col">
-            <label><input type="checkbox" id="toggle-extrude-mun"> Municípios 3D</label>
-            <label><input type="checkbox" id="toggle-hex-mode" checked> Hexágonos 3D</label>
+            <label><input type="checkbox" id="toggle-extrude-mun"> Municípios em 3D</label>
+            <label><input type="checkbox" id="toggle-hex-mode" checked> Alertas em colunas</label>
           </div>
-
           <div id="hex-controls" class="hex-controls">
-            <label class="slider-row">
-              <span>Raio do hexágono: <strong id="hex-radius-val">18 km</strong></span>
-              <input id="hex-radius" type="range" min="4" max="50" step="2" value="18">
-            </label>
-            <label class="slider-row">
-              <span>Escala de elevação: <strong id="hex-elev-val">120×</strong></span>
-              <input id="hex-elevation" type="range" min="10" max="400" step="10" value="120">
-            </label>
+            <label class="slider-row"><span>Tamanho da coluna: <strong id="hex-radius-val">18 km</strong></span>
+              <input id="hex-radius" type="range" min="4" max="50" step="2" value="18"></label>
+            <label class="slider-row"><span>Altura: <strong id="hex-elev-val">120×</strong></span>
+              <input id="hex-elevation" type="range" min="10" max="400" step="10" value="120"></label>
           </div>
         </div>
       </section>
 
-      <!-- ABA 3: RANKING TERRITORIAL -->
       <section id="tab-ranking" class="tab-panel" hidden>
         <div class="rank-head">
           <h2 id="top-title">Top municípios</h2>
@@ -206,7 +243,34 @@
       </section>
     </aside>
 
-    <!-- DRAWER DIREITO CONTEXTUAL (Raio-X Municipal — só abre ao clicar no mapa) -->
+    <div class="toolbar" role="toolbar" aria-label="Ferramentas do mapa">
+      <button id="close-map" type="button" class="tool" title="Fechar mapa" aria-label="Fechar mapa">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+      <button type="button" class="tool" data-open="layers" title="Filtros e camadas" aria-label="Filtros e camadas">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5Zm-8.2 9L12 16.1 20.2 12M3.8 16 12 20.1 20.2 16"/></svg>
+      </button>
+      <button type="button" class="tool" data-open="ranking" title="Ranking" aria-label="Ranking">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10M12 20V4M19 20v-7"/></svg>
+      </button>
+      <span class="tool-gap"></span>
+      <button id="cam-3d" type="button" class="tool tool-text is-active" title="Visão 3D">3D</button>
+      <button id="cam-2d" type="button" class="tool tool-text" title="Visão de cima (2D)">2D</button>
+      <span class="tool-gap"></span>
+      <button id="reset-view" type="button" class="tool" title="Voltar ao Brasil" aria-label="Voltar ao Brasil">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/></svg>
+      </button>
+      <button id="zoom-in" type="button" class="tool" title="Aproximar" aria-label="Aproximar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <button id="zoom-out" type="button" class="tool" title="Afastar" aria-label="Afastar">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14"/></svg>
+      </button>
+      <button id="btn-presentation" type="button" class="tool" title="Tela cheia (esconder painéis)" aria-label="Tela cheia">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>
+      </button>
+    </div>
+
     <aside id="mun-drawer" class="right-drawer" aria-label="Raio-X do município" hidden>
       <div class="drawer-head">
         <div>
@@ -215,9 +279,7 @@
         </div>
         <button id="mun-close" type="button" class="icon-btn" aria-label="Fechar painel municipal">×</button>
       </div>
-
       <div id="mun-grid" class="kpi-grid"></div>
-
       <div class="spark-card">
         <div class="spark-head">
           <span id="spark-title" class="meta">Tendência 2015–2025</span>
@@ -225,44 +287,20 @@
         </div>
         <div id="mun-sparkline" class="sparkline-wrap"></div>
       </div>
-
       <p id="mun-deter" class="meta deter-note"></p>
-      <button id="mun-ask-ai" type="button" class="full">Analisar este município com IA + Leis</button>
+      <button id="mun-ask-ai" type="button" class="full">Perguntar à IA sobre este município</button>
     </aside>
 
-    <!-- CARTÃO UNIFICADO: LEGENDA + TRANSPARÊNCIA / INCERTEZA -->
-    <div id="legend-card" class="legend-card">
-      <div class="legend-top">
-        <span id="legend-title" class="legend-title">Métrica</span>
-        <button id="toggle-caveat" type="button" class="info-btn" title="Nota metodológica e limitações" aria-expanded="false">i</button>
-      </div>
-      <div id="legend-bar" class="legend-bar"></div>
-      <div class="legend-ticks">
-        <span>0</span>
-        <span id="legend-mid">—</span>
-        <span id="legend-max">—</span>
-      </div>
-      <div id="ub-source" class="ub-line">Fonte: —</div>
-      <div id="ub-coverage" class="ub-sub"></div>
-      <div id="ub-caveat" class="ub-caveat" hidden></div>
-    </div>
-
-    <!-- RODAPÉ ÚNICO: TIME SLIDER GLOBAL + CÂMERA + STATUS -->
     <footer class="bottom-bar">
       <div class="timeline-group">
-        <span class="timeline-label">Ano: <strong id="year-label">2022</strong></span>
-        <input id="year-slider" type="range" min="2004" max="2026" step="1" value="2022">
+        <button id="year-play" type="button" class="ghost-btn" aria-label="Animar anos" title="Animar anos">▶</button>
+        <strong id="year-label" class="year-label">2022</strong>
+        <input id="year-slider" type="range" min="2004" max="2026" step="1" value="2022" aria-label="Ano">
         <span id="year-fallback-badge" class="fallback-badge" hidden></span>
       </div>
-
-      <div class="camera-group">
-        <button id="cam-2d" type="button" class="secondary small">2D</button>
-        <button id="cam-3d" type="button" class="small">3D</button>
-        <button id="reset-view" type="button" class="secondary small">Brasil</button>
-      </div>
-
-      <span id="map-status" class="meta status-text">Inicializando mapa…</span>
+      <span id="map-status" class="meta status-text">Carregando dados…</span>
     </footer>
   </main>
+</div>
 </body>
 </html>
