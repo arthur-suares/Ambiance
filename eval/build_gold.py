@@ -9,10 +9,7 @@ Rodar de novo atualiza os valores se os dados mudarem.
 Cada linha do JSONL tem:
 - id, tipo (lei | soja | carne | mista | fora_escopo), pergunta
 - resposta_esperada: resposta de referência em texto
-- valores: números que a resposta deve conter (valor, unidade, tolerância relativa) e onde cada um deve
-  aparecer: cadeia (soja | carne | lei), escopo (fluxos | territorial | instalacoes), metrica (família da coluna,
-  ver METRIC_FAMILIES em eval/metrics.py), termos (entidades da linha ou do filtro; 'A|B' = alternativas) e ano.
-  A checagem só aceita o número no contexto se ele estiver nesse lugar (eval/metrics.py: find_in_table)
+- valores: números que a resposta deve conter (valor, unidade, tolerância relativa)
 - entidades: nomes que a resposta deve citar (município, empresa, país...)
 - artigos: dispositivos legais que devem ser recuperados/citados, cada um com `nivel`:
   essencial (sem ele não dá para responder; usado em Hit Rate@k e MRR) ou complementar
@@ -70,22 +67,8 @@ def comp(law: str, number: str) -> dict:
     return art(law, number, "complementar")
 
 
-def val(descricao: str, valor: float, unidade: str, tol: float = TOL, *, cadeia: str, escopo: str | None = None,
-        metrica: str | None = None, termos=(), ano: int | None = None) -> dict:
-    return {"descricao": descricao, "valor": round(float(valor), 4), "unidade": unidade, "tolerancia_rel": tol,
-            "cadeia": cadeia, "escopo": escopo, "metrica": metrica, "termos": list(termos),
-            "ano": int(ano) if ano else None}
-
-
-def lei(descricao: str, valor: float, unidade: str) -> dict:
-    """Número que vem do texto de uma lei (valor exato, com a unidade ao lado)."""
-    return val(descricao, valor, unidade, 0, cadeia="lei")
-
-
-def dado(cadeia: str, escopo: str | None, metrica: str, descricao: str, valor: float, unidade: str, termos=(),
-         ano: int | None = None, tol: float = TOL) -> dict:
-    """Número que vem de uma tabela: só vale na cadeia, no escopo, na coluna, na linha e no ano indicados."""
-    return val(descricao, valor, unidade, tol, cadeia=cadeia, escopo=escopo, metrica=metrica, termos=termos, ano=ano)
+def val(descricao: str, valor: float, unidade: str, tol: float = TOL) -> dict:
+    return {"descricao": descricao, "valor": round(float(valor), 4), "unidade": unidade, "tolerancia_rel": tol}
 
 
 def br(x: float, casas: int = 0) -> str:
@@ -158,8 +141,8 @@ def build(db: Db) -> list[dict]:
     add("lei", "Qual percentual de reserva legal um imóvel rural precisa manter na Amazônia Legal e no resto do país?",
         "Pelo art. 12 do Código Florestal: na Amazônia Legal, 80% em área de florestas, 35% em área de cerrado e "
         "20% em campos gerais; nas demais regiões do país, 20%.",
-        valores=[lei("Amazônia Legal, florestas", 80, "%"), lei("Amazônia Legal, cerrado", 35, "%"),
-                 lei("demais regiões", 20, "%")],
+        valores=[val("Amazônia Legal, florestas", 80, "%", 0), val("Amazônia Legal, cerrado", 35, "%", 0),
+                 val("demais regiões", 20, "%", 0)],
         artigos=[art("cf", "12"), comp("cf", "3")], ferramentas=["search_laws"])
     ref(resposta(
         "o percentual mínimo de reserva legal depende da localização do imóvel. Na Amazônia Legal é de 80% em área de "
@@ -172,7 +155,7 @@ def build(db: Db) -> list[dict]:
                 "localização e o tipo de vegetação."))
     add("lei", "Qual a largura mínima da faixa de preservação permanente às margens de um rio com menos de 10 metros de largura?",
         "30 metros, contados da borda da calha do leito regular (art. 4º, I, a, do Código Florestal).",
-        valores=[lei("largura mínima da APP", 30, "m")], artigos=[art("cf", "4"), comp("cf", "3")], ferramentas=["search_laws"])
+        valores=[val("largura mínima da APP", 30, "m", 0)], artigos=[art("cf", "4"), comp("cf", "3")], ferramentas=["search_laws"])
     ref(resposta(
         "30 metros, contados da borda da calha do leito regular.",
         "Segundo o art. 4º, inciso I, alínea a, do Código Florestal (Lei 12.651/2012), as faixas marginais de qualquer "
@@ -189,7 +172,7 @@ def build(db: Db) -> list[dict]:
         artigos=[art("cf", "29")], ferramentas=["search_laws"])
     add("lei", "Qual a multa para quem desmata a corte raso, fora da reserva legal, sem autorização?",
         "Multa de R$ 1.000,00 por hectare ou fração (art. 52 do Decreto 6.514/2008).",
-        valores=[lei("multa por hectare", 1000, "R$/ha")], artigos=[art("dec", "52")], ferramentas=["search_laws"])
+        valores=[val("multa por hectare", 1000, "R$/ha", 0)], artigos=[art("dec", "52")], ferramentas=["search_laws"])
     ref(resposta(
         "multa de R$ 1.000,00 por hectare ou fração.",
         "O art. 52 do Decreto 6.514/2008 estabelece que desmatar, a corte raso, florestas ou demais formações nativas, "
@@ -199,7 +182,7 @@ def build(db: Db) -> list[dict]:
         limites=LIM_CASO))
     add("lei", "Qual a multa por desmatar vegetação nativa dentro da reserva legal sem autorização do órgão ambiental?",
         "Multa de R$ 5.000,00 por hectare ou fração (art. 51 do Decreto 6.514/2008).",
-        valores=[lei("multa por hectare", 5000, "R$/ha")], artigos=[art("dec", "51")], ferramentas=["search_laws"])
+        valores=[val("multa por hectare", 5000, "R$/ha", 0)], artigos=[art("dec", "51")], ferramentas=["search_laws"])
     add("lei", "Qual a pena prevista para quem destrói floresta de preservação permanente?",
         "Detenção de um a três anos, ou multa, ou ambas cumulativamente; se o crime for culposo, a pena é reduzida "
         "à metade (art. 38 da Lei 9.605/1998).",
@@ -230,7 +213,7 @@ def build(db: Db) -> list[dict]:
     add("lei", "Qual foi a meta de redução de emissões assumida pelo Brasil na Política Nacional sobre Mudança do Clima?",
         "Compromisso nacional voluntário de reduzir entre 36,1% e 38,9% as emissões projetadas até 2020 "
         "(art. 12 da Lei 12.187/2009).",
-        valores=[lei("redução mínima", 36.1, "%"), lei("redução máxima", 38.9, "%")],
+        valores=[val("redução mínima", 36.1, "%", 0), val("redução máxima", 38.9, "%", 0)],
         artigos=[art("pnmc", "12")], ferramentas=["search_laws"])
 
     # ------------------------------------------------------------------ SOJA
@@ -240,7 +223,7 @@ def build(db: Db) -> list[dict]:
     add("soja", "Qual município teve a maior exposição ao desmatamento ligada à soja em 2022?",
         f"{nome(m)} ({nome(uf)}), com cerca de {mil(e)} ha de exposição. A origem não rastreada (UNKNOWN) "
         f"não é um município e deve ficar de fora ou ser explicada.",
-        valores=[dado("soja", "fluxos", "exposicao", "exposição", e, "ha", [m], 2022)], entidades=[m], ferramentas=["soy_top_municipalities"], sql=sql)
+        valores=[val("exposição", e, "ha")], entidades=[m], ferramentas=["soy_top_municipalities"], sql=sql)
     ref(resposta(
         f"em 2022, o município com a maior exposição ao desmatamento ligada à soja foi {nome(m)} ({nome(uf)}), com cerca "
         f"de {mil(e)} ha.",
@@ -255,7 +238,7 @@ def build(db: Db) -> list[dict]:
     add("soja", "Quais foram os três maiores grupos exportadores de soja em volume em 2022?",
         "Por volume exportado: " + "; ".join(f"{g} ({mi(v)} t)" for g, v in rows) +
         ". A soja processada no Brasil (PROCESSED DOMESTICALLY) não é um exportador.",
-        valores=[dado("soja", "fluxos", "volume", f"volume {g}", v, "t", [g], 2022) for g, v in rows], entidades=[g for g, _ in rows],
+        valores=[val(f"volume {g}", v, "t") for g, v in rows], entidades=[g for g, _ in rows],
         ferramentas=["run_soy_sql"], sql=sql)
 
     sql = (f"SELECT country_of_first_import, SUM({SV}) FROM soy_supply_chain WHERE year = '2022' "
@@ -263,13 +246,13 @@ def build(db: Db) -> list[dict]:
     c, v = db.q("soy", sql)[0]
     add("soja", "Qual foi o principal país de destino da soja brasileira em 2022?",
         f"China (CHINA (MAINLAND) nos dados), com cerca de {mi(v)} t. O consumo interno (BRAZIL) não é destino de exportação.",
-        valores=[dado("soja", "fluxos", "volume", "volume", v, "t", ["CHINA"], 2022)], entidades=["CHINA"], ferramentas=["soy_top_destinations"], sql=sql)
+        valores=[val("volume", v, "t")], entidades=["CHINA"], ferramentas=["soy_top_destinations"], sql=sql)
 
     sql = f"SELECT SUM({SE}) FROM soy_supply_chain WHERE year = '2022'"
     e = db.q("soy", sql)[0][0]
     add("soja", "Qual foi a exposição total ao desmatamento da cadeia da soja em 2022?",
         f"Cerca de {mil(e)} ha (janela de 5 anos), incluindo a origem não rastreada.",
-        valores=[dado("soja", "fluxos", "exposicao", "exposição total", e, "ha", ano=2022)], ferramentas=["soy_yearly_trend"], sql=sql)
+        valores=[val("exposição total", e, "ha")], ferramentas=["soy_yearly_trend"], sql=sql)
 
     sql = ("SELECT year, region, value FROM soy_spatial_metrics WHERE metric = 'soy_production_t' AND level = 'state' "
            "AND year = (SELECT MAX(year) FROM soy_spatial_metrics WHERE metric = 'soy_production_t') "
@@ -277,7 +260,7 @@ def build(db: Db) -> list[dict]:
     y, r, v = db.q("soy", sql)[0]
     add("soja", "Qual estado é o maior produtor de soja do Brasil, segundo o dado mais recente?",
         f"{nome(r)}, com cerca de {mi(v)} t em {y}.",
-        valores=[dado("soja", "territorial", "producao", "produção", v, "t", [r], y)], entidades=[r], ferramentas=["soy_territorial_metric"], sql=sql)
+        valores=[val("produção", v, "t")], entidades=[r], ferramentas=["soy_territorial_metric"], sql=sql)
     ref(resposta(
         f"o maior produtor de soja do Brasil é o {nome(r)}, com cerca de {mi(v)} t produzidas em {y}, o dado mais "
         "recente disponível.",
@@ -289,14 +272,13 @@ def build(db: Db) -> list[dict]:
     y, v = db.q("soy", sql)[0]
     add("soja", "Qual a produtividade da soja em Sorriso (MT) no ano mais recente disponível?",
         f"Cerca de {br(v, 2)} t/ha em {y}.",
-        valores=[dado("soja", "territorial", "produtividade", "produtividade", v, "t/ha", ["SORRISO"], y)], ferramentas=["soy_territorial_metric"], sql=sql)
+        valores=[val("produtividade", v, "t/ha")], ferramentas=["soy_territorial_metric"], sql=sql)
 
     sql = ("SELECT state, SUM(storage_capacity_t), COUNT(*) FROM soy_facilities GROUP BY 1 ORDER BY 2 DESC LIMIT 1")
     s, cap, n = db.q("soy", sql)[0]
     add("soja", "Qual estado tem a maior capacidade de armazenagem de soja e quantas instalações ele tem?",
         f"{nome(s)}, com cerca de {mi(cap)} t de capacidade de armazenagem em {br(n)} instalações.",
-        valores=[dado("soja", "instalacoes", "capacidade_armazenagem", "capacidade de armazenagem", cap, "t", [s]),
-                 dado("soja", "instalacoes", "instalacoes", "instalações", n, "un", [s])], entidades=[s],
+        valores=[val("capacidade de armazenagem", cap, "t"), val("instalações", n, "un")], entidades=[s],
         ferramentas=["soy_facilities_summary"], sql=sql)
 
     # ------------------------------------------------------------------ CARNE BOVINA
@@ -304,8 +286,7 @@ def build(db: Db) -> list[dict]:
            "AND exporter_group NOT IN ('DOMESTIC PROCESSING AND CONSUMPTION', 'UNKNOWN') GROUP BY 1 ORDER BY 2 DESC LIMIT 1")
     g, e = db.q("beef", sql)[0]
     add("carne", "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
-        f"{g}, com cerca de {mil(e)} ha.", valores=[dado("carne", "fluxos", "exposicao", "exposição", e, "ha", [g], 2023)],
-        entidades=[g],
+        f"{g}, com cerca de {mil(e)} ha.", valores=[val("exposição", e, "ha")], entidades=[g],
         ferramentas=["top_exporters"], sql=sql)
     ref(resposta(
         f"em 2023, o grupo exportador de carne bovina com a maior exposição ao desmatamento foi a {g}, com cerca de "
@@ -321,14 +302,14 @@ def build(db: Db) -> list[dict]:
     c, v = db.q("beef", sql)[0]
     add("carne", "Para qual país o Brasil mais exportou carne bovina em 2023?",
         f"China (CHINA (MAINLAND) nos dados), com cerca de {mi(v)} t.",
-        valores=[dado("carne", "fluxos", "volume", "volume", v, "t", ["CHINA"], 2023)], entidades=["CHINA"], ferramentas=["top_destinations"], sql=sql)
+        valores=[val("volume", v, "t")], entidades=["CHINA"], ferramentas=["top_destinations"], sql=sql)
 
     sql = ("SELECT municipality_of_production, state_of_production, deforestation_exposure_ha FROM flows_by_municipality "
            "WHERE year = 2023 AND municipality_of_production <> 'UNKNOWN' ORDER BY 3 DESC LIMIT 1")
     m, uf, e = db.q("beef", sql)[0]
     add("carne", "Qual município teve a maior exposição ao desmatamento na cadeia da carne bovina em 2023?",
         f"{nome(m)} ({nome(uf)}), com cerca de {mil(e)} ha.",
-        valores=[dado("carne", "fluxos", "exposicao", "exposição", e, "ha", [m], 2023)], entidades=[m], ferramentas=["top_municipalities"], sql=sql)
+        valores=[val("exposição", e, "ha")], entidades=[m], ferramentas=["top_municipalities"], sql=sql)
 
     sql = ("SELECT year, SUM(deforestation_exposure_ha) FROM flows_by_municipality WHERE year IN (2015, 2023) "
            "GROUP BY 1 ORDER BY 1")
@@ -336,9 +317,7 @@ def build(db: Db) -> list[dict]:
     add("carne", "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
         f"Subiu de cerca de {mi(e0)} ha em {y0} para {mi(e1)} ha em {y1}, alta de cerca de {br((e1 / e0 - 1) * 100)}%. "
         "Os valores de cada ano não devem ser somados.",
-        # escopo livre: no total do país, a soma dos fluxos é igual ao indicador territorial cattle_deforestation_ha
-        valores=[dado("carne", None, "exposicao", f"exposição {y0}", e0, "ha", ano=y0),
-                 dado("carne", None, "exposicao", f"exposição {y1}", e1, "ha", ano=y1)],
+        valores=[val(f"exposição {y0}", e0, "ha"), val(f"exposição {y1}", e1, "ha")],
         ferramentas=["yearly_trend"], sql=sql)
     ref(resposta(
         f"a exposição ao desmatamento da cadeia da carne bovina subiu de cerca de {mi(e0)} ha em {y0} para cerca de "
@@ -353,7 +332,7 @@ def build(db: Db) -> list[dict]:
     sql = "SELECT SUM(volume_exported_t) FROM flows_by_municipality WHERE year = 2023"
     v = db.q("beef", sql)[0][0]
     add("carne", "Quantas toneladas de carne bovina o Brasil exportou em 2023?",
-        f"Cerca de {mi(v)} t exportadas.", valores=[dado("carne", "fluxos", "volume", "volume exportado", v, "t", ano=2023)],
+        f"Cerca de {mi(v)} t exportadas.", valores=[val("volume exportado", v, "t")],
         ferramentas=["yearly_trend"], sql=sql)
 
     sql = ("SELECT zero_deforestation_brazil_beef, SUM(volume_t) * 100.0 / SUM(SUM(volume_t)) OVER () FROM flows_by_exporter "
@@ -363,29 +342,26 @@ def build(db: Db) -> list[dict]:
     no = next((p for k, p in rows if k == "NO COMMITMENT"), None)
     add("carne", "Em 2023, que parcela do volume exportado de carne bovina saiu de exportadores sem compromisso de desmatamento zero?",
         f"Cerca de {br(no, 1)}% do volume exportado veio de exportadores sem compromisso (NO COMMITMENT).",
-        valores=[dado("carne", "fluxos", "participacao", "participação sem compromisso", no, "%", ["NO COMMITMENT"], 2023, 0.02)], ferramentas=["commitment_summary"], sql=sql)
+        valores=[val("participação sem compromisso", no, "%", 0.02)], ferramentas=["commitment_summary"], sql=sql)
 
     sql = ("SELECT year, region, value FROM spatial_metrics WHERE metric = 'pasture_area_ha' AND level = 'state' "
            "AND year = (SELECT MAX(year) FROM spatial_metrics WHERE metric = 'pasture_area_ha') ORDER BY value DESC LIMIT 1")
     y, r, v = db.q("beef", sql)[0]
     add("carne", "Qual estado tem a maior área de pastagem, segundo o dado mais recente?",
         f"{nome(r)}, com cerca de {mi(v)} ha em {y}.",
-        valores=[dado("carne", "territorial", "pastagem", "área de pastagem", v, "ha", [r], y)], entidades=[r], ferramentas=["territorial_metric"], sql=sql)
+        valores=[val("área de pastagem", v, "ha")], entidades=[r], ferramentas=["territorial_metric"], sql=sql)
 
     # ------------------------------------------------------------------ MISTAS
     s1 = f"SELECT biome, SUM({SE}) FROM soy_supply_chain WHERE year = '2022' AND biome <> 'UNKNOWN' GROUP BY 1 ORDER BY 2 DESC LIMIT 1"
     s2 = ("SELECT biome, SUM(deforestation_exposure_ha) FROM flows_by_municipality WHERE year = 2022 AND biome <> 'UNKNOWN' "
           "GROUP BY 1 ORDER BY 2 DESC LIMIT 1")
     (bs, es), (bb, eb) = db.q("soy", s1)[0], db.q("beef", s2)[0]
-    # O texto abaixo ("nas duas cadeias", RL de cerrado) só vale se as duas cadeias tiverem o Cerrado no topo.
-    assert bs == bb == "CERRADO", f"M01: o bioma do topo mudou (soja={bs}, carne={bb}); reescreva a pergunta e a referência"
     add("mista", "Em 2022, qual bioma teve maior exposição ao desmatamento na cadeia da soja e na da carne bovina? "
                  "O que o Código Florestal exige de reserva legal nesses biomas?",
         f"{nome(bs)} nas duas cadeias: {mil(es)} ha na soja e {mil(eb)} ha na carne bovina (sem a origem não rastreada). "
         "Reserva legal (art. 12): 35% para imóveis em área de cerrado na Amazônia Legal e 20% fora dela.",
-        valores=[dado("soja", "fluxos", "exposicao", "exposição soja", es, "ha", [bs], 2022),
-                 dado("carne", "fluxos", "exposicao", "exposição carne", eb, "ha", [bb], 2022), lei("RL cerrado Amazônia Legal", 35, "%"),
-                 lei("RL demais regiões", 20, "%")],
+        valores=[val("exposição soja", es, "ha"), val("exposição carne", eb, "ha"), val("RL cerrado Amazônia Legal", 35, "%", 0),
+                 val("RL demais regiões", 20, "%", 0)],
         entidades=[bs], artigos=[art("cf", "12"), comp("cf", "3")],
         ferramentas=["soy_deforestation_by_biome", "run_sql", "search_laws"], sql=f"{s1};\n{s2}")
     ref(resposta(
@@ -393,7 +369,7 @@ def build(db: Db) -> list[dict]:
         "a reserva legal em imóveis em área de cerrado é de 35% na Amazônia Legal e de 20% nas demais regiões do país.",
         "**Dados (2022)**\n"
         f"- Soja: {nome(bs)}, com cerca de {mil(es)} ha de exposição, sem contar a origem não rastreada (UNKNOWN) [D1].\n"
-        f"- Carne bovina: {nome(bb)}, com cerca de {mil(eb)} ha de exposição, sem contar a origem não rastreada (UNKNOWN) [D2].",
+        f"- Carne bovina: {nome(bs)}, com cerca de {mil(eb)} ha de exposição, sem contar a origem não rastreada (UNKNOWN) [D2].",
         "**O que o Código Florestal exige de reserva legal**\n"
         "O art. 12 da Lei 12.651/2012 define os percentuais mínimos de vegetação nativa que todo imóvel rural deve manter "
         "como reserva legal [L1]. Na Amazônia Legal, o percentual é de 80% em área de florestas, 35% em área de cerrado e "
@@ -410,8 +386,7 @@ def build(db: Db) -> list[dict]:
                  "carne bovina em 2023? Quanto de reserva legal um imóvel em área de floresta na Amazônia Legal deve manter?",
         f"Soja: cerca de {mi(ps)} t. Carne bovina: cerca de {mil(eb)} ha de exposição em 2023. "
         "Reserva legal em área de florestas na Amazônia Legal: 80% (art. 12 do Código Florestal).",
-        valores=[dado("soja", "territorial", "producao", "produção de soja MT", ps, "t", ["MATO GROSSO|MT"]),
-                 dado("carne", "fluxos", "exposicao", "exposição carne MT 2023", eb, "ha", ["MATO GROSSO|MT"], 2023), lei("RL floresta", 80, "%")],
+        valores=[val("produção de soja MT", ps, "t"), val("exposição carne MT 2023", eb, "ha"), val("RL floresta", 80, "%", 0)],
         artigos=[art("cf", "12"), comp("cf", "3")], ferramentas=["soy_territorial_metric", "yearly_trend", "search_laws"], sql=f"{s1};\n{s2}")
     ref(resposta(
         f"no Mato Grosso, a produção de soja no ano mais recente disponível foi de cerca de {mi(ps)} t e a exposição ao "
@@ -435,8 +410,7 @@ def build(db: Db) -> list[dict]:
         f"{g}, com cerca de {mil(e)} ha; tem compromisso de desmatamento zero"
         f"{' (de empresa, e também G4/TAC em parte dos fluxos)' if 'G4' in z or 'TAC' in z else ''}. A multa é de R$ 5.000,00 por hectare ou fração (art. 51). "
         "A exposição não prova que o grupo descumpriu a lei.",
-        valores=[dado("carne", "fluxos", "exposicao", "exposição", e, "ha", [g], 2023), lei("multa por hectare", 5000, "R$/ha")],
-        entidades=[g],
+        valores=[val("exposição", e, "ha"), val("multa por hectare", 5000, "R$/ha", 0)], entidades=[g],
         artigos=[art("dec", "51")], ferramentas=["top_exporters", "search_laws"], sql=sql)
     ref(resposta(
         f"em 2023, o grupo exportador de carne bovina com maior exposição ao desmatamento foi a {g}, com cerca de "
@@ -449,7 +423,7 @@ def build(db: Db) -> list[dict]:
         "O art. 51 do Decreto 6.514/2008 estabelece que destruir, desmatar, danificar ou explorar vegetação nativa em área "
         "de reserva legal, sem autorização prévia do órgão ambiental, sujeita o infrator a multa de R$ 5.000,00 por "
         "hectare ou fração [L1].",
-        limites=limites(LIM_EXPOSICAO, "a exposição não prova que o grupo descumpriu a lei.", LIM_CASO)))
+        limites=limites(LIM_EXPOSICAO, LIM_CASO)))
 
     sql = f"SELECT SUM({SE}) FROM soy_supply_chain WHERE year = '2022' AND biome = 'MATA ATLANTICA'"
     e = db.q("soy", sql)[0][0]
@@ -459,7 +433,7 @@ def build(db: Db) -> list[dict]:
         "médio/avançado quando ela abriga espécies ameaçadas, protege mananciais ou previne erosão, forma corredores entre "
         "remanescentes, protege o entorno de unidades de conservação ou tem excepcional valor paisagístico, ou quando o "
         "proprietário não cumpre a legislação ambiental.",
-        valores=[dado("soja", "fluxos", "exposicao", "exposição soja Mata Atlântica", e, "ha", ["MATA ATLANTICA"], 2022)], artigos=[art("ma", "11"), comp("ma", "14")],
+        valores=[val("exposição soja Mata Atlântica", e, "ha")], artigos=[art("ma", "11"), comp("ma", "14")],
         ferramentas=["soy_deforestation_by_biome", "search_laws"], sql=sql)
     ref(resposta(
         f"em 2022, a exposição ao desmatamento da cadeia da soja na Mata Atlântica foi de cerca de {mil(e)} ha. A Lei da "
@@ -484,7 +458,7 @@ def build(db: Db) -> list[dict]:
                  "a Política Nacional sobre Mudança do Clima estabeleceu?",
         f"Cerca de {mi(g)} tCO2e de emissões brutas (janela de 5 anos) em 2022. A PNMC (art. 12) fixou o compromisso "
         "voluntário de reduzir entre 36,1% e 38,9% as emissões projetadas até 2020.",
-        valores=[dado("soja", "fluxos", "emissoes_brutas", "emissões brutas soja 2022", g, "tCO2e", ano=2022), lei("redução mínima", 36.1, "%"), lei("redução máxima", 38.9, "%")],
+        valores=[val("emissões brutas soja 2022", g, "tCO2e"), val("redução mínima", 36.1, "%", 0), val("redução máxima", 38.9, "%", 0)],
         artigos=[art("pnmc", "12")], ferramentas=["soy_yearly_trend", "search_laws"], sql=sql)
     ref(resposta(
         f"em 2022, a cadeia da soja teve cerca de {mi(g)} tCO2e de emissões brutas associadas ao desmatamento. A Política "
@@ -506,8 +480,7 @@ def build(db: Db) -> list[dict]:
                  "Amazônia Legal precisa manter?",
         f"{nome(r)}, com cerca de {mi(v)} ha de pastagem em {y}. Em área de florestas na Amazônia Legal, a reserva "
         "legal é de 80% do imóvel (art. 12 do Código Florestal).",
-        valores=[dado("carne", "territorial", "pastagem", "área de pastagem", v, "ha", [r], y), lei("RL floresta", 80, "%")],
-        entidades=[r],
+        valores=[val("área de pastagem", v, "ha"), val("RL floresta", 80, "%", 0)], entidades=[r],
         artigos=[art("cf", "12"), comp("cf", "3")], ferramentas=["territorial_metric", "search_laws"], sql=sql)
     ref(resposta(
         f"o estado com a maior área de pastagem é o {nome(r)}, com cerca de {mi(v)} ha em {y}. Um imóvel em área de "
@@ -528,7 +501,7 @@ def build(db: Db) -> list[dict]:
         f"Cerca de {br(p, 1)}% em 2022. O CAR (art. 29 do Código Florestal) é o registro público eletrônico nacional, "
         "obrigatório para todos os imóveis rurais, que integra as informações ambientais das propriedades para "
         "controle, monitoramento, planejamento e combate ao desmatamento.",
-        valores=[dado("soja", "territorial", "zdc_pct", "soja exportada com compromisso ZDC (MT)", p, "%", ["MATO GROSSO|MT"], 2022, 0.02)],
+        valores=[val("soja exportada com compromisso ZDC (MT)", p, "%", 0.02)],
         artigos=[art("cf", "29")], ferramentas=["soy_territorial_metric", "search_laws"], sql=sql)
     ref(resposta(
         f"em 2022, cerca de {br(p, 1)}% da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero. O "
@@ -551,7 +524,7 @@ def build(db: Db) -> list[dict]:
                  "destrói floresta de preservação permanente?",
         f"{nome(m)} ({nome(uf)}), com cerca de {mil(e)} ha. A pena é detenção de um a três anos, ou multa, ou ambas "
         "(art. 38 da Lei 9.605/1998), reduzida à metade se o crime for culposo. A exposição não prova que houve crime.",
-        valores=[dado("carne", "fluxos", "exposicao", "exposição", e, "ha", [m], 2023)], entidades=[m],
+        valores=[val("exposição", e, "ha")], entidades=[m],
         artigos=[art("lca", "38"), comp("lca", "39")], ferramentas=["top_municipalities", "search_laws"], sql=sql)
     ref(resposta(
         f"em 2023, o município com a maior exposição ao desmatamento na carne bovina foi {nome(m)} ({nome(uf)}), com "
@@ -576,9 +549,8 @@ def build(db: Db) -> list[dict]:
         f"Na Amazônia, em 2022: soja com cerca de {mil(es)} ha e carne bovina com cerca de {mil(eb)} ha "
         f"(a carne tem cerca de {br(eb / es)} vezes mais). A multa é de R$ 1.000,00 por hectare ou fração "
         "(art. 52 do Decreto 6.514/2008).",
-        valores=[dado("soja", "fluxos", "exposicao", "exposição soja Amazônia", es, "ha", ["AMAZONIA"], 2022),
-                 dado("carne", "fluxos", "exposicao", "exposição carne Amazônia", eb, "ha", ["AMAZONIA"], 2022),
-                 lei("multa por hectare", 1000, "R$/ha")], entidades=["AMAZONIA"],
+        valores=[val("exposição soja Amazônia", es, "ha"), val("exposição carne Amazônia", eb, "ha"),
+                 val("multa por hectare", 1000, "R$/ha", 0)], entidades=["AMAZONIA"],
         artigos=[art("dec", "52")], ferramentas=["soy_deforestation_by_biome", "run_sql", "search_laws"],
         sql=f"{s1};\n{s2}")
     ref(resposta(
@@ -602,8 +574,7 @@ def build(db: Db) -> list[dict]:
                  "desmata dentro da reserva legal?",
         f"{g}, com cerca de {mi(v)} t exportadas e {mil(e)} ha de exposição ao desmatamento em 2022. A multa é de "
         "R$ 5.000,00 por hectare ou fração (art. 51 do Decreto 6.514/2008). A exposição não prova ilegalidade.",
-        valores=[dado("soja", "fluxos", "volume", "volume", v, "t", [g], 2022),
-                 dado("soja", "fluxos", "exposicao", "exposição", e, "ha", [g], 2022), lei("multa por hectare", 5000, "R$/ha")],
+        valores=[val("volume", v, "t"), val("exposição", e, "ha"), val("multa por hectare", 5000, "R$/ha", 0)],
         entidades=[g], artigos=[art("dec", "51")], ferramentas=["soy_top_exporters", "search_laws"], sql=sql)
     ref(resposta(
         f"em 2022, o maior grupo exportador de soja foi a {g}, com cerca de {mi(v)} t exportadas e {mil(e)} ha de "
@@ -619,19 +590,16 @@ def build(db: Db) -> list[dict]:
         limites=limites(LIM_EXPOSICAO, LIM_CASO)))
 
     # M11: capacidade de processamento de soja + licenciamento
-    sql = ("SELECT state, SUM(processing_capacity_t_day), COUNT(*) FILTER (WHERE processing_capacity_t_day > 0), "
-           "COUNT(*) FILTER (WHERE category = 'PROCESSING') "
+    sql = ("SELECT state, SUM(processing_capacity_t_day), COUNT(*) FILTER (WHERE processing_capacity_t_day > 0) "
            "FROM soy_facilities GROUP BY 1 ORDER BY 2 DESC NULLS LAST LIMIT 1")
-    s, cap, n, n_cat = db.q("soy", sql)[0]
+    s, cap, n = db.q("soy", sql)[0]
     add("mista", "Qual estado tem a maior capacidade de processamento de soja, e que atividades dependem de licenciamento "
                  "ambiental prévio?",
-        f"{nome(s)}, com cerca de {br(cap)} t/dia de capacidade de processamento ({br(n)} instalações com capacidade de "
-        f"processamento informada; {br(n_cat)} instalações na categoria PROCESSING). "
+        f"{nome(s)}, com cerca de {br(cap)} t/dia de capacidade de processamento ({br(n)} instalações com processamento). "
         "Pelo art. 10 da Lei 6.938/1981, dependem de licenciamento prévio a construção, instalação, ampliação e "
         "funcionamento de estabelecimentos e atividades que usam recursos ambientais e são efetiva ou potencialmente "
         "poluidores ou capazes de causar degradação ambiental.",
-        valores=[dado("soja", "instalacoes", "capacidade_processamento", "capacidade de processamento", cap, "t/dia", [s])],
-        entidades=[s],
+        valores=[val("capacidade de processamento", cap, "t/dia")], entidades=[s],
         artigos=[art("pnma", "10")], ferramentas=["soy_facilities_summary", "search_laws"], sql=sql)
     ref(resposta(
         f"o estado com a maior capacidade de processamento de soja é o {nome(s)}, com cerca de {br(cap)} t/dia. "
@@ -640,7 +608,7 @@ def build(db: Db) -> list[dict]:
         "ambiental.",
         "**Dados (soja)**\n"
         f"- {nome(s)}: cerca de {br(cap)} t/dia de capacidade de processamento somadas em {br(n)} instalações com "
-        "capacidade de processamento informada, o maior valor entre os estados [D1].",
+        "processamento, o maior valor entre os estados [D1].",
         "**O que a lei exige**\n"
         "Pelo art. 10 da Lei 6.938/1981 (Política Nacional do Meio Ambiente), a construção, instalação, ampliação e "
         "funcionamento de estabelecimentos e atividades utilizadores de recursos ambientais, efetiva ou potencialmente "

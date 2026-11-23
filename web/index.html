@@ -23,10 +23,22 @@
             <span>AMBIANCE</span>
         </a>
         <nav class="landing-nav" aria-label="Navegação principal">
-            <a href="#funcionalidades">Funcionalidades</a>
-            <a href="#como-funciona">Como funciona</a>
+            <a class="nav-hover-button" href="#funcionalidades">Funcionalidades</a>
+            <a class="nav-hover-button" href="#como-funciona">Como funciona</a>
         </nav>
-        <a class="header-cta" href="consulta.html">Acessar plataforma <span aria-hidden="true">↗</span></a>
+        <div class="header-actions">
+            <a class="header-cta" href="consulta.html">
+                <span class="header-cta-label">Acessar plataforma</span>
+                <span class="header-cta-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" focusable="false">
+                        <path d="M4 12h15m-6-6 6 6-6 6"/>
+                    </svg>
+                </span>
+            </a>
+            <button class="wallpaper-toggle" type="button" aria-label="Trocar para Terra Plana" aria-description="Simulação visual do modelo terraplanista, sem caráter de representação científica comprovada." aria-pressed="false">
+                <span class="wallpaper-toggle-orb" aria-hidden="true"></span>
+            </button>
+        </div>
     </header>
 
     <main>
@@ -35,7 +47,7 @@
                 <span class="eyebrow"><span class="eyebrow-dot"></span> INTELIGÊNCIA TERRITORIAL / BRASIL</span>
                 <h1 id="hero-title">O território<br>em perspectiva.</h1>
                 <p>Dados ambientais, cadeias produtivas e legislação em um só lugar.</p>
-                <a class="primary-cta animated-button1" href="consulta.html">
+                <a class="primary-cta animated-button1" id="explore-platform" href="consulta.html">
                     <span class="button-edge" aria-hidden="true"></span>
                     <span class="button-edge" aria-hidden="true"></span>
                     <span class="button-edge" aria-hidden="true"></span>
@@ -85,7 +97,14 @@
                 <article class="step-item"><span>02 / PERGUNTE</span><h3>Investigue em contexto</h3><p>Escreva sua pergunta sobre dados, território ou legislação.</p></article>
                 <article class="step-item"><span>03 / EXPLORE</span><h3>Confira as fontes</h3><p>Leia a resposta e abra as referências usadas na consulta.</p></article>
             </div>
-            <a class="primary-cta" href="consulta.html">Acessar plataforma <span aria-hidden="true">↗</span></a>
+            <a class="primary-cta animated-button1" href="consulta.html">
+                <span class="button-edge" aria-hidden="true"></span>
+                <span class="button-edge" aria-hidden="true"></span>
+                <span class="button-edge" aria-hidden="true"></span>
+                <span class="button-edge" aria-hidden="true"></span>
+                <span class="cta-label">Acessar a plataforma</span>
+                <span class="cta-arrow" aria-hidden="true">↗</span>
+            </a>
         </section>
     </main>
 

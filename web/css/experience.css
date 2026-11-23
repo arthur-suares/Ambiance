@@ -116,6 +116,15 @@ button { color: inherit; }
 
 .nav-tab:hover { color: var(--ink); background: rgba(255,255,255,.035); }
 .nav-tab.active { color: var(--green); background: rgba(182,227,107,.075); border-color: rgba(182,227,107,.15); }
+.filters-tab { min-width: 0; }
+.filters-tab > summary { list-style: none; }
+.filters-tab > summary::-webkit-details-marker { display: none; }
+.filters-tab[open] > summary { color: var(--green); background: rgba(182,227,107,.075); border-color: rgba(182,227,107,.15); }
+.filter-chevron { margin-left: auto; color: var(--faint); transition: transform .2s ease, color .2s ease; }
+.filters-tab[open] .filter-chevron { color: var(--green); transform: rotate(180deg); }
+.filter-fields { display: grid; gap: 13px; margin-top: 8px; padding: 14px 12px; border: 1px solid var(--line); border-radius: 5px; background: rgba(5,11,8,.52); }
+.filter-fields .field label { margin-bottom: 6px; font-size: 10px; }
+.filter-fields select { min-height: 34px; padding: 6px 8px; font-size: 11px; }
 
 .nav-mark {
     width: 13px;
@@ -209,7 +218,6 @@ textarea::placeholder { color: #718078; }
 select { min-height: 38px; padding: 7px 10px; cursor: pointer; }
 textarea:focus, select:focus { border-color: var(--mint); box-shadow: 0 0 0 3px rgba(118,203,176,.1); }
 
-.form-options { display: grid; grid-template-columns: 1.2fr 1.2fr .8fr; gap: 12px; margin-top: 15px; }
 .field label { color: var(--muted); font-size: 10px; }
 
 .form-footer {
@@ -291,12 +299,116 @@ button[type="submit"]:disabled { opacity: .55; cursor: wait; transform: none; }
 @keyframes content-arrive { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes globe-arrive { from { opacity: 0; transform: translate3d(20px, 8px, 0); } to { opacity: .8; transform: translate3d(0, 0, 0); } }
 
+.consultation-page::before {
+    background:
+        linear-gradient(180deg, rgba(5,10,9,.18), rgba(5,10,9,.3)),
+        linear-gradient(90deg, rgba(5,10,9,.42), rgba(5,10,9,.1));
+}
+.consultation-page #globe-scene {
+    z-index: -3;
+    inset: -8vh -5vw;
+    width: auto;
+    height: 116vh;
+    min-height: 0;
+    opacity: .78;
+    filter: blur(5px) saturate(.9);
+    transform: scale(1.04);
+    animation: none;
+}
+.consultation-page .star-field {
+    z-index: -4;
+    opacity: .45;
+    filter: blur(1px);
+}
+.consultation-page .header { background: rgba(9,15,12,.6); }
+.consultation-page main { min-height: 100svh; padding-top: 0; padding-bottom: 0; }
+.consultation-page .hero { min-height: 100svh; justify-content: center; padding: 0; }
+.consultation-page .hero-content {
+    width: min(100%, 700px);
+    animation: consultation-arrive .9s cubic-bezier(.2,.72,.24,1) both;
+}
+.consultation-page .hero-indicators { display: none; }
+.hologram-stage {
+    position: relative;
+    width: 100%;
+    isolation: isolate;
+}
+.hologram-hand {
+    width: min(122%, 900px);
+    height: auto;
+    position: absolute;
+    z-index: -1;
+    top: -58px;
+    left: 50%;
+    opacity: .64;
+    pointer-events: none;
+    filter: drop-shadow(0 0 18px rgba(118,203,176,.28));
+    transform: translateX(-50%);
+    animation: hand-arrive 1.2s .12s both, hologram-pulse 5s 1.35s ease-in-out infinite alternate;
+}
+.hand-trace {
+    fill: none;
+    stroke: url("#hand-stroke");
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+.hand-outline { fill: rgba(118,203,176,.035); stroke-width: 2; }
+.hand-scanline { stroke-width: .8; stroke-dasharray: 3 8; opacity: .45; }
+.hand-trace circle { fill: #d7ed9f; stroke: none; }
+.consultation-page .query-card {
+    width: 100%;
+    position: relative;
+    z-index: 1;
+    border-color: rgba(118,203,176,.58);
+    border-radius: 9px;
+    background:
+        linear-gradient(135deg, rgba(9,24,26,.76), rgba(11,22,23,.56)),
+        repeating-linear-gradient(0deg, rgba(118,203,176,.025) 0 1px, transparent 1px 5px);
+    box-shadow: 0 0 0 1px rgba(118,203,176,.08), 0 0 38px rgba(76,190,166,.14), 0 24px 70px rgba(0,0,0,.25);
+    backdrop-filter: blur(11px);
+    -webkit-backdrop-filter: blur(11px);
+    animation: hologram-arrive .9s .12s both, hologram-float 6s 1s ease-in-out infinite alternate;
+}
+.consultation-page .query-card label { color: #d9eee2; }
+.consultation-page textarea,
+.consultation-page select {
+    border-color: rgba(118,203,176,.28);
+    background-color: rgba(4,13,16,.58);
+}
+.consultation-page textarea:focus,
+.consultation-page select:focus {
+    border-color: var(--mint);
+    box-shadow: 0 0 0 3px rgba(118,203,176,.16), 0 0 18px rgba(118,203,176,.12);
+}
+
+@keyframes consultation-arrive {
+    from { opacity: 0; filter: blur(12px); transform: translateY(24px) scale(.98); }
+    to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
+}
+@keyframes hand-arrive {
+    from { opacity: 0; transform: translate(-50%, 32px) scale(.96); }
+    to { opacity: .64; transform: translate(-50%, 0) scale(1); }
+}
+@keyframes hologram-arrive {
+    from { opacity: 0; transform: translateY(26px) scale(.97); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes hologram-float {
+    from { translate: 0 0; }
+    to { translate: 0 -5px; }
+}
+@keyframes hologram-pulse {
+    from { opacity: .48; }
+    to { opacity: .68; }
+}
+
 @media (max-width: 900px) {
     :root { --sidebar: 190px; }
     main { padding-right: 28px; padding-left: 34px; }
     #globe-scene { right: -24vw; width: 90vw; opacity: .6; }
-    .form-options { grid-template-columns: 1fr 1fr; }
-    .form-options .field:last-child { grid-column: 1 / -1; }
+    .filter-fields { padding: 13px 10px; }
+    .filter-fields select { font-size: 10px; }
 }
 
 @media (max-width: 650px) {
@@ -307,6 +419,7 @@ button[type="submit"]:disabled { opacity: .55; cursor: wait; transform: none; }
     .brand { font-size: 12px; }
     .brand-arrow { width: 28px; height: 28px; }
     .navigation { grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 13px; }
+    .filters-tab { grid-column: 1 / -1; }
     .nav-tab { min-height: 38px; justify-content: center; padding: 0 8px; font-size: 12px; }
     .login-button { position: absolute; top: 17px; right: 16px; margin: 0; padding: 0; border: 0; font-size: 0; }
     main { min-height: calc(100vh - 94px); margin-left: 0; padding: 28px 17px 42px; }
@@ -314,8 +427,8 @@ button[type="submit"]:disabled { opacity: .55; cursor: wait; transform: none; }
     .hero h1 { font-size: 42px; }
     .hero-description { max-width: 320px; margin-bottom: 22px; font-size: 13px; }
     .query-card { padding: 15px; }
-    .form-options { grid-template-columns: 1fr 1fr; gap: 10px; }
-    .form-options .field:last-child { grid-column: 1 / -1; }
+    .hologram-stage { margin-top: 32px; }
+    .hologram-hand { width: 118%; top: 0; }
     .form-footer { align-items: stretch; flex-direction: column; }
     #status { max-width: 100%; min-height: 17px; }
     button[type="submit"] { width: 100%; }
@@ -328,6 +441,12 @@ button[type="submit"]:disabled { opacity: .55; cursor: wait; transform: none; }
     .dashboard-empty { min-height: 220px; padding: 22px; }
     .dashboard-panel { min-height: 90px; }
     .dashboard-panel i { margin-top: 22px; }
+}
+@media (max-width: 650px) {
+    .consultation-page .hero { min-height: calc(100svh - 138px); }
+    .consultation-page main { padding-top: 0; }
+    .hologram-hand { top: -32px; }
+    .consultation-page .query-card { padding: 15px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

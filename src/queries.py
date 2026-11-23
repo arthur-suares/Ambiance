@@ -10,27 +10,9 @@ mais recente.
 
 from functools import lru_cache
 
-from src import result_meta as rm
 from src.data_dictionary import (
     DOMESTIC_DESTINATION, DOMESTIC_EXPORTER, LEVELS, METRICS, UF_BY_ABBREV, UNKNOWN_MUNICIPALITY,
 )
-from src.database import get_connection
-
-BEEF = "carne bovina"
-UNITS = {
-    "deforestation_exposure_ha": "ha (exposição ao desmatamento, janela de 5 anos)",
-    "volume_t": "t (cadeia inteira: exportação + consumo interno, salvo exclusão indicada)",
-    "volume_exported_t": "t (só exportação)",
-    "fob_usd": "US$ FOB",
-    "co2_net_tco2e": "tCO2e (emissões líquidas, janela de 5 anos)",
-    "exposure_ha_per_t": "ha por t (não somar nem tirar média entre linhas)",
-}
-UNKNOWN_NOTE = ("origem desconhecida (UNKNOWN) concentra ~90% da exposição de cada ano: o resultado cobre só a "
-                "parte rastreada até o município")
-
-
-def _units(*cols: str) -> dict:
-    return {c: UNITS[c] for c in cols}
 
 
 def _uf(value: str | None) -> str | None:
@@ -38,6 +20,7 @@ def _uf(value: str | None) -> str | None:
     if not value:
         return value
     return UF_BY_ABBREV.get(value.strip().upper(), value)
+from src.database import get_connection
 
 MUNICIPALITY_ORDER = {
     "deforestation_exposure_ha", "volume_t", "volume_exported_t", "fob_usd",
@@ -89,7 +72,7 @@ def top_municipalities(limit: int = 10, biome: str | None = None, year: int | No
         raise ValueError(f"order_by deve ser um de: {', '.join(sorted(MUNICIPALITY_ORDER))}")
     year = year or latest_year()
     where, params = _filters(year, biome, state, include_unknown=include_unknown)
-    df = _run(
+    return _run(
         f"""
         SELECT year, municipality_of_production AS municipality, state_of_production AS state, biome,
                deforestation_exposure_ha, volume_t, volume_exported_t, fob_usd, co2_net_tco2e,
@@ -101,14 +84,6 @@ def top_municipalities(limit: int = 10, biome: str | None = None, year: int | No
         """,
         params + [limit],
     )
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, ano=year, agrupado_por="município de produção",
-        ordenado_por=f"{order_by} (maior primeiro), {limit} primeiras linhas",
-        filtros={"biome": biome, "state": _uf(state)},
-        excluidos=[] if include_unknown else ["município de origem desconhecido (UNKNOWN)"],
-        unidades=_units("deforestation_exposure_ha", "volume_t", "volume_exported_t", "fob_usd", "co2_net_tco2e",
-                        "exposure_ha_per_t"),
-        notas=[rm.RANKING_NOTE, UNKNOWN_NOTE, rm.WINDOW_5Y])
 
 
 EXPORTER_ORDER = {"deforestation_exposure_ha", "volume_t", "fob_usd", "exposure_ha_per_t"}
@@ -130,7 +105,7 @@ def top_exporters(limit: int = 10, year: int | None = None, include_domestic: bo
     if not include_domestic:
         where.append("exporter <> ?")
         params.append(DOMESTIC_EXPORTER)
-    df = _run(
+    return _run(
         f"""
         SELECT year, {key},
                SUM(cattle_deforestation_5_year_total_exposure) AS deforestation_exposure_ha,
@@ -148,15 +123,6 @@ def top_exporters(limit: int = 10, year: int | None = None, include_domestic: bo
         """,
         params + [limit],
     )
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, ano=year,
-        agrupado_por="grupo econômico exportador (exporter_group)" if by_group
-        else "empresa exportadora (exporter; uma empresa pode pertencer a um grupo maior)",
-        ordenado_por=f"{order_by} (maior primeiro), {limit} primeiras linhas",
-        excluidos=[] if include_domestic else [f"consumo interno ({DOMESTIC_EXPORTER})"],
-        unidades={**_units("deforestation_exposure_ha", "fob_usd", "exposure_ha_per_t"), "volume_t": "t"},
-        notas=[rm.RANKING_NOTE, "a linha UNKNOWN, se aparecer, são fluxos sem exportador identificado, não uma empresa",
-               rm.WINDOW_5Y])
 
 
 def top_destinations(limit: int = 10, year: int | None = None, include_domestic: bool = False):
@@ -166,7 +132,7 @@ def top_destinations(limit: int = 10, year: int | None = None, include_domestic:
     if not include_domestic:
         where.append("country_of_destination <> ?")
         params.append(DOMESTIC_DESTINATION)
-    df = _run(
+    return _run(
         f"""
         SELECT year, country_of_destination AS destination, economic_bloc,
                volume_t, fob_usd, deforestation_exposure_ha,
@@ -178,12 +144,6 @@ def top_destinations(limit: int = 10, year: int | None = None, include_domestic:
         """,
         params + [limit],
     )
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, ano=year, agrupado_por="país de destino",
-        ordenado_por=f"volume_t (maior primeiro), {limit} primeiras linhas",
-        excluidos=[] if include_domestic else [f"consumo interno (destino {DOMESTIC_DESTINATION})"],
-        unidades={**_units("deforestation_exposure_ha", "fob_usd", "exposure_ha_per_t"), "volume_t": "t"},
-        notas=[rm.RANKING_NOTE, rm.WINDOW_5Y])
 
 
 def yearly_trend(biome: str | None = None, state: str | None = None,
@@ -195,7 +155,7 @@ def yearly_trend(biome: str | None = None, state: str | None = None,
         if val:
             where.append(f"upper({col}) = upper(?)")
             params.append(val)
-    df = _run(
+    return _run(
         f"""
         SELECT year,
                SUM(volume) AS volume_t,
@@ -212,58 +172,6 @@ def yearly_trend(biome: str | None = None, state: str | None = None,
         """,
         params,
     )
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, agrupado_por="ano (uma linha por ano)", ordenado_por="ano",
-        filtros={"biome": biome, "state": _uf(state), "municipality": municipality, "exporter_group": exporter_group},
-        unidades=_units("volume_t", "volume_exported_t", "fob_usd", "deforestation_exposure_ha", "co2_net_tco2e"),
-        notas=["inclui a origem desconhecida (UNKNOWN) e o consumo interno, salvo filtro",
-               "exposição e emissões só existem de 2015 em diante; vazio = sem dado, não zero", rm.WINDOW_5Y])
-
-
-REGION_LEVELS = {"biome": "biome", "state": "state_of_production"}
-
-
-def deforestation_by_region(level: str = "biome", year: int | None = None, region: str | None = None,
-                            include_unknown: bool = True):
-    """Exposição ao desmatamento, volume e emissões dos fluxos da cadeia por bioma ou UF de produção, em um ano.
-
-    É a soma dos fluxos (supply_chain), não o indicador territorial (territorial_metric). A linha de origem
-    desconhecida (UNKNOWN / UNKNOWN STATE) vem por padrão, para mostrar quanto fica sem região.
-    """
-    if level not in REGION_LEVELS:
-        raise ValueError(f"level deve ser um de: {', '.join(REGION_LEVELS)}")
-    col = REGION_LEVELS[level]
-    year = year or latest_year()
-    df = _run(
-        f"""
-        SELECT year, {col} AS {level},
-               SUM(cattle_deforestation_5_year_total_exposure) AS deforestation_exposure_ha,
-               SUM(volume) AS volume_t,
-               SUM(co2_net_emissions_cattle_deforestation_5_year_total_exposure) AS co2_net_tco2e
-        FROM supply_chain
-        WHERE year = ? AND {col} IS NOT NULL
-        GROUP BY ALL
-        ORDER BY deforestation_exposure_ha DESC NULLS LAST
-        """,
-        [year],
-    )
-    rm.add_position(df, level, "deforestation_exposure_ha")  # antes dos filtros: posição no ranking completo
-    names = df[level].astype(str).str.upper()
-    if region:
-        df = df[names == str(_uf(region) if level == "state" else region).upper()].reset_index(drop=True)
-    elif not include_unknown:
-        df = df[~names.str.startswith("UNKNOWN")].reset_index(drop=True)
-    label = {"biome": "bioma de produção", "state": "UF de produção"}[level]
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, ano=year, agrupado_por=label,
-        ordenado_por="deforestation_exposure_ha (maior primeiro), todas as regiões",
-        filtros={"region": region},
-        excluidos=[] if include_unknown else ["origem desconhecida (UNKNOWN)"],
-        unidades=_units("deforestation_exposure_ha", "volume_t", "co2_net_tco2e"),
-        notas=["a linha UNKNOWN (ou UNKNOWN STATE) é a origem não rastreada: não é uma região e não pode ser "
-               "atribuída a nenhuma delas; ela concentra a maior parte da exposição",
-               "soma dos fluxos da cadeia, não o desmatamento total da região (para isso, territorial_metric)",
-               rm.POSITION_NOTE.format(col="deforestation_exposure_ha"), rm.WINDOW_5Y])
 
 
 def exposure_intensity_by_municipality(limit: int = 10, biome: str | None = None,
@@ -273,7 +181,7 @@ def exposure_intensity_by_municipality(limit: int = 10, biome: str | None = None
     where, params = _filters(year, biome)
     where.append("volume_t >= ?")
     params.append(min_volume_t)
-    df = _run(
+    return _run(
         f"""
         SELECT year, municipality_of_production AS municipality, state_of_production AS state, biome,
                deforestation_exposure_ha / NULLIF(volume_t, 0) AS exposure_ha_per_t,
@@ -285,13 +193,6 @@ def exposure_intensity_by_municipality(limit: int = 10, biome: str | None = None
         """,
         params + [limit],
     )
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, ano=year, agrupado_por="município de produção",
-        ordenado_por=f"exposure_ha_per_t (maior primeiro), {limit} primeiras linhas",
-        filtros={"biome": biome, "volume mínimo (t)": min_volume_t},
-        excluidos=["município de origem desconhecido (UNKNOWN)"],
-        unidades=_units("exposure_ha_per_t", "deforestation_exposure_ha", "volume_t"),
-        notas=[rm.RANKING_NOTE, rm.WINDOW_5Y])
 
 
 def commitment_summary(year: int | None = None, include_domestic: bool = False):
@@ -301,7 +202,7 @@ def commitment_summary(year: int | None = None, include_domestic: bool = False):
     if not include_domestic:
         where.append("exporter <> ?")
         params.append(DOMESTIC_EXPORTER)
-    df = _run(
+    return _run(
         f"""
         SELECT year, zero_deforestation_brazil_beef AS commitment_status,
                COUNT(DISTINCT exporter_group) AS exporter_groups,
@@ -315,13 +216,6 @@ def commitment_summary(year: int | None = None, include_domestic: bool = False):
         """,
         params,
     )
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.FLOWS, ano=year,
-        agrupado_por="tipo de compromisso de desmatamento zero do exportador", ordenado_por="volume_t (maior primeiro)",
-        excluidos=[] if include_domestic else [f"consumo interno ({DOMESTIC_EXPORTER})"],
-        unidades={"volume_t": "t", "volume_share_pct": "% do volume das linhas mostradas (0-100)",
-                  **_units("deforestation_exposure_ha")},
-        notas=[rm.WINDOW_5Y])
 
 
 def territorial_metric(metric: str, level: str = "state", year: int | None = None,
@@ -345,7 +239,7 @@ def territorial_metric(metric: str, level: str = "state", year: int | None = Non
     if parent_region:
         where.append("upper(parent_region) = upper(?)")
         params.append(_uf(parent_region) if level == "municipality" else parent_region)
-    df = _run(
+    return _run(
         f"""
         SELECT year, level, region, parent_region, metric, value, unit
         FROM spatial_metrics
@@ -355,14 +249,6 @@ def territorial_metric(metric: str, level: str = "state", year: int | None = Non
         """,
         params + [limit],
     )
-    unit, desc, additive = next((u, d, a) for m, u, d, a in METRICS.values() if m == metric)
-    return rm.attach(
-        df, cadeia=BEEF, escopo=rm.TERRITORIAL, ano=int(df["year"].iloc[0]) if len(df) else year,
-        agrupado_por=f"região (nível {level})",
-        ordenado_por=f"value ({'menor' if ascending else 'maior'} primeiro), {limit} primeiras linhas",
-        filtros={"metric": metric, "region": region, "parent_region": parent_region},
-        unidades={"value": f"{unit} ({desc})"},
-        notas=[] if additive else ["esta métrica não pode ser somada nem ter média simples entre regiões"])
 
 
 ENTITY_KINDS = (

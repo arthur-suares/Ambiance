@@ -10,6 +10,13 @@
 
 html { min-width: 0; scroll-behavior: smooth; }
 body.landing-page { min-width: 0; overflow-x: hidden; background: var(--landing-bg); color: var(--landing-ink); font-family: "DM Sans", sans-serif; }
+body.landing-page.leaving-landing {
+    opacity: 0;
+    filter: blur(12px);
+    transform: scale(.99);
+    pointer-events: none;
+    transition: opacity .36s ease, filter .36s ease, transform .36s ease;
+}
 body.landing-page::before {
     position: fixed;
     z-index: -3;
@@ -54,9 +61,138 @@ body.landing-page::before {
 .landing-header .brand-arrow { width: 30px; height: 30px; color: var(--landing-accent); border-color: rgba(215,237,159,.6); }
 .landing-nav { display: flex; align-items: center; gap: clamp(17px, 3vw, 42px); }
 .landing-nav a, .landing-footer a { color: #c1ccc2; text-decoration: none; font-size: 11px; transition: color .2s ease; }
+.landing-nav .nav-hover-button {
+    position: relative;
+    min-height: 38px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 11px;
+    color: #c1ccc2;
+    font-size: 10px;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    transition: color .2s ease, letter-spacing .28s ease;
+}
+.landing-nav .nav-hover-button::before,
+.landing-nav .nav-hover-button::after {
+    position: absolute;
+    left: 50%;
+    width: 0;
+    content: "";
+    transform: translateX(-50%);
+    backface-visibility: hidden;
+    transition: width 280ms ease-in-out, border-color 280ms ease-in-out;
+}
+.landing-nav .nav-hover-button::before {
+    top: 0;
+    border-top: 1px solid transparent;
+}
+.landing-nav .nav-hover-button::after {
+    bottom: 0;
+    border-bottom: 1px solid transparent;
+}
+.landing-nav .nav-hover-button:hover,
+.landing-nav .nav-hover-button:focus-visible {
+    color: var(--landing-accent);
+    letter-spacing: 3px;
+}
+.landing-nav .nav-hover-button:hover::before,
+.landing-nav .nav-hover-button:hover::after,
+.landing-nav .nav-hover-button:focus-visible::before,
+.landing-nav .nav-hover-button:focus-visible::after {
+    width: 70%;
+    border-color: rgba(215,237,159,.82);
+}
+.landing-nav .nav-hover-button:focus-visible { outline: 2px solid var(--landing-accent); outline-offset: 4px; }
 .landing-nav a:hover, .landing-footer a:hover { color: var(--landing-accent); }
-.header-cta { justify-self: end; color: var(--landing-accent); text-decoration: none; font-size: 11px; font-weight: 600; }
-.header-cta span { padding-left: 6px; }
+.header-actions { justify-self: end; display: flex; align-items: center; gap: 12px; }
+.header-cta {
+    min-height: 34px;
+    position: relative;
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    isolation: isolate;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    color: var(--landing-accent);
+    text-decoration: none;
+    font-size: 11px;
+    font-weight: 600;
+    transition: color .35s ease, border-color .35s ease, background .35s ease;
+}
+.header-cta-icon {
+    width: 22px;
+    height: 22px;
+    position: absolute;
+    top: 50%;
+    right: -7px;
+    z-index: -1;
+    display: grid;
+    place-items: center;
+    border: 1px solid transparent;
+    opacity: 0;
+    transform: translateY(-50%) rotate(45deg);
+    transition: right .35s ease, border-color .35s ease, opacity .25s ease, transform .35s ease;
+}
+.header-cta-icon svg {
+    width: 14px;
+    height: 14px;
+    fill: none;
+    stroke: var(--landing-accent);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+    opacity: 0;
+    transform: rotate(-45deg) translateX(-5px);
+    transition: opacity .25s ease, transform .35s ease;
+}
+.header-cta:hover,
+.header-cta:focus-visible {
+    border-color: rgba(215,237,159,.8);
+    background: rgba(215,237,159,.035);
+}
+.header-cta:hover .header-cta-icon,
+.header-cta:focus-visible .header-cta-icon {
+    right: -15px;
+    border-color: var(--landing-accent);
+    opacity: 1;
+    transform: translateY(-50%) rotate(45deg);
+}
+.header-cta:hover .header-cta-icon svg,
+.header-cta:focus-visible .header-cta-icon svg {
+    opacity: 1;
+    transform: rotate(-45deg) translateX(0);
+}
+.header-cta:focus-visible { outline: 2px solid var(--landing-accent); outline-offset: 3px; }
+.wallpaper-toggle {
+    width: 30px;
+    height: 30px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(215,237,159,.18);
+    border-radius: 50%;
+    background: rgba(7,12,14,.46);
+    cursor: pointer;
+    transition: border-color .2s ease, background .2s ease, transform .2s ease;
+}
+.wallpaper-toggle::after { content: "Terra Plana"; position: absolute; top: calc(100% + 9px); right: 0; padding: 5px 8px; border: 1px solid rgba(215,237,159,.18); border-radius: 3px; background: rgba(7,12,14,.9); color: #d7ed9f; font: 9px "DM Mono", monospace; letter-spacing: .4px; white-space: nowrap; opacity: 0; pointer-events: none; transform: translateY(-3px); transition: opacity .2s ease, transform .2s ease; }
+.wallpaper-toggle { position: relative; }
+.wallpaper-toggle:hover::after, .wallpaper-toggle:focus-visible::after { opacity: 1; transform: translateY(0); }
+.wallpaper-toggle:hover { border-color: rgba(215,237,159,.58); background: rgba(23,35,26,.72); transform: rotate(8deg); }
+.wallpaper-toggle:focus-visible { outline: 2px solid var(--landing-accent); outline-offset: 3px; }
+.wallpaper-toggle-orb {
+    width: 10px;
+    height: 10px;
+    border: 1px solid rgba(215,237,159,.78);
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #839AAB 0 30%, #24445E 31% 100%);
+    box-shadow: 0 0 8px rgba(215,237,159,.14);
+}
+body.flat-wallpaper .wallpaper-toggle-orb { border-radius: 50% 50% 38% 38%; background: linear-gradient(180deg, #839AAB 0 36%, #24445E 37% 100%); }
+body.flat-wallpaper .wallpaper-toggle::after { content: "Terra Redonda"; }
 
 .landing-page main { min-height: 0; max-width: none; margin: 0; padding: 0; }
 .landing-hero { position: relative; min-height: max(720px, 100svh); display: flex; justify-content: center; text-align: center; overflow: hidden; }
@@ -114,6 +250,9 @@ body.landing-page::before {
 
 @media (max-width: 650px) {
     .landing-header { min-height: 66px; grid-template-columns: 1fr auto; gap: 10px; padding: 0 16px; }
+    .header-actions { gap: 8px; }
+    .header-cta { max-width: 112px; text-align: right; }
+    .wallpaper-toggle { width: 28px; height: 28px; }
     .landing-nav { grid-column: 1 / -1; grid-row: 2; justify-content: center; padding-bottom: 10px; }
     .landing-header { min-height: 96px; grid-template-rows: 52px 34px; }
     .landing-nav a { font-size: 10px; }

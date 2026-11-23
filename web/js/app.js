@@ -477,19 +477,17 @@ $("form").addEventListener(
 );
 
 
-// Atalho Ctrl + Enter
-
 $("question").addEventListener("keydown", (event) => {
-
     if (
-        (event.ctrlKey || event.metaKey) &&
-        event.key === "Enter"
+        event.key === "Enter" &&
+        !event.shiftKey &&
+        !event.isComposing &&
+        event.keyCode !== 229 &&
+        !$("send").disabled
     ) {
-
+        event.preventDefault();
         $("form").requestSubmit();
-
     }
-
 });
 
 const viewButtons = document.querySelectorAll("[data-view]");

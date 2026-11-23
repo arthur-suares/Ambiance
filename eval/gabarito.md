@@ -300,11 +300,11 @@ Artigos: Decreto 6.514/2008, art. 51 (essencial)
 Ferramentas esperadas: `soy_top_exporters`, `search_laws`  
 
 **M11. Qual estado tem a maior capacidade de processamento de soja, e que atividades dependem de licenciamento ambiental prévio?** *(no teste)*  
-Gabarito: Mato Grosso, com cerca de 56.700 t/dia de capacidade de processamento (24 instalações com capacidade de processamento informada; 25 instalações na categoria PROCESSING). Pelo art. 10 da Lei 6.938/1981, dependem de licenciamento prévio a construção, instalação, ampliação e funcionamento de estabelecimentos e atividades que usam recursos ambientais e são efetiva ou potencialmente poluidores ou capazes de causar degradação ambiental.  
+Gabarito: Mato Grosso, com cerca de 56.700 t/dia de capacidade de processamento (24 instalações com processamento). Pelo art. 10 da Lei 6.938/1981, dependem de licenciamento prévio a construção, instalação, ampliação e funcionamento de estabelecimentos e atividades que usam recursos ambientais e são efetiva ou potencialmente poluidores ou capazes de causar degradação ambiental.  
 Referência longa: **Resposta curta:** o estado com a maior capacidade de processamento de soja é o Mato Grosso, com cerca de 56.700 t/dia. Dependem de licenciamento ambiental prévio a construção, instalação, ampliação e funcionamento de estabelecimentos e atividades que usam recursos ambientais e são poluidores ou capazes de causar degradação ambiental.
 
 **Dados (soja)**
-- Mato Grosso: cerca de 56.700 t/dia de capacidade de processamento somadas em 24 instalações com capacidade de processamento informada, o maior valor entre os estados [D1].
+- Mato Grosso: cerca de 56.700 t/dia de capacidade de processamento somadas em 24 instalações com processamento, o maior valor entre os estados [D1].
 
 **O que a lei exige**
 Pelo art. 10 da Lei 6.938/1981 (Política Nacional do Meio Ambiente), a construção, instalação, ampliação e funcionamento de estabelecimentos e atividades utilizadores de recursos ambientais, efetiva ou potencialmente poluidores ou capazes, sob qualquer forma, de causar degradação ambiental dependem de prévio licenciamento ambiental [L1].

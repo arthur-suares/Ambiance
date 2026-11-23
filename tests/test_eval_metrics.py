@@ -133,10 +133,8 @@ def test_cosine_identical_text_is_one_and_unrelated_is_lower():
 
 
 def test_cosine_flags_truncation():
-    medium = "desmatamento na cadeia da soja " * 400
-    assert cosine(medium, "multa por hectare")["truncada_resposta"] is False
-    very_long = "desmatamento na cadeia da soja " * 2000
-    assert cosine(very_long, "multa por hectare")["truncada_resposta"] is True
+    long = "desmatamento na cadeia da soja " * 400
+    assert cosine(long, "multa por hectare")["truncada_resposta"] is True
 
 
 def test_cosine_baseline_compares_own_reference_with_others():

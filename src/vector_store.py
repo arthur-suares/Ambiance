@@ -28,8 +28,6 @@ from src.fts_query import build_relaxed_fts_query, extract_terms, weight_terms
 
 SCHEMA_PATH = PROJECT_ROOT / "sql" / "schema.sql"
 RRF_K = 60  # constante padrão do Reciprocal Rank Fusion
-# Peso lexical fino no RRF: atua como desempate sem rebaixar o topo semântico do bge-m3.
-LEXICAL_RRF_WEIGHT = 0.02
 
 
 @dataclass
@@ -92,17 +90,11 @@ def _check_embedding_dim(con: psycopg.Connection) -> None:
 
 def get_document_hash(source_path: str) -> str | None:
     """Retorna o sha256 já indexado, para pular arquivos que não mudaram."""
-    info = get_document_index_info(source_path)
-    return info["sha256"] if info else None
-
-
-def get_document_index_info(source_path: str) -> dict | None:
-    """Retorna sha256, embedding_model e metadata já indexados para o documento."""
     with get_connection() as con:
-        return con.execute(
-            "SELECT sha256, embedding_model, metadata FROM documents WHERE source_path = %s",
-            [source_path],
+        row = con.execute(
+            "SELECT sha256 FROM documents WHERE source_path = %s", [source_path]
         ).fetchone()
+    return row["sha256"] if row else None
 
 
 def upsert_document(
@@ -224,13 +216,12 @@ def hybrid_search(
     candidates: int = 40,
     doc_type: str | None = None,
     lexical_mode: str = "idf",
-    lexical_weight: float = LEXICAL_RRF_WEIGHT,
 ) -> list[dict]:
     """Combina busca vetorial e full-text com Reciprocal Rank Fusion.
 
     Cada busca devolve até `candidates` resultados; a posição de cada chunk em
-    cada lista entra no RRF como 1/(RRF_K + posição_semântica) + lexical_weight/(RRF_K + posição_lexical).
-    Os scores do canal lexical só ordenam esse canal: o RRF recebe posições.
+    cada lista vira score 1/(RRF_K + posição) e os scores são somados. Os scores do
+    canal lexical só ordenam esse canal: o RRF recebe posições.
 
     `lexical_mode` escolhe a consulta do canal lexical (src/fts_query.py):
     - "strict": a pergunta inteira no `websearch_to_tsquery` (todas as palavras, AND). Modo antigo, só para comparar.
@@ -292,7 +283,7 @@ def hybrid_search(
             fused AS (
                 SELECT COALESCE(s.id, k.id) AS id,
                        COALESCE(1.0 / ({RRF_K} + s.rank), 0)
-                     + COALESCE(%(lexical_weight)s::float8 / ({RRF_K} + k.rank), 0) AS score,
+                     + COALESCE(1.0 / ({RRF_K} + k.rank), 0) AS score,
                        s.rank AS semantic_rank,
                        k.rank AS keyword_rank
                 FROM semantic s FULL OUTER JOIN keyword k ON s.id = k.id
@@ -302,29 +293,12 @@ def hybrid_search(
             FROM fused f
             JOIN chunks c ON c.id = f.id
             JOIN documents d ON d.id = c.document_id
-            ORDER BY f.score DESC, f.semantic_rank ASC NULLS LAST, f.keyword_rank ASC NULLS LAST
+            ORDER BY f.score DESC
             LIMIT %(limit)s
             """,
             {"emb": np.asarray(query_embedding, dtype=np.float32),
              "query": fts_text, "doc_type": doc_type, "terms": terms, "weights": weights,
-             "candidates": candidates, "limit": limit, "lexical_weight": float(lexical_weight)},
-        ).fetchall()
-
-
-def get_article_siblings(source_path: str, artigo: str) -> list[dict]:
-    """Retorna todas as partes de um mesmo artigo de um documento, ordenadas por parte."""
-    with get_connection(register=False) as con:
-        return con.execute(
-            _SELECT_RESULT
-            + """
-                 , NULL::float8 AS score, NULL::bigint AS semantic_rank, NULL::bigint AS keyword_rank
-            FROM chunks c
-            JOIN documents d ON d.id = c.document_id
-            WHERE d.source_path = %(source_path)s
-              AND c.metadata->>'artigo' = %(artigo)s
-            ORDER BY COALESCE((c.metadata->>'parte')::int, 1), c.chunk_index
-            """,
-            {"source_path": source_path, "artigo": str(artigo)},
+             "candidates": candidates, "limit": limit},
         ).fetchall()
 
 
@@ -337,105 +311,3 @@ def stats() -> dict:
                    (SELECT array_agg(DISTINCT embedding_model) FROM documents) AS models
             """
         ).fetchone()
-
-
-def _chunk_identity(chunk: dict) -> tuple:
-    cid = chunk.get("chunk_id")
-    if cid is not None:
-        return ("id", cid)
-    meta = chunk.get("metadata") or {}
-    return ("meta", chunk.get("title"), meta.get("artigo"), meta.get("parte"))
-
-
-def _article_identity(chunk: dict) -> tuple:
-    meta = chunk.get("metadata") or {}
-    return (chunk.get("title"), meta.get("artigo"))
-
-
-def fuse_chunk_lists(
-    chunk_lists: list[list[dict]],
-    limit: int = 6,
-    rrf_k: int = RRF_K,
-    max_per_article: int | None = 2,
-) -> list[dict]:
-    """Funde e desduplica resultados de múltiplas sub-buscas usando Reciprocal Rank Fusion (RRF).
-
-    - Cada sub-busca `m` contribui com `w_m * (1 / (rrf_k + pos_m) + score_hibrido_m)` para cada chunk,
-      onde `w_m` dá leve prioridade de desempate à primeira sub-consulta (a pergunta limpa do usuário)
-      e `score_hibrido_m` preserva a força conjunta dos canais semântico + lexical daquela sub-busca.
-    - Chunks repetidos entre sub-buscas têm seus scores somados (subindo no ranking) e aparecem uma única vez.
-    - `max_per_article` limita quantas partes de um mesmo artigo longo (ex.: art. 12 com 5 partes) podem entrar
-      na passagem principal do top-`limit`, abrindo espaço para artigos complementares (ex.: art. 3º); se sobrarem
-      vagas até `limit`, as partes excedentes entram no final na ordem de score.
-    """
-    non_empty = [lst for lst in chunk_lists if lst]
-    if not non_empty:
-        return []
-
-    by_key: dict[tuple, dict] = {}
-    scores: dict[tuple, float] = {}
-    first_seen_order: dict[tuple, tuple[int, int]] = {}
-    best_sem_rank: dict[tuple, int | None] = {}
-    best_kw_rank: dict[tuple, int | None] = {}
-
-    for m, chunks in enumerate(non_empty):
-        # Leve decaimento por sub-consulta apenas para desempatar a favor da consulta original limpa
-        query_weight = max(0.85, 1.0 - 0.02 * m)
-        for pos, chunk in enumerate(chunks, start=1):
-            key = _chunk_identity(chunk)
-            raw_score = float(chunk.get("score") or 0.0)
-            rrf_part = 1.0 / (rrf_k + pos)
-            contrib = query_weight * (rrf_part + raw_score)
-            scores[key] = scores.get(key, 0.0) + contrib
-
-            if key not in by_key:
-                by_key[key] = dict(chunk)
-                first_seen_order[key] = (m, pos)
-
-            s_rank = chunk.get("semantic_rank")
-            if s_rank is not None:
-                prev_s = best_sem_rank.get(key)
-                best_sem_rank[key] = s_rank if prev_s is None else min(prev_s, s_rank)
-
-            k_rank = chunk.get("keyword_rank")
-            if k_rank is not None:
-                prev_k = best_kw_rank.get(key)
-                best_kw_rank[key] = k_rank if prev_k is None else min(prev_k, k_rank)
-
-    ranked_keys = sorted(
-        by_key.keys(),
-        key=lambda k: (-scores[k], first_seen_order[k]),
-    )
-
-    merged_all: list[dict] = []
-    for key in ranked_keys:
-        item = dict(by_key[key])
-        item["score"] = scores[key]
-        if key in best_sem_rank:
-            item["semantic_rank"] = best_sem_rank[key]
-        if key in best_kw_rank:
-            item["keyword_rank"] = best_kw_rank[key]
-        merged_all.append(item)
-
-    if max_per_article is None or max_per_article <= 0:
-        return merged_all[:limit]
-
-    primary: list[dict] = []
-    overflow: list[dict] = []
-    article_counts: dict[tuple, int] = {}
-
-    for item in merged_all:
-        art_key = _article_identity(item)
-        count = article_counts.get(art_key, 0)
-        if art_key[1] is not None and count >= max_per_article:
-            overflow.append(item)
-        else:
-            primary.append(item)
-            article_counts[art_key] = count + 1
-            if len(primary) >= limit:
-                break
-
-    if len(primary) < limit and overflow:
-        primary.extend(overflow[: limit - len(primary)])
-
-    return primary[:limit]

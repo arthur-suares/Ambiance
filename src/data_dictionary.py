@@ -191,11 +191,9 @@ CAVEATS = [
     "Para falar de exportação, exclua esses registros; para a cadeia inteira, mantenha.",
     "Origem desconhecida: o consumo interno não é rastreado até o município e aparece como UMA linha por ano com "
     "municipality_of_production = 'UNKNOWN' (UF 'UNKNOWN STATE', bioma 'UNKNOWN'); parte da exportação também (em 2023, 26% do volume exportado). "
-    "Essa origem concentra a maior parte da exposição de cada ano; para citar quanto, consulte os dados (a linha UNKNOWN "
-    "aparece em deforestation_by_region), não estime. "
-    "Em rankings de municípios a partir da supply_chain, exclua 'UNKNOWN' (top_municipalities já exclui) e avise que o ranking "
-    "cobre apenas a parte rastreada. deforestation_by_region (bioma/UF) mostra a linha UNKNOWN sem posição no ranking: ela não "
-    "é uma região. Para o desmatamento total de uma região, use spatial_metrics.",
+    "Essa origem concentra ~90% da exposição de cada ano (2023: 6,87 de 7,49 mi ha), então os municípios identificados cobrem só ~8%. "
+    "Em rankings de municípios, UFs ou biomas a partir da supply_chain, exclua 'UNKNOWN' (as consultas prontas já excluem) e avise "
+    "que o ranking cobre apenas a parte rastreada. Para o desmatamento total de uma região, use spatial_metrics.",
     "Métricas por tonelada e percentuais não podem ser somados nem tirada média simples entre regiões: recalcule a partir dos totais "
     "(ex.: SUM(exposição)/SUM(volume)) ou use o valor da região agregada.",
     "Percentuais de spatial_metrics estão na escala 0-100.",
