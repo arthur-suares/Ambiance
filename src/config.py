@@ -73,3 +73,13 @@ JUDGE_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if JUDGE_THINKING 
 DASHBOARD_OUTPUT_DIR = resolve_project_path(
     os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
 )
+
+# --- Entrada por voz (multimodal via Gemini) ---
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+VOICE_PROVIDER = os.getenv("VOICE_PROVIDER", "gemini").strip().lower() or "gemini"
+VOICE_MODEL = os.getenv("VOICE_MODEL", "gemini-3.5-flash-lite").strip() or "gemini-3.5-flash-lite"
+VOICE_MAX_SECONDS = int(os.getenv("VOICE_MAX_SECONDS", "60"))
+_VOICE_RECORD_DIR_RAW = os.getenv("VOICE_RECORD_DIR", "").strip()
+VOICE_RECORD_DIR: Path | None = (
+    resolve_project_path(_VOICE_RECORD_DIR_RAW) if _VOICE_RECORD_DIR_RAW else None
+)

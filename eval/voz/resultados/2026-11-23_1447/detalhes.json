@@ -1,0 +1,614 @@
+{
+  "gemini-3.5-flash-lite": [
+    {
+      "id": "L01",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L02",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual a largura mínima da faixa de preservação permanente às margens de um rio com menos de 10 metros de largura?",
+      "transcricao": "Qual a largura mínima da faixa de preservação permanente às margens de um rio com menos de 10 m de largura?",
+      "extraido": {
+        "transcricao": "Qual a largura mínima da faixa de preservação permanente às margens de um rio com menos de 10 m de largura?",
+        "local": null,
+        "commodity": null,
+        "ano": null,
+        "tipo": "leis",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.63,
+        "seletores": {
+          "mode": "laws",
+          "domain": "law"
+        }
+      },
+      "wer": 0.0476,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.63,
+      "erro": null
+    },
+    {
+      "id": "L03",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "O que é o Cadastro Ambiental Rural (CAR) e quem é obrigado a se inscrever nele?",
+      "transcricao": "O que é o Cadastro Ambiental Rural, o CAR, e quem é obrigado a se inscrever nele?",
+      "extraido": {
+        "transcricao": "O que é o Cadastro Ambiental Rural, o CAR, e quem é obrigado a se inscrever nele?",
+        "local": null,
+        "commodity": null,
+        "ano": null,
+        "tipo": "leis",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 3.42,
+        "seletores": {
+          "mode": "laws",
+          "domain": "law"
+        }
+      },
+      "wer": 0.0625,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": false,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 3.42,
+      "erro": null
+    },
+    {
+      "id": "L04",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S01",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual município teve a maior exposição ao desmatamento ligada à soja em 2022?",
+      "transcricao": "Qual município teve a maior exposição ao desmatamento ligada à soja em 2022?",
+      "extraido": {
+        "transcricao": "Qual município teve a maior exposição ao desmatamento ligada à soja em 2022?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 1.95,
+        "seletores": {
+          "mode": "agent",
+          "domain": "soy"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 1.95,
+      "erro": null
+    },
+    {
+      "id": "S02",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S06",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "C01",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
+      "transcricao": "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
+      "extraido": {
+        "transcricao": "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 4.22,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 4.22,
+      "erro": null
+    },
+    {
+      "id": "C03",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual município teve a maior exposição ao desmatamento na cadeia da carne bovina em 2023?",
+      "transcricao": "Qual município teve a maior exposição ao desmatamento na cadeia de carne bovina em 2023?",
+      "extraido": {
+        "transcricao": "Qual município teve a maior exposição ao desmatamento na cadeia de carne bovina em 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 4.44,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0667,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 4.44,
+      "erro": null
+    },
+    {
+      "id": "C04",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+      "transcricao": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+      "extraido": {
+        "transcricao": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 9.51,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 9.51,
+      "erro": null
+    },
+    {
+      "id": "M01",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ReadError: [Errno 32] Broken pipe"
+    },
+    {
+      "id": "M02",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "No Mato Grosso, quanto se produziu de soja no ano mais recente e qual foi a exposição ao desmatamento da carne bovina em 2023? Quanto de reserva legal um imóvel em área de floresta na Amazônia Legal deve manter?",
+      "transcricao": "No Mato Grosso, quanto se produziu de soja no ano mais recente e qual foi a exposição do desmatamento da carne bovina em 2023? Quanto de reserva legal um imóvel em área de floresta na Amazônia Legal deve manter?",
+      "extraido": {
+        "transcricao": "No Mato Grosso, quanto se produziu de soja no ano mais recente e qual foi a exposição do desmatamento da carne bovina em 2023? Quanto de reserva legal um imóvel em área de floresta na Amazônia Legal deve manter?",
+        "local": "Mato Grosso",
+        "commodity": "ambas",
+        "ano": 2023,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 3.23,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0256,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": false,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 3.23,
+      "erro": null
+    },
+    {
+      "id": "M03",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual grupo exportador de carne bovina teve maior exposição ao desmatamento em 2023 e ele tem compromisso de desmatamento zero? Que multa o Decreto 6.514/2008 prevê para desmatar dentro da reserva legal sem autorização?",
+      "transcricao": "Qual grupo exportador de carne bovina teve o maior exposição ao desmatamento em 2023? E ele tem compromissos de desmatamento zero? Que multa o Decreto 1514/2008 prevê para desmatar dentro da reserva legal sem autorização?",
+      "extraido": {
+        "transcricao": "Qual grupo exportador de carne bovina teve o maior exposição ao desmatamento em 2023? E ele tem compromissos de desmatamento zero? Que multa o Decreto 1514/2008 prevê para desmatar dentro da reserva legal sem autorização?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.71,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0857,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.71,
+      "erro": null
+    },
+    {
+      "id": "M04",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual foi a exposição ao desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesse bioma?",
+      "transcricao": "Qual foi a exposição do desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesses nesse bioma?",
+      "extraido": {
+        "transcricao": "Qual foi a exposição do desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesses nesse bioma?",
+        "local": "Mata Atlântica",
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.04,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.08,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.04,
+      "erro": null
+    },
+    {
+      "id": "M05",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudança do Clima estabeleceu?",
+      "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+      "extraido": {
+        "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 5.09,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.069,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 5.09,
+      "erro": null
+    },
+    {
+      "id": "M06",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual estado tem a maior área de pastagem e quanto de reserva legal um imóvel em área de floresta na Amazônia Legal precisa manter?",
+      "transcricao": "Qual estado tem a maior área de pastagem e quanto de reserva legal um imóvel em área de floresta na Amazônia Legal precisa manter?",
+      "extraido": {
+        "transcricao": "Qual estado tem a maior área de pastagem e quanto de reserva legal um imóvel em área de floresta na Amazônia Legal precisa manter?",
+        "local": "Amazônia Legal",
+        "commodity": "carne",
+        "ano": null,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 3.0,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 3.0,
+      "erro": null
+    },
+    {
+      "id": "M07",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Que percentual da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero em 2022, e o que é o CAR?",
+      "transcricao": "Que percentual da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero em 2022 e o que é o CAR?",
+      "extraido": {
+        "transcricao": "Que percentual da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero em 2022 e o que é o CAR?",
+        "local": "Mato Grosso",
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 3.03,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 3.03,
+      "erro": null
+    },
+    {
+      "id": "M08",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual município teve a maior exposição ao desmatamento na carne bovina em 2023, e qual a pena para quem destrói floresta de preservação permanente?",
+      "transcricao": "Qual município teve a maior exposição ao desmatamento na carne bovina em 2023 e qual a pena para quem destrói floresta de preservação permanente?",
+      "extraido": {
+        "transcricao": "Qual município teve a maior exposição ao desmatamento na carne bovina em 2023 e qual a pena para quem destrói floresta de preservação permanente?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 10.74,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 10.74,
+      "erro": null
+    },
+    {
+      "id": "M09",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Compare a exposição ao desmatamento da soja e da carne bovina na Amazônia em 2022, e qual a multa por desmatar a corte raso fora da reserva legal?",
+      "transcricao": "Compare a exposição ao desmatamento da soja e da carne bovina na Amazônia em 2022 e qual a multa por desmatar a corte raso fora da Reserva Legal.",
+      "extraido": {
+        "transcricao": "Compare a exposição ao desmatamento da soja e da carne bovina na Amazônia em 2022 e qual a multa por desmatar a corte raso fora da Reserva Legal.",
+        "local": "Amazônia",
+        "commodity": "ambas",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 7.27,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": 1.0,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 7.27,
+      "erro": null
+    },
+    {
+      "id": "M10",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ReadError: [Errno 32] Broken pipe"
+    }
+  ],
+  "gemini-4-hydrogen": [
+    {
+      "id": "L01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L02",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L03",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 14h6m50.333578975s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-4-hydrogen'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '50810s'}]}}"
+    },
+    {
+      "id": "L04",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 14h5m42.015791751s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-4-hydrogen'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '50742s'}]}}"
+    },
+    {
+      "id": "S01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 14h4m32.942646589s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-4-hydrogen', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '50672s'}]}}"
+    },
+    {
+      "id": "S02",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S06",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "C01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "C03",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "C04",
+      "modelo": "gemini-4-hydrogen",
+      "transcricao_esperada": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+      "transcricao": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+      "extraido": {
+        "transcricao": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-4-hydrogen",
+        "segundos": 553.73,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 553.73,
+      "erro": null
+    },
+    {
+      "id": "M01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M02",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 13h49m3.370339157s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-4-hydrogen'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '49743s'}]}}"
+    },
+    {
+      "id": "M03",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ReadError: [Errno 32] Broken pipe"
+    },
+    {
+      "id": "M04",
+      "modelo": "gemini-4-hydrogen",
+      "transcricao_esperada": "Qual foi a exposição ao desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesse bioma?",
+      "transcricao": "Qual foi a exposição ao desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesse bioma?",
+      "extraido": {
+        "transcricao": "Qual foi a exposição ao desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesse bioma?",
+        "local": "Mata Atlântica",
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-4-hydrogen",
+        "segundos": 37.73,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 37.73,
+      "erro": null
+    },
+    {
+      "id": "M05",
+      "modelo": "gemini-4-hydrogen",
+      "transcricao_esperada": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudança do Clima estabeleceu?",
+      "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+      "extraido": {
+        "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-4-hydrogen",
+        "segundos": 270.96,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.069,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 270.96,
+      "erro": null
+    },
+    {
+      "id": "M06",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 13h41m41.306712064s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-4-hydrogen', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '49301s'}]}}"
+    },
+    {
+      "id": "M07",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 13h40m28.204922277s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-4-hydrogen', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '49228s'}]}}"
+    },
+    {
+      "id": "M08",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M09",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 13h38m50.02663754s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-4-hydrogen', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '49130s'}]}}"
+    },
+    {
+      "id": "M10",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://aistudio.google.com/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 20, model: gemini-4-hydrogen, description: Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.\\nPlease retry in 13h37m38.909561472s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://aistudio.google.com/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'description': 'Generate content requests per day limit exceeded on Free Tier. See https://aistudio.google.com/docs/rate-limits.', 'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'model': 'gemini-4-hydrogen', 'location': 'global'}, 'quotaValue': '20'}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '49058s'}]}}"
+    }
+  ]
+}
