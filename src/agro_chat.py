@@ -128,11 +128,36 @@ def _run_law_search(query: str, k: int) -> list[dict[str, Any]]:
         return hybrid_search(con, query, q_emb, k=k)
 
 
-def ask_agro(question: str, k_laws: int = 6) -> dict[str, Any]:
+def _format_view_context(view_context: dict[str, Any] | None) -> str:
+    if not isinstance(view_context, dict):
+        return ""
+    parts = []
+    if view_context.get("preset"):
+        parts.append(f"visão={view_context['preset']}")
+    if view_context.get("chain") and view_context["chain"] != "all":
+        parts.append(f"cadeia={view_context['chain']}")
+    if view_context.get("uf"):
+        parts.append(f"UF={view_context['uf']}")
+    if view_context.get("bioma"):
+        parts.append(f"bioma={view_context['bioma']}")
+    if view_context.get("year"):
+        parts.append(f"ano={view_context['year']}")
+    if view_context.get("metric"):
+        parts.append(f"métrica={view_context['metric']}")
+    sel = view_context.get("selected_municipality")
+    if isinstance(sel, dict) and sel.get("code"):
+        parts.append(f"município_selecionado={sel.get('municipio', '')} ({sel.get('uf', '')}, IBGE {sel['code']})")
+    if not parts:
+        return ""
+    return "[Contexto atual do mapa: " + "; ".join(parts) + "]\n\n"
+
+
+def ask_agro(question: str, k_laws: int = 6, view_context: dict[str, Any] | None = None) -> dict[str, Any]:
     from src.rag import get_client
 
     client = get_client()
-    messages: list[dict[str, Any]] = [{"role": "user", "content": question}]
+    user_content = _format_view_context(view_context) + question
+    messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
     tool_calls_log: list[dict[str, Any]] = []
     law_sources: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []

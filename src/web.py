@@ -116,6 +116,9 @@ class Handler(BaseHTTPRequestHandler):
                     limit=min(15000, int(g("limit", "10000"))),
                 ))
                 return True
+            if p == "/api/agro/search":
+                self._json(200, {"results": agro_db.search_municipalities(g("q"))})
+                return True
             if p == "/api/agro/municipality":
                 self._json(200, agro_db.get_municipality_profile(
                     code=g("code"),
@@ -165,7 +168,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not OPENROUTER_API_KEY:
                     return self._json(503, {"error": "Configure OPENROUTER_API_KEY no .env para usar o assistente IA."})
                 from src.agro_chat import ask_agro
-                result = ask_agro(question, k_laws=k)
+                result = ask_agro(question, k_laws=k, view_context=body.get("view_context"))
                 result["seconds"] = round(time.perf_counter() - start, 1)
                 return self._json(200, result)
             if mode == "map":

@@ -11,200 +11,258 @@
   <script defer src="/explorar/agro_map.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="brand-group">
-      <span class="badge">AGRO · POSTGIS + DECK.GL + IA</span>
-      <h1>Plataforma Única Agroambiental — Mapa 3D, Cadeias e Legislação</h1>
+  <!-- ZONA 1: BARRA SUPERIOR ÚNICA (4 Visões Temáticas + Filtros Globais + Busca) -->
+  <header class="topbar" aria-label="Visões e filtros globais">
+    <div class="brand">
+      <span class="badge">AGRO 3D</span>
+      <strong>Mapa Socioambiental</strong>
     </div>
-    <div class="nav-links">
-      <span class="meta">14,16M registros · 9 bases · 29 leis federais</span>
+
+    <nav class="presets" aria-label="Visões temáticas">
+      <button type="button" class="preset-btn is-active" data-preset="risco">Risco &amp; Desmatamento</button>
+      <button type="button" class="preset-btn" data-preset="emissoes">Emissões (SEEG)</button>
+      <button type="button" class="preset-btn" data-preset="cadeias">Cadeias &amp; Exportação</button>
+      <button type="button" class="preset-btn" data-preset="producao">Produção (IBGE)</button>
+    </nav>
+
+    <div class="global-filters">
+      <label title="Cadeia produtiva">
+        <span class="sr-only">Cadeia</span>
+        <select id="chain-select" aria-label="Cadeia produtiva">
+          <option value="all">Todas cadeias</option>
+          <option value="bovinos" selected>Bovinos</option>
+          <option value="soja">Soja</option>
+        </select>
+      </label>
+
+      <label title="Filtrar por Bioma">
+        <span class="sr-only">Bioma</span>
+        <select id="bioma-select" aria-label="Bioma">
+          <option value="">Todos biomas</option>
+        </select>
+      </label>
+
+      <label title="Filtrar por Estado (UF)">
+        <span class="sr-only">UF</span>
+        <select id="uf-select" aria-label="Estado">
+          <option value="">Brasil (UFs)</option>
+        </select>
+      </label>
+
+      <div class="search-wrap">
+        <input id="mun-search" type="search" placeholder="Buscar município ou IBGE…" autocomplete="off" aria-label="Buscar município">
+        <div id="mun-search-results" class="search-results" hidden></div>
+      </div>
+
+      <button id="btn-presentation" type="button" class="secondary small" title="Alternar modo apresentação">Tela cheia</button>
     </div>
   </header>
 
-  <main class="workspace">
-    <!-- Painel Esquerdo: IA + Evidências + Raio-X Municipal -->
-    <aside class="chat-pane" aria-label="Assistente IA e detalhes territoriais">
-      <section class="chat-box">
-        <form id="ask-form">
+  <!-- ZONA 3 BASE: CANVAS FULL-SCREEN + OVERLAYS -->
+  <main class="stage">
+    <div id="map-canvas"></div>
+    <div id="map-tooltip" class="tooltip" hidden></div>
+
+    <!-- Botão discreto para sair do Modo Apresentação -->
+    <button id="exit-presentation" type="button" class="exit-pres-btn" hidden>Sair da tela cheia</button>
+
+    <!-- Botão para reabrir Gaveta Esquerda quando recolhida -->
+    <button id="reopen-left" type="button" class="reopen-left-btn" hidden>Painel IA &amp; Camadas</button>
+
+    <!-- ZONA 2: GAVETA ESQUERDA COLAPSÁVEL (3 Abas Limpas) -->
+    <aside id="left-drawer" class="left-drawer" aria-label="Painel de análise e camadas">
+      <div class="drawer-tabs">
+        <button type="button" class="tab-btn is-active" data-tab="ai">Assistente IA</button>
+        <button type="button" class="tab-btn" data-tab="layers">Camadas &amp; 3D</button>
+        <button type="button" class="tab-btn" data-tab="ranking">Ranking</button>
+        <button id="toggle-left" type="button" class="icon-btn" title="Recolher painel" aria-label="Recolher painel">‹</button>
+      </div>
+
+      <!-- ABA 1: ASSISTENTE IA -->
+      <section id="tab-ai" class="tab-panel is-active">
+        <form id="ask-form" class="ask-form">
+          <div class="ctx-row">
+            <span id="context-pill" class="context-pill">Contexto: Brasil · 2022</span>
+            <select id="ask-mode" aria-label="Modo da consulta">
+              <option value="agro">Dados + Leis</option>
+              <option value="laws">Só Leis</option>
+            </select>
+          </div>
           <label for="question" class="sr-only">Pergunte sobre dados agroambientais ou leis</label>
-          <textarea id="question" rows="3" placeholder="Pergunte sobre desmatamento, emissões SEEG, produção, fluxos, frigoríficos ou leis ambientais (Cmd/Ctrl+Enter)..." required></textarea>
+          <textarea id="question" rows="3" placeholder="Ex.: Quais os piores municípios neste recorte e o que exige o Código Florestal? (Cmd/Ctrl+Enter)" required></textarea>
           <div class="form-row">
             <button id="ask-btn" type="submit">Analisar com IA</button>
-            <select id="ask-mode" aria-label="Modo da consulta">
-              <option value="agro">Dados + Leis (Híbrido)</option>
-              <option value="laws">Só Leis (29 leis)</option>
-            </select>
-            <button id="clear-highlight" type="button" class="secondary small" hidden>Limpar</button>
             <span id="ask-status" class="meta"></span>
           </div>
         </form>
 
         <div class="chips" aria-label="Exemplos de consultas">
-          <button type="button" class="chip" data-q="Quais os 5 municípios do Pará com maior exposição ao desmatamento na pecuária em 2022 e o que o Código Florestal exige para Reserva Legal na Amazônia?">Bovinos PA + Código Florestal</button>
+          <button type="button" class="chip" data-q="Quais os 5 municípios com maior exposição ao desmatamento neste recorte e o que o Código Florestal exige para Reserva Legal?">Top risco + Código Florestal</button>
           <button type="button" class="chip" data-q="Quais municípios do Pantanal concentraram mais alertas do INPE DETER em 2025 e 2026?">DETER Pantanal (2025–2026)</button>
-          <button type="button" class="chip" data-q="Quais municípios do Pará tiveram maiores emissões de Mudança de Uso da Terra no SEEG em 2024 e quantos frigoríficos eles possuem?">SEEG Emissões + Frigoríficos (PA)</button>
-          <button type="button" class="chip" data-q="Mostre os 10 municípios do Cerrado com maior produção de soja no IBGE em 2022 e compare com a exposição ao desmatamento da Trase.">Soja IBGE × Trase (Cerrado)</button>
+          <button type="button" class="chip" data-q="Quais municípios do Pará tiveram maiores emissões de Mudança de Uso da Terra no SEEG em 2024 e quantos frigoríficos eles possuem?">SEEG + Frigoríficos (PA)</button>
+          <button type="button" class="chip" data-q="Compare a exportação oficial do Comex Stat com os fluxos rastreados da Trase para soja em 2022.">Comex Stat × Trase (Soja)</button>
         </div>
+
+        <div id="ai-spec-banner" class="spec-banner" hidden>
+          <span>Recorte aplicado ao mapa pela IA</span>
+          <button id="undo-ai-spec" type="button" class="secondary small">Desfazer</button>
+        </div>
+
+        <section id="ai-result" class="ai-result" hidden>
+          <div id="ai-answer" class="prose"></div>
+          <div id="ai-tables"></div>
+          <details id="ai-laws-box" hidden>
+            <summary id="ai-laws-summary">Fontes jurídicas</summary>
+            <ol id="ai-laws" class="law-list"></ol>
+          </details>
+          <details id="ai-sql-box" hidden>
+            <summary>Consultas executadas (PostgreSQL somente-leitura)</summary>
+            <div id="ai-sql"></div>
+          </details>
+          <p id="ai-usage" class="meta"></p>
+        </section>
+
+        <details id="history-box" class="history-box" hidden>
+          <summary>Histórico desta sessão (<span id="history-count">0</span>)</summary>
+          <ol id="history-list" class="top-list"></ol>
+        </details>
       </section>
 
-      <!-- Card de Raio-X Municipal ao clicar no mapa -->
-      <section id="mun-card" class="card" hidden>
-        <div class="card-head">
-          <div>
-            <h2 id="mun-title">—</h2>
-            <p id="mun-sub" class="meta"></p>
+      <!-- ABA 2: CAMADAS & 3D (Único centro de controle visual) -->
+      <section id="tab-layers" class="tab-panel" hidden>
+        <div class="layer-card">
+          <div class="layer-head">
+            <label><input type="checkbox" id="toggle-choro" checked> <strong>Coroplético Municipal</strong></label>
           </div>
-          <button id="mun-close" type="button" class="icon-btn" aria-label="Fechar">×</button>
+          <select id="metric-select" aria-label="Métrica do coroplético"></select>
         </div>
-        <div id="mun-grid" class="kpi-grid"></div>
-        <div id="mun-deter" class="meta"></div>
-        <button id="mun-ask-ai" type="button" class="secondary full">Perguntar à IA sobre este município</button>
-      </section>
 
-      <!-- Resultado da IA -->
-      <section id="ai-result" class="ai-result" hidden>
-        <div id="ai-answer" class="prose"></div>
-        <div id="ai-tables"></div>
-        <details id="ai-laws-box" hidden>
-          <summary id="ai-laws-summary">Fontes jurídicas</summary>
-          <ol id="ai-laws" class="law-list"></ol>
-        </details>
-        <details id="ai-sql-box" hidden>
-          <summary>Consultas executadas (PostgreSQL somente-leitura)</summary>
-          <div id="ai-sql"></div>
-        </details>
-        <p id="ai-usage" class="meta"></p>
-      </section>
-
-      <!-- Top municípios da camada ativa -->
-      <section class="card" id="top-card">
-        <div class="card-head">
-          <h2 id="top-title">Maiores valores no recorte</h2>
-          <span id="top-count" class="meta"></span>
+        <div class="layer-card">
+          <div class="layer-head">
+            <label><input type="checkbox" id="toggle-deter" checked> <strong>Alertas INPE DETER</strong></label>
+            <span class="pill-tag">até 2026</span>
+          </div>
+          <p class="meta">Alertas de desmatamento e queimada (Amazônia, Cerrado e Pantanal).</p>
         </div>
-        <ol id="top-list" class="top-list"></ol>
-      </section>
 
-      <!-- Histórico da sessão -->
-      <section class="card" id="history-card" hidden>
-        <div class="card-head">
-          <h2>Histórico desta sessão</h2>
-        </div>
-        <ol id="history-list" class="top-list"></ol>
-      </section>
-    </aside>
-
-    <!-- Painel Direito: Mapa 3D Interativo MapLibre + deck.gl -->
-    <section class="map-pane" aria-label="Mapa 3D interativo">
-      <div class="map-toolbar">
-        <label>Camada
-          <select id="metric-select"></select>
-        </label>
-        <label>UF
-          <select id="uf-select"><option value="">Brasil</option></select>
-        </label>
-        <label>Bioma
-          <select id="bioma-select"><option value="">Todos</option></select>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="toggle-flows"> Fluxos
-          <select id="flow-product">
-            <option value="bovinos">Bovinos</option>
-            <option value="soja">Soja</option>
-          </select>
-          <select id="flow-country" aria-label="País destino">
-            <option value="">Todos destinos</option>
+        <div class="layer-card">
+          <div class="layer-head">
+            <label><input type="checkbox" id="toggle-flows"> <strong>Fluxos Comerciais (Trase)</strong></label>
+          </div>
+          <select id="flow-country" aria-label="País de destino">
+            <option value="">Todos países de destino</option>
             <option value="CN">China</option>
             <option value="NL">Países Baixos</option>
             <option value="ES">Espanha</option>
-            <option value="US">EUA</option>
+            <option value="US">Estados Unidos</option>
             <option value="CL">Chile</option>
             <option value="HK">Hong Kong</option>
           </select>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="toggle-deter" checked> DETER 3D
-          <select id="deter-year">
-            <option value="2026">2026</option>
-            <option value="2025">2025</option>
-            <option value="2024">2024</option>
-            <option value="2023">2023</option>
-          </select>
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="toggle-facilities"> Instalações
-          <select id="facility-chain">
-            <option value="bovinos">Frigoríficos</option>
-            <option value="soja">Silos/Soja</option>
-            <option value="all">Todas</option>
-          </select>
-        </label>
-      </div>
-
-      <div id="map-canvas"></div>
-      <div id="map-tooltip" class="tooltip" hidden></div>
-
-      <!-- Painel Flutuante 3D (TerrainExtension + HexagonLayer + Câmera) -->
-      <div class="deck-panel" aria-label="Controles 3D do deck.gl">
-        <div class="deck-panel-title">Motor 3D · deck.gl</div>
-
-        <label class="deck-row">
-          <span>Base / Relevo</span>
-          <select id="basemap-mode">
-            <option value="dark">Escuro 3D (Contraste)</option>
-            <option value="terrain">Relevo 3D + Satélite (TerrainExtension)</option>
-            <option value="light">Claro (Cartográfico)</option>
-          </select>
-        </label>
-
-        <div class="deck-checks">
-          <label><input type="checkbox" id="toggle-extrude-mun"> Municípios 3D</label>
-          <label><input type="checkbox" id="toggle-hex-mode" checked> Hexágonos 3D</label>
         </div>
 
-        <div id="hex-controls" class="hex-controls">
-          <label class="slider-row">
-            <span>Raio Hex: <strong id="hex-radius-val">18 km</strong></span>
-            <input id="hex-radius" type="range" min="4" max="50" step="2" value="18">
+        <div class="layer-card">
+          <div class="layer-head">
+            <label><input type="checkbox" id="toggle-facilities"> <strong>Frigoríficos &amp; Silos</strong></label>
+            <span class="pill-tag">31,5k pontos</span>
+          </div>
+          <p class="meta">Segue automaticamente o filtro global de cadeia (Bovinos / Soja / Todas).</p>
+        </div>
+
+        <div class="layer-card">
+          <div class="layer-head"><strong>Visualização &amp; Relevo 3D</strong></div>
+          <label class="field-label">Base / Terreno
+            <select id="basemap-mode">
+              <option value="dark">Escuro 3D (Alto contraste)</option>
+              <option value="terrain">Relevo 3D + Satélite (TerrainExtension)</option>
+              <option value="light">Claro (Cartográfico)</option>
+            </select>
           </label>
-          <label class="slider-row">
-            <span>Elevação: <strong id="hex-elev-val">120×</strong></span>
-            <input id="hex-elevation" type="range" min="10" max="400" step="10" value="120">
-          </label>
-        </div>
 
-        <div class="cam-btns">
-          <button id="cam-3d" type="button" class="small">3D (48°)</button>
-          <button id="cam-2d" type="button" class="secondary small">2D (0°)</button>
-          <button id="reset-view" type="button" class="secondary small">Brasil</button>
+          <div class="checks-2col">
+            <label><input type="checkbox" id="toggle-extrude-mun"> Municípios 3D</label>
+            <label><input type="checkbox" id="toggle-hex-mode" checked> Hexágonos 3D</label>
+          </div>
+
+          <div id="hex-controls" class="hex-controls">
+            <label class="slider-row">
+              <span>Raio do hexágono: <strong id="hex-radius-val">18 km</strong></span>
+              <input id="hex-radius" type="range" min="4" max="50" step="2" value="18">
+            </label>
+            <label class="slider-row">
+              <span>Escala de elevação: <strong id="hex-elev-val">120×</strong></span>
+              <input id="hex-elevation" type="range" min="10" max="400" step="10" value="120">
+            </label>
+          </div>
         </div>
+      </section>
+
+      <!-- ABA 3: RANKING TERRITORIAL -->
+      <section id="tab-ranking" class="tab-panel" hidden>
+        <div class="rank-head">
+          <h2 id="top-title">Top municípios</h2>
+          <span id="top-count" class="meta"></span>
+        </div>
+        <ol id="top-list" class="rank-list"></ol>
+      </section>
+    </aside>
+
+    <!-- DRAWER DIREITO CONTEXTUAL (Raio-X Municipal — só abre ao clicar no mapa) -->
+    <aside id="mun-drawer" class="right-drawer" aria-label="Raio-X do município" hidden>
+      <div class="drawer-head">
+        <div>
+          <h2 id="mun-title">—</h2>
+          <p id="mun-sub" class="meta"></p>
+        </div>
+        <button id="mun-close" type="button" class="icon-btn" aria-label="Fechar painel municipal">×</button>
       </div>
 
-      <!-- Legenda de Gradiente Dinâmica -->
-      <div id="color-legend" class="color-legend">
-        <div class="legend-title" id="legend-title">Métrica</div>
-        <div class="legend-bar" id="legend-bar"></div>
-        <div class="legend-ticks">
-          <span>0</span>
-          <span id="legend-mid">—</span>
-          <span id="legend-max">—</span>
+      <div id="mun-grid" class="kpi-grid"></div>
+
+      <div class="spark-card">
+        <div class="spark-head">
+          <span id="spark-title" class="meta">Tendência 2015–2025</span>
+          <span id="spark-range" class="meta"></span>
         </div>
+        <div id="mun-sparkline" class="sparkline-wrap"></div>
       </div>
 
-      <!-- Selo de Transparência e Incerteza -->
-      <div id="uncertainty-badge" class="uncertainty-badge">
-        <strong id="ub-source">Fonte: —</strong>
-        <span id="ub-coverage"></span>
-        <small id="ub-caveat">Indicador territorial / exposição — não comprova ilegalidade individual.</small>
-      </div>
+      <p id="mun-deter" class="meta deter-note"></p>
+      <button id="mun-ask-ai" type="button" class="full">Analisar este município com IA + Leis</button>
+    </aside>
 
-      <!-- Barra de linha do tempo -->
-      <div class="timeline-bar">
+    <!-- CARTÃO UNIFICADO: LEGENDA + TRANSPARÊNCIA / INCERTEZA -->
+    <div id="legend-card" class="legend-card">
+      <div class="legend-top">
+        <span id="legend-title" class="legend-title">Métrica</span>
+        <button id="toggle-caveat" type="button" class="info-btn" title="Nota metodológica e limitações" aria-expanded="false">i</button>
+      </div>
+      <div id="legend-bar" class="legend-bar"></div>
+      <div class="legend-ticks">
+        <span>0</span>
+        <span id="legend-mid">—</span>
+        <span id="legend-max">—</span>
+      </div>
+      <div id="ub-source" class="ub-line">Fonte: —</div>
+      <div id="ub-coverage" class="ub-sub"></div>
+      <div id="ub-caveat" class="ub-caveat" hidden></div>
+    </div>
+
+    <!-- RODAPÉ ÚNICO: TIME SLIDER GLOBAL + CÂMERA + STATUS -->
+    <footer class="bottom-bar">
+      <div class="timeline-group">
         <span class="timeline-label">Ano: <strong id="year-label">2022</strong></span>
-        <input id="year-slider" type="range" min="2004" max="2025" step="1" value="2022">
-        <span id="map-status" class="meta">Carregando malha municipal…</span>
+        <input id="year-slider" type="range" min="2004" max="2026" step="1" value="2022">
+        <span id="year-fallback-badge" class="fallback-badge" hidden></span>
       </div>
-    </section>
+
+      <div class="camera-group">
+        <button id="cam-2d" type="button" class="secondary small">2D</button>
+        <button id="cam-3d" type="button" class="small">3D</button>
+        <button id="reset-view" type="button" class="secondary small">Brasil</button>
+      </div>
+
+      <span id="map-status" class="meta status-text">Inicializando mapa…</span>
+    </footer>
   </main>
 </body>
 </html>

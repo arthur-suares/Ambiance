@@ -208,36 +208,59 @@ def get_choropleth(
     if metric not in CHOROPLETH_METRICS:
         raise ValueError(f"Métrica desconhecida: {metric}")
     meta = CHOROPLETH_METRICS[metric]
-    clauses = ["ano = %s", f'"{metric}" IS NOT NULL', f'"{metric}" > 0']
-    params: list[Any] = [int(year)]
+    req_year = int(year)
+    base_clauses = [f'"{metric}" IS NOT NULL', f'"{metric}" > 0']
+    base_params: list[Any] = []
     if uf:
-        clauses.append("uf = %s")
-        params.append(uf.upper()[:2])
+        base_clauses.append("uf = %s")
+        base_params.append(uf.upper()[:2])
     if bioma:
-        clauses.append("unaccent(lower(bioma_predominante)) = unaccent(lower(%s))")
-        params.append(bioma)
+        base_clauses.append("unaccent(lower(bioma_predominante)) = unaccent(lower(%s))")
+        base_params.append(bioma)
     if codes:
-        clauses.append("codigo_municipio_ibge = ANY(%s)")
-        params.append(list(codes))
+        base_clauses.append("codigo_municipio_ibge = ANY(%s)")
+        base_params.append(list(codes))
 
-    where_sql = " AND ".join(clauses)
+    base_where = " AND ".join(base_clauses)
+
+    def fetch_rows(cur, target_year: int) -> list[dict[str, Any]]:
+        cur.execute(
+            f"""
+            SELECT codigo_municipio_ibge AS code,
+                   municipio AS name,
+                   uf,
+                   bioma_predominante AS bioma,
+                   lat, lon,
+                   "{metric}"::double precision AS value
+            FROM gold.mv_territorio_municipal_ano
+            WHERE ano = %s AND {base_where}
+            ORDER BY value DESC
+            """,
+            [target_year, *base_params],
+        )
+        return _clean_rows(cur.fetchall())
+
+    eff_year = req_year
     with readonly_conn() as con:
         with con.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT codigo_municipio_ibge AS code,
-                       municipio AS name,
-                       uf,
-                       bioma_predominante AS bioma,
-                       lat, lon,
-                       "{metric}"::double precision AS value
-                FROM gold.mv_territorio_municipal_ano
-                WHERE {where_sql}
-                ORDER BY value DESC
-                """,
-                params,
-            )
-            rows = _clean_rows(cur.fetchall())
+            rows = fetch_rows(cur, eff_year)
+            if not rows:
+                cur.execute(
+                    f"SELECT MAX(ano) AS max_ano FROM gold.mv_territorio_municipal_ano WHERE {base_where} AND ano <= %s",
+                    [*base_params, req_year],
+                )
+                found = cur.fetchone()
+                alt = found["max_ano"] if found else None
+                if alt is None:
+                    cur.execute(
+                        f"SELECT MAX(ano) AS max_ano FROM gold.mv_territorio_municipal_ano WHERE {base_where}",
+                        base_params,
+                    )
+                    found = cur.fetchone()
+                    alt = found["max_ano"] if found else None
+                if alt is not None and int(alt) != eff_year:
+                    eff_year = int(alt)
+                    rows = fetch_rows(cur, eff_year)
 
             coverage = None
             if meta["product"]:
@@ -251,7 +274,7 @@ def get_choropleth(
                     FROM gold.mv_cobertura_incerteza
                     WHERE produto = %s AND ano = %s
                     """,
-                    (meta["product"], int(year)),
+                    (meta["product"], eff_year),
                 )
                 cov = cur.fetchone()
                 if cov and cov["vol_total_t"]:
@@ -270,7 +293,9 @@ def get_choropleth(
     return {
         "metric": metric,
         "meta": meta,
-        "year": int(year),
+        "requested_year": req_year,
+        "year": eff_year,
+        "year_fallback": eff_year != req_year and len(rows) > 0,
         "uf": uf,
         "bioma": bioma,
         "count": len(rows),
@@ -301,49 +326,79 @@ def get_flows(
 ) -> dict[str, Any]:
     if product not in ("soja", "bovinos"):
         raise ValueError("Produto deve ser 'soja' ou 'bovinos'.")
-    clauses = ["f.produto = %s", "f.ano = %s", "f.codigo_municipio_ibge IS NOT NULL"]
-    params: list[Any] = [product, int(year)]
+    req_year = int(year)
+    base_clauses = [
+        "f.produto = %s",
+        "f.codigo_municipio_ibge IS NOT NULL",
+        "f.pais_destino_trase_id IS NOT NULL",
+        "f.pais_destino_trase_id NOT IN ('BR', 'XX', '')",
+    ]
+    base_params: list[Any] = [product]
     if uf:
-        clauses.append("m.uf = %s")
-        params.append(uf.upper()[:2])
+        base_clauses.append("m.uf = %s")
+        base_params.append(uf.upper()[:2])
     if origin:
-        clauses.append("f.codigo_municipio_ibge = %s")
-        params.append(origin)
+        base_clauses.append("f.codigo_municipio_ibge = %s")
+        base_params.append(origin)
     if country:
-        clauses.append("(upper(f.pais_destino_trase_id) = upper(%s) OR upper(f.pais_destino) = upper(%s))")
-        params.extend([country, country])
+        base_clauses.append("(upper(f.pais_destino_trase_id) = upper(%s) OR upper(f.pais_destino) = upper(%s))")
+        base_params.extend([country, country])
 
-    where_sql = " AND ".join(clauses)
+    base_where = " AND ".join(base_clauses)
+
+    def fetch_flows(cur, target_year: int) -> list[dict[str, Any]]:
+        cur.execute(
+            f"""
+            SELECT
+                f.codigo_municipio_ibge AS origin_code,
+                m.municipio AS origin_name,
+                m.uf AS origin_uf,
+                m.lon AS origin_lon,
+                m.lat AS origin_lat,
+                f.pais_destino AS country_name,
+                f.pais_destino_trase_id AS country_id,
+                SUM(f.registros) AS registros,
+                SUM(f.volume_t) AS volume_t,
+                SUM(f.valor_usd) AS valor_usd,
+                SUM(f.exposicao_desmatamento_ha) AS exposicao_ha
+            FROM gold.mv_rede_fluxos f
+            JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = f.codigo_municipio_ibge
+            WHERE f.ano = %s AND {base_where}
+              AND m.lon IS NOT NULL AND m.lat IS NOT NULL
+            GROUP BY f.codigo_municipio_ibge, m.municipio, m.uf, m.lon, m.lat,
+                     f.pais_destino, f.pais_destino_trase_id
+            ORDER BY SUM(f.volume_t) DESC NULLS LAST
+            LIMIT %s
+            """,
+            [target_year, *base_params, int(limit)],
+        )
+        return _clean_rows(cur.fetchall())
+
+    eff_year = req_year
     with readonly_conn() as con:
         with con.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT
-                    f.codigo_municipio_ibge AS origin_code,
-                    m.municipio AS origin_name,
-                    m.uf AS origin_uf,
-                    m.lon AS origin_lon,
-                    m.lat AS origin_lat,
-                    f.pais_destino AS country_name,
-                    f.pais_destino_trase_id AS country_id,
-                    SUM(f.registros) AS registros,
-                    SUM(f.volume_t) AS volume_t,
-                    SUM(f.valor_usd) AS valor_usd,
-                    SUM(f.exposicao_desmatamento_ha) AS exposicao_ha
-                FROM gold.mv_rede_fluxos f
-                JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = f.codigo_municipio_ibge
-                WHERE {where_sql}
-                  AND f.pais_destino_trase_id IS NOT NULL
-                  AND f.pais_destino_trase_id NOT IN ('BR', 'XX', '')
-                  AND m.lon IS NOT NULL AND m.lat IS NOT NULL
-                GROUP BY f.codigo_municipio_ibge, m.municipio, m.uf, m.lon, m.lat,
-                         f.pais_destino, f.pais_destino_trase_id
-                ORDER BY SUM(f.volume_t) DESC NULLS LAST
-                LIMIT %s
-                """,
-                [*params, int(limit)],
-            )
-            rows = _clean_rows(cur.fetchall())
+            rows = fetch_flows(cur, eff_year)
+            if not rows:
+                cur.execute(
+                    f"SELECT MAX(f.ano) AS max_ano FROM gold.mv_rede_fluxos f "
+                    f"JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = f.codigo_municipio_ibge "
+                    f"WHERE {base_where} AND f.ano <= %s",
+                    [*base_params, req_year],
+                )
+                found = cur.fetchone()
+                alt = found["max_ano"] if found else None
+                if alt is None:
+                    cur.execute(
+                        f"SELECT MAX(f.ano) AS max_ano FROM gold.mv_rede_fluxos f "
+                        f"JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = f.codigo_municipio_ibge "
+                        f"WHERE {base_where}",
+                        base_params,
+                    )
+                    found = cur.fetchone()
+                    alt = found["max_ano"] if found else None
+                if alt is not None and int(alt) != eff_year:
+                    eff_year = int(alt)
+                    rows = fetch_flows(cur, eff_year)
 
     countries = _country_coords()
     arcs = []
@@ -366,7 +421,9 @@ def get_flows(
 
     return {
         "product": product,
-        "year": int(year),
+        "requested_year": req_year,
+        "year": eff_year,
+        "year_fallback": eff_year != req_year and len(arcs) > 0,
         "count": len(arcs),
         "arcs": arcs,
     }
@@ -379,43 +436,69 @@ def get_deter_alerts(
     code: str | None = None,
     limit: int = 2500,
 ) -> dict[str, Any]:
-    clauses = ["lat IS NOT NULL", "lon IS NOT NULL", "ano = %s"]
-    params: list[Any] = [int(year)]
+    req_year = int(year)
+    base_clauses = ["lat IS NOT NULL", "lon IS NOT NULL"]
+    base_params: list[Any] = []
     if bioma:
-        clauses.append("unaccent(upper(bioma)) = unaccent(upper(%s))")
-        params.append(bioma)
+        base_clauses.append("unaccent(upper(bioma)) = unaccent(upper(%s))")
+        base_params.append(bioma)
     if uf:
-        clauses.append("uf = %s")
-        params.append(uf.upper()[:2])
+        base_clauses.append("uf = %s")
+        base_params.append(uf.upper()[:2])
     if code:
-        clauses.append("codigo_municipio_ibge = %s")
-        params.append(code)
+        base_clauses.append("codigo_municipio_ibge = %s")
+        base_params.append(code)
 
-    where_sql = " AND ".join(clauses)
+    base_where = " AND ".join(base_clauses)
+
+    def fetch_deter(cur, target_year: int):
+        cur.execute(
+            f"SELECT COUNT(*) AS total, COALESCE(SUM(area_mun_km2), 0) AS area_total_km2 "
+            f"FROM agro.fato_inpe_deter WHERE ano = %s AND {base_where}",
+            [target_year, *base_params],
+        )
+        summary = _clean_rows([cur.fetchone()])[0]
+        if not int(summary["total"] or 0):
+            return summary, []
+        cur.execute(
+            f"""
+            SELECT bioma, view_date, classname, codigo_municipio_ibge AS code,
+                   municipio, uf, ROUND(area_mun_km2::numeric, 3) AS area_km2, lat, lon
+            FROM agro.fato_inpe_deter
+            WHERE ano = %s AND {base_where}
+            ORDER BY area_mun_km2 DESC NULLS LAST
+            LIMIT %s
+            """,
+            [target_year, *base_params, int(limit)],
+        )
+        return summary, _clean_rows(cur.fetchall())
+
+    eff_year = req_year
     with readonly_conn() as con:
         with con.cursor() as cur:
-            cur.execute(
-                f"""
-                SELECT bioma, view_date, classname, codigo_municipio_ibge AS code,
-                       municipio, uf, ROUND(area_mun_km2::numeric, 3) AS area_km2, lat, lon
-                FROM agro.fato_inpe_deter
-                WHERE {where_sql}
-                ORDER BY area_mun_km2 DESC NULLS LAST
-                LIMIT %s
-                """,
-                [*params, int(limit)],
-            )
-            points = _clean_rows(cur.fetchall())
-
-            cur.execute(
-                f"SELECT COUNT(*) AS total, COALESCE(SUM(area_mun_km2), 0) AS area_total_km2 "
-                f"FROM agro.fato_inpe_deter WHERE {where_sql}",
-                params,
-            )
-            summary = _clean_rows([cur.fetchone()])[0]
+            summary, points = fetch_deter(cur, eff_year)
+            if not int(summary["total"] or 0):
+                cur.execute(
+                    f"SELECT MAX(ano) AS max_ano FROM agro.fato_inpe_deter WHERE {base_where} AND ano <= %s",
+                    [*base_params, req_year],
+                )
+                found = cur.fetchone()
+                alt = found["max_ano"] if found else None
+                if alt is None:
+                    cur.execute(
+                        f"SELECT MAX(ano) AS max_ano FROM agro.fato_inpe_deter WHERE {base_where}",
+                        base_params,
+                    )
+                    found = cur.fetchone()
+                    alt = found["max_ano"] if found else None
+                if alt is not None and int(alt) != eff_year:
+                    eff_year = int(alt)
+                    summary, points = fetch_deter(cur, eff_year)
 
     return {
-        "year": int(year),
+        "requested_year": req_year,
+        "year": eff_year,
+        "year_fallback": eff_year != req_year and len(points) > 0,
         "total_alerts": int(summary["total"] or 0),
         "area_total_km2": round(float(summary["area_total_km2"] or 0), 2),
         "returned": len(points),
@@ -423,7 +506,44 @@ def get_deter_alerts(
     }
 
 
+def search_municipalities(q: str, limit: int = 12) -> list[dict[str, Any]]:
+    term = (q or "").strip()
+    if not term:
+        return []
+    with readonly_conn() as con:
+        with con.cursor() as cur:
+            if term.isdigit() and len(term) <= 7:
+                cur.execute(
+                    """
+                    SELECT codigo_municipio_ibge AS code, municipio, uf,
+                           bioma_predominante AS bioma, lat, lon
+                    FROM agro.dim_municipios
+                    WHERE codigo_municipio_ibge LIKE %s AND lat IS NOT NULL
+                    ORDER BY codigo_municipio_ibge
+                    LIMIT %s
+                    """,
+                    (f"{term}%", int(limit)),
+                )
+            else:
+                cur.execute(
+                    """
+                    SELECT codigo_municipio_ibge AS code, municipio, uf,
+                           bioma_predominante AS bioma, lat, lon
+                    FROM agro.dim_municipios
+                    WHERE unaccent(lower(municipio)) LIKE unaccent(lower(%s))
+                      AND lat IS NOT NULL
+                    ORDER BY
+                        CASE WHEN unaccent(lower(municipio)) LIKE unaccent(lower(%s)) THEN 0 ELSE 1 END,
+                        municipio
+                    LIMIT %s
+                    """,
+                    (f"%{term}%", f"{term}%", int(limit)),
+                )
+            return _clean_rows(cur.fetchall())
+
+
 def get_municipality_profile(code: str, year: int = 2022) -> dict[str, Any]:
+    req_year = int(year)
     with readonly_conn() as con:
         with con.cursor() as cur:
             cur.execute(
@@ -439,15 +559,40 @@ def get_municipality_profile(code: str, year: int = 2022) -> dict[str, Any]:
             if not mun:
                 raise KeyError(f"Município {code} não encontrado.")
 
+            eff_year = req_year
             cur.execute(
                 """
                 SELECT *
                 FROM gold.mv_territorio_municipal_ano
                 WHERE codigo_municipio_ibge = %s AND ano = %s
                 """,
-                (code, int(year)),
+                (code, eff_year),
             )
-            snap = cur.fetchone() or {}
+            snap = cur.fetchone()
+            if not snap:
+                cur.execute(
+                    """
+                    SELECT *
+                    FROM gold.mv_territorio_municipal_ano
+                    WHERE codigo_municipio_ibge = %s AND ano <= %s
+                    ORDER BY ano DESC LIMIT 1
+                    """,
+                    (code, req_year),
+                )
+                snap = cur.fetchone()
+                if not snap:
+                    cur.execute(
+                        """
+                        SELECT *
+                        FROM gold.mv_territorio_municipal_ano
+                        WHERE codigo_municipio_ibge = %s
+                        ORDER BY ano DESC LIMIT 1
+                        """,
+                        (code,),
+                    )
+                    snap = cur.fetchone()
+                if snap:
+                    eff_year = int(snap["ano"])
 
             cur.execute(
                 """
@@ -457,7 +602,13 @@ def get_municipality_profile(code: str, year: int = 2022) -> dict[str, Any]:
                        mapbiomas_desmatamento_ha,
                        trase_bovinos_exposicao_5a_ha,
                        trase_soja_exposicao_5a_ha,
-                       inpe_deter_area_km2
+                       inpe_deter_area_km2,
+                       seeg_emissao_agro_tco2e,
+                       seeg_emissao_mut_tco2e,
+                       comex_soja_t,
+                       comex_bovinos_t,
+                       inst_bovinos_total,
+                       inst_soja_total
                 FROM gold.mv_territorio_municipal_ano
                 WHERE codigo_municipio_ibge = %s AND ano >= 2015
                 ORDER BY ano
@@ -479,7 +630,9 @@ def get_municipality_profile(code: str, year: int = 2022) -> dict[str, Any]:
 
     return {
         "municipality": _clean_rows([mun])[0],
-        "year": int(year),
+        "requested_year": req_year,
+        "year": eff_year,
+        "effective_year": eff_year,
         "snapshot": _clean_rows([snap])[0] if snap else {},
         "series": series,
         "deter_recent": deter_recent,
