@@ -17,10 +17,24 @@ import pandas as pd
 MOTION_CSS = """
 /* D1/D2: movimento. Só existe com a classe js-motion, que o script põe se o leitor não pediu menos
    movimento; sem JS tudo aparece pronto. */
-.js-motion .card, .js-motion .kpi { opacity: 0; transform: translateY(8px);
-  transition: opacity .45s ease-out, transform .45s ease-out, border-color .2s ease; }
+/* Uma personalidade só ("silk"): entradas suaves, sem quique; o número final nunca espera a animação. */
+.js-motion .card, .js-motion .kpi { opacity: 0; transform: translateY(14px);
+  transition: opacity .6s var(--ease, ease-out), transform .6s var(--ease, ease-out), border-color .2s ease; }
 .js-motion .card.is-in, .js-motion .kpi.is-in { opacity: 1; transform: none; }
-.js-motion .card.is-in:hover { transform: translateY(-2px); border-color: var(--line); }
+.js-motion .card.is-in:hover { transform: translateY(-2px); border-color: var(--line);
+  transition: transform .25s var(--ease, ease-out), border-color .2s ease; }
+/* Cabeçalho: cada linha sobe por trás de uma máscara, em cascata. */
+.js-motion .hero > * { animation: dash-rise .7s var(--ease, ease-out) both; }
+.js-motion .hero > :nth-child(2) { animation-delay: .08s; }
+.js-motion .hero > :nth-child(3) { animation-delay: .16s; }
+.js-motion .hero > :nth-child(n+4) { animation-delay: .24s; }
+@keyframes dash-rise { from { opacity: 0; transform: translateY(12px); clip-path: inset(0 0 100% 0); }
+                       to { opacity: 1; transform: none; clip-path: inset(0 0 -20% 0); } }
+/* Fio ocre da seção se estende quando a seção aparece. */
+.js-motion .dash-section .section-title::after { transform: scaleX(0); transition: transform .8s var(--ease, ease-out) .1s; }
+.js-motion .dash-section.is-in .section-title::after { transform: scaleX(1); }
+.view.is-entering { animation: dash-view .35s var(--ease, ease-out) both; }
+@keyframes dash-view { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 .js-plotly-plot .point, .js-plotly-plot .slice, .js-plotly-plot .trace { transition: opacity .2s ease; }
 .js-plotly-plot .is-dim { opacity: .3; }
 
@@ -43,9 +57,13 @@ MOTION_CSS = """
 tr[hidden] { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .js-motion .card, .js-motion .kpi { opacity: 1 !important; transform: none !important; }
+  .js-motion .hero > *, .view.is-entering { animation: none !important; }
+  .js-motion .dash-section .section-title::after { transform: none !important; }
 }
 @media print {
   .js-motion .card, .js-motion .kpi { opacity: 1 !important; transform: none !important; }
+  .js-motion .hero > * { animation: none !important; }
+  .js-motion .dash-section .section-title::after { transform: none !important; }
   .card-actions, .view-switch, .period-filter { display: none !important; }
 }
 """
@@ -89,16 +107,17 @@ MOTION_JS = r"""
   }
   function finishAll() {
     document.querySelectorAll("[data-final]").forEach(function (el) { el.textContent = el.getAttribute("data-final"); });
-    document.querySelectorAll(".card, .kpi").forEach(function (c) { c.classList.add("is-in"); });
+    document.querySelectorAll(".card, .kpi, .dash-section").forEach(function (c) { c.classList.add("is-in"); });
   }
   window.addEventListener("beforeprint", finishAll);
 
   // --- D1: entrada dos gráficos ---------------------------------------------------------------------
-  function animateTo(el, prop, from, to, dur) {
+  function animateTo(el, prop, from, to, dur, delay) {
+    delay = delay || 0;
     el.style.transition = "none"; el.style[prop] = from;
     void el.getBoundingClientRect();
-    el.style.transition = prop + " " + dur + "ms cubic-bezier(.2,.7,.2,1)"; el.style[prop] = to;
-    setTimeout(function () { el.style.transition = ""; el.style[prop] = ""; }, dur + 60);
+    el.style.transition = prop + " " + dur + "ms cubic-bezier(.2,.7,.2,1) " + delay + "ms"; el.style[prop] = to;
+    setTimeout(function () { el.style.transition = ""; el.style[prop] = ""; }, dur + delay + 60);
   }
   function drawPlot(card) {
     var kind = card.getAttribute("data-widget-kind");
@@ -113,10 +132,21 @@ MOTION_JS = r"""
         animateTo(path, "strokeDashoffset", String(len), "0", 900);
         setTimeout(function () { path.style.strokeDasharray = ""; }, 980);
       });
-      gd.querySelectorAll(".barlayer .point path, .waterfalllayer .point path").forEach(function (bar) {
+      // Barras crescem uma a uma (cascata curta: o ranking se lê na ordem em que aparece).
+      var bars = gd.querySelectorAll(".barlayer .point path, .waterfalllayer .point path");
+      var stepMs = Math.min(60, 420 / Math.max(1, bars.length));
+      // Na horizontal o Plotly guarda as barras de baixo para cima; a cascata segue a leitura (de cima).
+      var order = function (i, n) { return horiz ? n - 1 - i : i; };
+      bars.forEach(function (bar, i) {
         bar.style.transformBox = "fill-box";
         bar.style.transformOrigin = horiz ? "left center" : "center bottom";
-        animateTo(bar, "transform", horiz ? "scaleX(0)" : "scaleY(0)", "none", 700);
+        animateTo(bar, "transform", horiz ? "scaleX(0)" : "scaleY(0)", "none", 650,
+                  Math.round(order(i, bars.length) * stepMs));
+      });
+      // Rótulos de valor aparecem logo depois da própria barra.
+      var labels = gd.querySelectorAll(".barlayer .bartext");
+      labels.forEach(function (t, i) {
+        animateTo(t, "opacity", "0", "1", 300, 450 + Math.round(order(i, labels.length) * stepMs));
       });
       gd.querySelectorAll(".pielayer .trace").forEach(function (pie) {
         pie.style.transformBox = "fill-box"; pie.style.transformOrigin = "center";
@@ -158,6 +188,10 @@ MOTION_JS = r"""
       });
     }, { threshold: 0.12 });
     document.querySelectorAll(".card, .kpi").forEach(function (c) { io.observe(c); });
+    var so = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("is-in"); so.unobserve(e.target); } });
+    }, { threshold: 0.05 });
+    document.querySelectorAll(".dash-section").forEach(function (s) { so.observe(s); });
   }
 
   // --- D2: destaque ao passar o mouse --------------------------------------------------------------
@@ -196,6 +230,9 @@ MOTION_JS = r"""
         sw.querySelectorAll("button").forEach(function (o) { o.setAttribute("aria-pressed", o === b ? "true" : "false"); });
         card.querySelectorAll(".view").forEach(function (el) { el.hidden = el.getAttribute("data-view") !== v; });
         var shown = card.querySelector('.view[data-view="' + v + '"]');
+        if (shown && !reduce) {
+          shown.classList.remove("is-entering"); void shown.offsetWidth; shown.classList.add("is-entering");
+        }
         resizeIn(shown);
         if (!reduce) drawPlot(card);
       });

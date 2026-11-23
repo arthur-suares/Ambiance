@@ -224,6 +224,9 @@ PAGE_CSS = """
   --line: #d6d2c6; --accent: #b5832a; --accent-soft: #f5ecd9; --brand: #3f8a5c;
   --chart-text: #555a52; --track: #ebe8df; --icon: #3f8a5c;
   --warn-bg: #fbf3e2; --warn-border: #e2c88f; --warn-fg: #6e4a0c; --focus: #b5832a; --code-bg: #f6f5f0;
+  /* Títulos em serifa do próprio sistema (nada é baixado): dá o tom de relatório, não de painel SaaS. */
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Charter, Georgia, serif;
+  --ease: cubic-bezier(.2, .7, .2, 1);
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -277,9 +280,11 @@ main { padding: var(--s6) var(--s7) var(--s8); max-width: 1280px; width: 100%; }
 /* Cabeçalho: texto direto sobre o fundo, sem cartão nem degradê */
 .hero { margin-bottom: var(--s6); }
 .hero-top { display: flex; justify-content: space-between; align-items: baseline; gap: var(--s4); }
+.hero-top { border-top: 3px solid var(--fg); padding-top: var(--s2); }
 .eyebrow { font-size: var(--t-xs); font-weight: 650; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
 .source-pill { flex-shrink: 0; color: var(--muted); font-size: var(--t-xs); }
-h1 { font-size: var(--t-2xl); line-height: 1.2; margin: var(--s1) 0 var(--s2); letter-spacing: -.3px; font-weight: 700; max-width: 900px; }
+h1 { font-family: var(--serif); font-size: 34px; line-height: 1.12; margin: var(--s3) 0 var(--s3); letter-spacing: -.4px;
+  font-weight: 600; max-width: 900px; text-wrap: balance; }
 .hero-subtitle { margin: 0 0 var(--s3); color: var(--muted); max-width: 820px; font-size: var(--t-md); }
 .question-pill { font-size: var(--t-sm); color: var(--muted); }
 .question-pill strong { color: var(--fg); font-weight: 600; }
@@ -293,9 +298,12 @@ h1 { font-size: var(--t-2xl); line-height: 1.2; margin: var(--s1) 0 var(--s2); l
 /* Seções */
 .dash-section { margin-bottom: var(--s7); scroll-margin-top: var(--s4); }
 .section-title {
-  font-size: var(--t-xs); font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted);
-  margin: 0 0 var(--s3); padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
+  position: relative; font-family: var(--serif); font-size: var(--t-xl); font-weight: 600; letter-spacing: -.1px;
+  color: var(--fg); margin: 0 0 var(--s4); padding-bottom: var(--s2); border-bottom: 1px solid var(--line);
 }
+/* Fio ocre curto sobre a linha da seção: a marca visual do painel. */
+.section-title::after { content: ""; position: absolute; left: 0; bottom: -1px; width: 48px; height: 2px;
+  background: var(--accent); transform-origin: left center; }
 .chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s4); }
 .span-2 { grid-column: 1 / -1; }
 
@@ -328,7 +336,7 @@ h1 { font-size: var(--t-2xl); line-height: 1.2; margin: var(--s1) 0 var(--s2); l
   display: flex; flex-direction: column; min-width: 0;
 }
 .card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--s3); margin-bottom: var(--s2); }
-.card-header h3 { font-size: var(--t-lg); font-weight: 650; margin: 0; line-height: 1.35; }
+.card-header h3 { font-family: var(--serif); font-size: 18px; font-weight: 600; margin: 0; line-height: 1.3; text-wrap: balance; }
 .subtitle { margin: 2px 0 0; color: var(--muted); font-size: var(--t-sm); }
 .badge { flex-shrink: 0; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; padding: 0 var(--s2);
   font-size: 11px; font-weight: 600; line-height: 20px; white-space: nowrap; }
@@ -470,6 +478,18 @@ details.provenance summary { cursor: pointer; font-weight: 600; color: var(--fg)
   .kpi-value, .kpi.is-featured .kpi-value { font-size: var(--t-xl); }
   .span-2 { grid-column: auto; }
 }
+/* Embutido no chat: o painel vira parte da conversa (sem barra lateral, sem rolagem própria, fundo do chat). */
+.is-embed body { background: transparent; }
+.is-embed .shell { display: block; min-height: 0; }
+.is-embed .sidebar, .is-embed .skip, .is-embed .question-pill { display: none; }
+.is-embed main { padding: var(--s2) 0 var(--s4); max-width: none; }
+.is-embed .hero { margin-bottom: var(--s5); }
+.is-embed h1 { font-size: 28px; }
+/* Na largura do chat cabem menos indicadores por linha; o número nunca invade o vizinho. */
+.is-embed .kpi-strip { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
+.is-embed .kpi-value { font-size: 24px; }
+.is-embed .kpi.is-featured .kpi-value { font-size: 30px; }
+@media (max-width: 900px) { .is-embed main { padding: var(--s2) 0 var(--s4); } .is-embed h1 { font-size: 23px; } }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { transition: none !important; animation: none !important; }
@@ -808,6 +828,41 @@ def _build_kpi_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     return fig
 
 
+def _exact_br(v, unit: str = "") -> str:
+    """Valor exato legível para o balão: inteiro acima de mil (1.890.651 t), 2 casas abaixo disso."""
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if math.isnan(n):
+        return ""
+    txt = f"{n:,.0f}" if abs(n) >= 1000 else f"{n:,.2f}"
+    txt = txt.replace(",", "§").replace(".", ",").replace("§", ".")
+    if unit.endswith("$"):  # moeda vem antes: US$ 6.100.000.000
+        return f"{unit} {txt}"
+    return f"{txt} {unit}".strip()
+
+
+def _hover_values(vals, unit: str) -> list[str]:
+    """Balão em português simples: valor arredondado como no gráfico e, entre parênteses, o exato."""
+    out = []
+    for v in vals:
+        curto = format_compact_br(v, unit)
+        try:
+            grande = abs(float(v)) >= 1000
+        except (TypeError, ValueError):
+            grande = False
+        exato = _exact_br(v, unit) if grande else ""
+        out.append(f"{curto} ({exato})" if exato and exato != curto else curto)
+    return out
+
+
+def _drop_lone_series_name(fig: go.Figure) -> None:
+    """Com uma série só, o nome dela ao lado do balão ("Volume") só confunde: o título já diz o que é."""
+    if len(fig.data) == 1 and fig.data[0].hovertemplate:
+        fig.data[0].hovertemplate = re.sub(r"<extra>.*?</extra>", "<extra></extra>", fig.data[0].hovertemplate)
+
+
 def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     work = _prepare_slice(df, w)
     horiz = w.orientation == "h"
@@ -827,7 +882,8 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
             y=cats if horiz else vals,
             orientation="h" if horiz else "v",
             marker={"color": color, "line": {"width": 0}},
-            hovertemplate=f"{hover_cat}<br><b>{hover_val}</b>{html.escape(unit)}<extra>{html.escape(str(name))}</extra>",
+            customdata=_hover_values(vals, (w.unit or "").strip()),
+            hovertemplate=f"<b>{hover_cat}</b><br>%{{customdata}}<extra>{html.escape(str(name))}</extra>",
         )
         if show_text:
             tr.update(text=[format_compact_br(v, w.unit, with_unit=(w.unit or "").strip() == "%") for v in vals],
@@ -894,7 +950,8 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
             # Linha reta (sem suavizar): a curva suavizada passava acima e abaixo dos valores reais.
             line={"color": color, "width": 2.2, "dash": "solid" if is_area else dash},
             marker={"size": 8, "symbol": "circle-open", "color": color, "line": {"width": 2, "color": color}},
-            hovertemplate=f"<b>%{{y:,.2f}}</b>{html.escape(unit)}<extra>{html.escape(str(name))}</extra>",
+            customdata=_hover_values(ys, (w.unit or "").strip()),
+            hovertemplate=f"<b>%{{x}}</b><br>%{{customdata}}<extra>{html.escape(str(name))}</extra>",
         )
         if stacked:
             tr.update(stackgroup="s", fillcolor=_hex_rgba(color, 0.45))
@@ -1174,7 +1231,9 @@ def build_widget_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     if w.kind == "kpi":
         return _build_kpi_figure(w, df)
     if w.kind == "bar":
-        return _build_bar_figure(w, df)
+        fig = _build_bar_figure(w, df)
+        _drop_lone_series_name(fig)
+        return fig
     if w.kind in ("pie", "donut"):
         return _build_pie_figure(w, df)
     if w.kind == "waterfall":
@@ -1182,7 +1241,9 @@ def build_widget_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     if w.kind == "range":
         return _build_range_figure(w, df)
     if w.kind in ("line", "area"):
-        return _build_line_figure(w, df)
+        fig = _build_line_figure(w, df)
+        _drop_lone_series_name(fig)
+        return fig
     if w.kind == "table":
         return _build_table_figure(w, df)
     raise ValueError(f"Tipo de componente sem figura Plotly: '{w.kind}'.")
@@ -2145,13 +2206,23 @@ def render_dashboard_html(
 <title>{page_title}</title>
 <script>
 (function () {{
-  var d = document.documentElement, t = null;
-  if (d.getAttribute("data-theme")) return;
-  try {{ t = localStorage.getItem("trase-dash-theme"); }} catch (e) {{}}
-  if (t !== "light" && t !== "dark") {{
-    t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+  var d = document.documentElement, t = null, fixed = !!d.getAttribute("data-theme");
+  // Embutido no chat (?embed=1 ou dentro de um iframe): sem barra lateral, fundo do chat, altura natural.
+  var embed = /[?&]embed=1\b/.test(location.search);
+  try {{ embed = embed || window.self !== window.top; }} catch (e) {{ embed = true; }}
+  if (embed) d.classList.add("is-embed");
+  function pick() {{
+    try {{ t = localStorage.getItem("trase-dash-theme"); }} catch (e) {{}}
+    if (t !== "light" && t !== "dark") {{
+      t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+    }}
+    d.setAttribute("data-theme", t);
   }}
-  d.setAttribute("data-theme", t);
+  if (!fixed) {{
+    pick();
+    // O chat e o painel guardam o tema na mesma chave: trocar num lado troca no outro.
+    window.addEventListener("storage", function (e) {{ if (e.key === "trase-dash-theme") pick(); }});
+  }}
 }})();
 </script>
 <style>

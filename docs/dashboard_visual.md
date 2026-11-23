@@ -17,7 +17,11 @@ funciona offline; `--cdn` gera um arquivo menor que carrega o Plotly da internet
 
 - Barra lateral clara com âncoras para as seções e botão de tema (claro ou escuro; a escolha fica salva no
   navegador e, sem escolha, segue o sistema). Em telas estreitas vira uma barra superior.
-- Cabeçalho sem cartão: título, subtítulo em até 2 linhas e a pergunta.
+- **Embutido no chat** (`?embed=1` ou dentro de um iframe): sem barra lateral, sem a pergunta (o chat já
+  mostra), fundo transparente e altura natural. A página do chat (`web/index.html`) ajusta a altura do
+  iframe ao conteúdo, então o painel não tem rolagem própria. Chat e painel usam a mesma chave de tema
+  (`trase-dash-theme`): trocar num troca no outro.
+- Cabeçalho sem cartão, aberto por um fio grosso: título, subtítulo em até 2 linhas e a pergunta.
 - Seções automáticas, sem campo novo no JSON: `kpi`/`gauge` → Visão geral (uma fileira de indicadores,
   não uma grade de cartões); `line`/`area` → Evolução; `bar`/`progress`/`pie`/`donut`/`waterfall` →
   Rankings; `table` → Detalhamento. Seção vazia não aparece.
@@ -39,8 +43,10 @@ Tudo está em `PAGE_CSS` (`src/dashboard/renderer.py`), como variáveis CSS nos 
 
 | Item | Regra |
 |---|---|
-| Fonte | Só a do sistema (`ui-sans-serif, system-ui, "Segoe UI", Roboto…`), sem recurso externo. Números com `font-variant-numeric: tabular-nums`. |
-| Tipografia | Escala 12 / 13 / 14 (texto) / 16 (título de cartão) / 20 / 28 (título do painel, indicador) / 36 px (indicador principal). |
+| Fonte | Só as do sistema, sem recurso externo. Texto e números em sans (`ui-sans-serif, system-ui…`, números com `tabular-nums`); título do painel, das seções e dos cartões em serifa (`--serif`: Iowan Old Style, Palatino, Charter, Georgia), para o tom de relatório. |
+| Marca visual | Fio ocre curto sobre a linha de cada seção; ele se estende quando a seção aparece. |
+| Movimento | Uma personalidade só, suave e sem quique: cabeçalho sobe em cascata, cartões entram ao rolar, barras crescem uma a uma na ordem de leitura (rótulo depois da barra), linhas se desenham, troca de visão com fade curto. Tudo desligado com "reduzir movimento" e na impressão. |
+| Tipografia | Escala 12 / 13 / 14 (texto) / 18 (título de cartão, serifa) / 20 (título de seção, serifa) / 28 (indicador) / 34 (título do painel, serifa) / 36 px (indicador principal). |
 | Espaço | Múltiplos de 4 px: `--s1` 4, `--s2` 8, `--s3` 12, `--s4` 16, `--s5` 24, `--s6` 32, `--s7` 40, `--s8` 48. |
 | Cantos | 6 px em controles e tabelas, 8 px em cartões. Nada de pílulas. |
 | Sombras e linhas | Sem sombras; bordas e divisórias de 1 px. |
