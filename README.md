@@ -555,12 +555,53 @@ Na primeira execução, o modelo de embedding é baixado do Hugging Face.
 | `EMBEDDING_MODEL`, `EMBEDDING_DIM` | `intfloat/multilingual-e5-small`, `384` | Modelo de embedding (a dimensão precisa bater) |
 | `FTS_CONFIG` | `portuguese` | Configuração do full-text do Postgres |
 | `OPENROUTER_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL` | —, `https://openrouter.ai/api`, `anthropic/claude-haiku-5.5` | LLM |
+| `GEMINI_API_KEY`, `VOICE_PROVIDER`, `VOICE_MODEL`, `VOICE_MAX_SECONDS`, `VOICE_RECORD_DIR` | —, `gemini`, `gemini-3.5-flash-lite`, `60`, — | Entrada multimodal por voz (`src/voice.py`) e modo de gravação para avaliação |
 
 Trocar `EMBEDDING_MODEL` para um modelo de outra dimensão exige ajustar `EMBEDDING_DIM`, recriar as tabelas (`init-vector-db --reset`) e rodar `ingest-laws --force`.
 
 ---
 
-## 13. Limitações conhecidas e próximos passos
+## 13. Entrada multimodal por voz
+
+O chatbot web suporta perguntas faladas (`POST /api/voice` em [src/web.py](src/web.py), módulo [src/voice.py](src/voice.py)). O navegador grava áudio **WAV mono 16 kHz** (até 60 s), envia ao **Gemini** (`google-genai`), que ouve o áudio diretamente, devolve a transcrição editável no campo de pergunta e extrai `local`, `commodity`, `ano` e `tipo` para ajustar automaticamente os seletores de **Modo** e **Domínio**. Após a resposta, o botão **Ouvir resposta** lê o texto em voz alta pelo navegador (`speechSynthesis`, pulando tabelas e citações).
+
+### Por que o sistema é multimodal
+
+| Abordagem | O modelo processa áudio? | Multimodal? |
+|---|---|---|
+| Web Speech API / Whisper transcrevem e o LLM recebe só texto | Não (apenas reconhecedor de fala) | Interface multimodal, modelo não |
+| **Gemini recebe o áudio, transcreve e extrai informações estruturadas** | **Sim** | **Sim** |
+
+### Como configurar a chave do Google AI Studio
+
+1. Acesse https://aistudio.google.com/ e gere uma chave gratuita da API do Gemini.
+2. Adicione no seu `.env` (nunca versione o `.env`):
+   ```env
+   GEMINI_API_KEY=AIza...
+   VOICE_PROVIDER=gemini
+   VOICE_MODEL=gemini-3.5-flash-lite
+   VOICE_MAX_SECONDS=60
+   ```
+3. Instale as dependências (`pip install -r requirements.txt`) e suba o servidor (`python -m src.cli serve`). O botão **🎤 Falar** só aparece quando `GEMINI_API_KEY` está configurada.
+
+> **Aviso de privacidade (nível gratuito):** o servidor não armazena os áudios enviados no uso normal (eles ficam apenas em memória durante a requisição). Entretanto, no nível gratuito da API do Google AI Studio, o Google pode utilizar o conteúdo enviado (incluindo os áudios) para aprimorar seus produtos — não envie informações confidenciais ou sensíveis.
+
+### Modo de gravação e comparação de modelos (avaliação)
+
+Para gravar os áudios do gabarito ([eval/voz/gabarito_voz.jsonl](eval/voz/gabarito_voz.jsonl)) diretamente pelo navegador e comparar `gemini-3.5-flash-lite` vs `gemini-4-hydrogen`:
+
+```bash
+# 1. Defina no .env: VOICE_RECORD_DIR=eval/voz/audios
+# 2. Suba o servidor e grave os áudios no painel de avaliação da página web:
+python -m src.cli serve
+
+# 3. Compare WER, acerto de entidades, campos extraídos e latência:
+python -m eval.voice_compare
+```
+
+---
+
+## 14. Limitações conhecidas e próximos passos
 
 **Limitações**
 

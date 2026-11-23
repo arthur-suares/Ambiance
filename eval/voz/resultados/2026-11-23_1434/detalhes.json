@@ -1,0 +1,566 @@
+{
+  "gemini-3.5-flash-lite": [
+    {
+      "id": "L01",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L02",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L03",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L04",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual a multa para quem desmata a corte raso, fora da reserva legal, sem autorização?",
+      "transcricao": "Qual a multa para quem desmata corte raso fora da reserva legal sem autorização?",
+      "extraido": {
+        "transcricao": "Qual a multa para quem desmata corte raso fora da reserva legal sem autorização?",
+        "local": null,
+        "commodity": null,
+        "ano": null,
+        "tipo": "leis",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 8.73,
+        "seletores": {
+          "mode": "laws",
+          "domain": "law"
+        }
+      },
+      "wer": 0.0667,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 8.73,
+      "erro": null
+    },
+    {
+      "id": "S01",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S02",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Quais foram os três maiores grupos exportadores de soja em volume em 2022?",
+      "transcricao": "Quais foram os três maiores grupos exportadores de soja em volume em 2022?",
+      "extraido": {
+        "transcricao": "Quais foram os três maiores grupos exportadores de soja em volume em 2022?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 24.32,
+        "seletores": {
+          "mode": "agent",
+          "domain": "soy"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 24.32,
+      "erro": null
+    },
+    {
+      "id": "S06",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual a produtividade da soja em Sorriso (MT) no ano mais recente disponível?",
+      "transcricao": "Qual a produtividade da soja em Sorriso (MT) no ano mais recente disponível?",
+      "extraido": {
+        "transcricao": "Qual a produtividade da soja em Sorriso (MT) no ano mais recente disponível?",
+        "local": "Sorriso (MT)",
+        "commodity": "soja",
+        "ano": null,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 4.18,
+        "seletores": {
+          "mode": "agent",
+          "domain": "soy"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 4.18,
+      "erro": null
+    },
+    {
+      "id": "C01",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
+      "transcricao": "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
+      "extraido": {
+        "transcricao": "Qual grupo exportador de carne bovina teve a maior exposição ao desmatamento em 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.6,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.6,
+      "erro": null
+    },
+    {
+      "id": "C03",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual município teve a maior exposição ao desmatamento na cadeia da carne bovina em 2023?",
+      "transcricao": "Qual município teve a maior exposição ao desmatamento na cadeia de carne bovina em 2023?",
+      "extraido": {
+        "transcricao": "Qual município teve a maior exposição ao desmatamento na cadeia de carne bovina em 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 8.16,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0667,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 8.16,
+      "erro": null
+    },
+    {
+      "id": "C04",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+      "transcricao": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+      "extraido": {
+        "transcricao": "Como a exposição total ao desmatamento da carne bovina mudou entre 2015 e 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 8.63,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 8.63,
+      "erro": null
+    },
+    {
+      "id": "M01",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M02",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M03",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M04",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual foi a exposição ao desmatamento da soja na Mata Atlântica em 2022 e em que casos a lei proíbe cortar vegetação primária nesse bioma?",
+      "transcricao": "Qual foi a exposição do desmatamento da soja na Mata Atlântica em 2022? E em que casos a lei proíbe cortar vegetação primária nesses nesse bioma?",
+      "extraido": {
+        "transcricao": "Qual foi a exposição do desmatamento da soja na Mata Atlântica em 2022? E em que casos a lei proíbe cortar vegetação primária nesses nesse bioma?",
+        "local": "Mata Atlântica",
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.55,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.08,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.55,
+      "erro": null
+    },
+    {
+      "id": "M05",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudança do Clima estabeleceu?",
+      "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022? E qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+      "extraido": {
+        "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022? E qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.76,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.069,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.76,
+      "erro": null
+    },
+    {
+      "id": "M06",
+      "modelo": "gemini-3.5-flash-lite",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-3.5-flash-lite): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M07",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Que percentual da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero em 2022, e o que é o CAR?",
+      "transcricao": "Que percentual da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero em 2022? E o que é o CAR?",
+      "extraido": {
+        "transcricao": "Que percentual da soja exportada pelo Mato Grosso saiu sob compromisso de desmatamento zero em 2022? E o que é o CAR?",
+        "local": "Mato Grosso",
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 10.47,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 10.47,
+      "erro": null
+    },
+    {
+      "id": "M08",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual município teve a maior exposição ao desmatamento na carne bovina em 2023, e qual a pena para quem destrói floresta de preservação permanente?",
+      "transcricao": "Qual município teve a maior exposição ao desmatamento na carne bovina em 2023 e qual a pena para quem destrói floresta de preservação permanente?",
+      "extraido": {
+        "transcricao": "Qual município teve a maior exposição ao desmatamento na carne bovina em 2023 e qual a pena para quem destrói floresta de preservação permanente?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 3.07,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 3.07,
+      "erro": null
+    },
+    {
+      "id": "M09",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Compare a exposição ao desmatamento da soja e da carne bovina na Amazônia em 2022, e qual a multa por desmatar a corte raso fora da reserva legal?",
+      "transcricao": "Compare a exposição ao desmatamento da soja e da carne bovina na Amazônia em 2022 e qual a multa por desmatar a corte raso fora da Reserva Legal.",
+      "extraido": {
+        "transcricao": "Compare a exposição ao desmatamento da soja e da carne bovina na Amazônia em 2022 e qual a multa por desmatar a corte raso fora da Reserva Legal.",
+        "local": "Amazônia",
+        "commodity": "ambas",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 11.15,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": 1.0,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 11.15,
+      "erro": null
+    },
+    {
+      "id": "M10",
+      "modelo": "gemini-3.5-flash-lite",
+      "transcricao_esperada": "Qual o maior grupo exportador de soja em 2022 e sua exposição ao desmatamento? Que multa se aplica a quem desmata dentro da reserva legal?",
+      "transcricao": "Qual o maior grupo exportador de soja em 2022 e sua exposição ao desmatamento? Que multa se aplica a quem desmata dentro da reserva legal?",
+      "extraido": {
+        "transcricao": "Qual o maior grupo exportador de soja em 2022 e sua exposição ao desmatamento? Que multa se aplica a quem desmata dentro da reserva legal?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-3.5-flash-lite",
+        "segundos": 2.77,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 2.77,
+      "erro": null
+    }
+  ],
+  "gemini-4-hydrogen": [
+    {
+      "id": "L01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L02",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L03",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "L04",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S02",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "S06",
+      "modelo": "gemini-4-hydrogen",
+      "transcricao_esperada": "Qual a produtividade da soja em Sorriso (MT) no ano mais recente disponível?",
+      "transcricao": "Qual a produtividade da soja em Sorriso, MT, no ano mais recente disponível?",
+      "extraido": {
+        "transcricao": "Qual a produtividade da soja em Sorriso, MT, no ano mais recente disponível?",
+        "local": "Sorriso (MT)",
+        "commodity": "soja",
+        "ano": null,
+        "tipo": "dados",
+        "modelo": "gemini-4-hydrogen",
+        "segundos": 304.54,
+        "seletores": {
+          "mode": "agent",
+          "domain": "soy"
+        }
+      },
+      "wer": 0.0,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 304.54,
+      "erro": null
+    },
+    {
+      "id": "C01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "C03",
+      "modelo": "gemini-4-hydrogen",
+      "transcricao_esperada": "Qual município teve a maior exposição ao desmatamento na cadeia da carne bovina em 2023?",
+      "transcricao": "Qual município teve a maior exposição ao desmatamento na cadeia de carne bovina em 2023?",
+      "extraido": {
+        "transcricao": "Qual município teve a maior exposição ao desmatamento na cadeia de carne bovina em 2023?",
+        "local": null,
+        "commodity": "carne",
+        "ano": 2023,
+        "tipo": "dados",
+        "modelo": "gemini-4-hydrogen",
+        "segundos": 4.51,
+        "seletores": {
+          "mode": "agent",
+          "domain": "beef"
+        }
+      },
+      "wer": 0.0667,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 4.51,
+      "erro": null
+    },
+    {
+      "id": "C04",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M01",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M02",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M03",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M04",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M05",
+      "modelo": "gemini-4-hydrogen",
+      "transcricao_esperada": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudança do Clima estabeleceu?",
+      "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+      "extraido": {
+        "transcricao": "Quanto a cadeia da soja emitiu de CO2 associado ao desmatamento em 2022 e qual meta de redução de emissões a Política Nacional sobre Mudanças no Clima estabeleceu?",
+        "local": null,
+        "commodity": "soja",
+        "ano": 2022,
+        "tipo": "misto",
+        "modelo": "gemini-4-hydrogen",
+        "segundos": 21.52,
+        "seletores": {
+          "mode": "agent",
+          "domain": "mixed"
+        }
+      },
+      "wer": 0.069,
+      "acerto_nomes": null,
+      "campos_ok": {
+        "local": true,
+        "commodity": true,
+        "ano": true,
+        "tipo": true
+      },
+      "segundos": 21.52,
+      "erro": null
+    },
+    {
+      "id": "M06",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M07",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M08",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M09",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    },
+    {
+      "id": "M10",
+      "modelo": "gemini-4-hydrogen",
+      "erro": "VoiceProviderError: Falha ao chamar Gemini (gemini-4-hydrogen): ServerError: 503 UNAVAILABLE. {'error': {'code': 503, 'message': 'This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.', 'status': 'UNAVAILABLE'}}"
+    }
+  ]
+}

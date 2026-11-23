@@ -16,6 +16,8 @@ import re
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from urllib.parse import parse_qs, urlparse
+
 import src.config as config_mod
 from src.config import PROJECT_ROOT
 # O agente e o pipeline de chat carregam o DuckDB: são importados só quando usados (ver /api/chat),
@@ -27,11 +29,47 @@ from src.pipeline.session import (
     validate_session_id,
 )
 from src.rag import AGENT_DOMAINS, answer, build_context, resolve_domain
+from src.voice import (
+    ALLOWED_WAV_MIMES,
+    VoiceError,
+    falar_resposta,
+    max_audio_bytes,
+    ouvir_pergunta,
+    voice_available,
+)
 
 INDEX_HTML = PROJECT_ROOT / "web" / "index.html"
+QUESTIONS_JSONL = PROJECT_ROOT / "eval" / "perguntas.jsonl"
 DASHBOARD_FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-]+\.html$")
+QUESTION_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+$")
 
 SESSION_MANAGER = SessionManager()
+
+
+def load_eval_questions(path: Path | None = None) -> list[dict]:
+    """Carrega perguntas de `eval/perguntas.jsonl` para o modo de gravação de avaliação."""
+    src_path = path if path is not None else QUESTIONS_JSONL
+    if not src_path.is_file():
+        return []
+    out: list[dict] = []
+    for line in src_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        item = json.loads(line)
+        qid = str(item.get("id") or "").strip()
+        if qid and QUESTION_ID_RE.fullmatch(qid):
+            out.append({
+                "id": qid,
+                "tipo": item.get("tipo", ""),
+                "pergunta": item.get("pergunta", ""),
+                "no_teste": bool(item.get("no_teste", False)),
+            })
+    return out
+
+
+def _valid_question_ids(path: Path | None = None) -> set[str]:
+    return {q["id"] for q in load_eval_questions(path)}
 
 
 def resolve_dashboard_path(raw_request_path: str, base_dir: Path | None = None) -> Path | None:
@@ -67,7 +105,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         clean_path, _, _ = self.path.partition("?")
         if clean_path == "/api/health":
-            return self._json(200, {"ok": True, "analytics_available": _analytics_available()})
+            return self._json(200, {
+                "ok": True,
+                "analytics_available": _analytics_available(),
+                "voice_available": voice_available(),
+                "voice_max_seconds": config_mod.VOICE_MAX_SECONDS,
+                "voice_record_mode": config_mod.VOICE_RECORD_DIR is not None,
+            })
+        if clean_path == "/api/voice/record/questions":
+            return self._handle_voice_record_questions()
         if clean_path in ("/", "/index.html"):
             return self._send(200, "text/html; charset=utf-8", INDEX_HTML.read_bytes())
         if clean_path.startswith("/dashboards/"):
@@ -79,6 +125,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         clean_path, _, _ = self.path.partition("?")
+        if clean_path == "/api/voice":
+            return self._handle_voice()
+        if clean_path == "/api/voice/speak":
+            return self._handle_voice_speak()
+        if clean_path == "/api/voice/record" or clean_path.startswith("/api/voice/record/"):
+            return self._handle_voice_record()
         if clean_path == "/api/chat":
             return self._handle_chat()
         if clean_path != "/api/ask":
@@ -129,6 +181,122 @@ class Handler(BaseHTTPRequestHandler):
             })
         except Exception as e:  # mostra o erro na página em vez de derrubar o servidor
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def _read_wav_body(self) -> tuple[bytes | None, str]:
+        """Valida Content-Type e Content-Length antes de ler o corpo WAV."""
+        raw_ct = (self.headers.get("Content-Type") or "").split(";", 1)[0].strip().lower()
+        if raw_ct not in ALLOWED_WAV_MIMES:
+            self._json(415, {"error": "Formato não suportado. Envie áudio WAV (Content-Type: audio/wav)."})
+            return None, raw_ct
+
+        raw_len = self.headers.get("Content-Length")
+        try:
+            content_length = int(raw_len) if raw_len is not None else 0
+        except (TypeError, ValueError):
+            self._json(400, {"error": "Content-Length inválido."})
+            return None, raw_ct
+
+        if content_length <= 0:
+            self._json(400, {"error": "Corpo de áudio vazio."})
+            return None, raw_ct
+
+        limit = max_audio_bytes()
+        if content_length > limit:
+            self._json(413, {
+                "error": f"Áudio acima do limite de {config_mod.VOICE_MAX_SECONDS}s ({content_length} > {limit} bytes)."
+            })
+            return None, raw_ct
+
+        audio = self.rfile.read(content_length)
+        if not audio:
+            self._json(400, {"error": "Corpo de áudio vazio."})
+            return None, raw_ct
+        return audio, raw_ct
+
+    def _handle_voice(self):
+        audio, content_type = self._read_wav_body()
+        if audio is None:
+            return
+        if not voice_available():
+            return self._json(503, {"error": "Entrada por voz indisponível (GEMINI_API_KEY não configurada)."})
+        try:
+            result = ouvir_pergunta(audio, content_type)
+            print(f"[voice] {result.segundos:.2f}s | {result.transcricao}")
+            return self._json(200, result.to_dict())
+        except VoiceError as exc:
+            return self._json(exc.http_status, {"error": str(exc)})
+        except Exception as exc:
+            return self._json(502, {"error": f"Falha ao processar áudio: {type(exc).__name__}: {exc}"})
+
+    def _handle_voice_speak(self):
+        if not voice_available():
+            return self._json(503, {"error": "Leitura por Gemini TTS indisponível (GEMINI_API_KEY não configurada)."})
+        try:
+            raw_len = int(self.headers.get("Content-Length", 0) or 0)
+            body = json.loads(self.rfile.read(raw_len) or b"{}") if raw_len > 0 else {}
+            if not isinstance(body, dict):
+                return self._json(400, {"error": "Corpo JSON inválido."})
+        except Exception:
+            return self._json(400, {"error": "Corpo JSON inválido."})
+
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            return self._json(400, {"error": "Texto vazio para leitura."})
+
+        start = time.perf_counter()
+        try:
+            wav_bytes = falar_resposta(text)
+            elapsed = round(time.perf_counter() - start, 2)
+            print(f"[voice-tts] {elapsed:.2f}s | {len(wav_bytes)} bytes")
+            return self._send(200, "audio/wav", wav_bytes)
+        except VoiceError as exc:
+            return self._json(exc.http_status, {"error": str(exc)})
+        except Exception as exc:
+            return self._json(502, {"error": f"Falha ao gerar áudio: {type(exc).__name__}: {exc}"})
+
+    def _handle_voice_record_questions(self):
+        rec_dir = config_mod.VOICE_RECORD_DIR
+        if rec_dir is None:
+            return self._json(404, {"error": "Modo de gravação para avaliação está desligado."})
+        questions = load_eval_questions()
+        for q in questions:
+            q["recorded"] = (Path(rec_dir) / f"{q['id']}.wav").is_file()
+        return self._json(200, {
+            "record_dir": str(rec_dir),
+            "questions": questions,
+        })
+
+    def _handle_voice_record(self):
+        rec_dir = config_mod.VOICE_RECORD_DIR
+        if rec_dir is None:
+            return self._json(403, {"error": "Modo de gravação para avaliação está desligado (defina VOICE_RECORD_DIR)."})
+
+        parsed = urlparse(self.path)
+        qid = ""
+        if parsed.path.startswith("/api/voice/record/"):
+            qid = parsed.path[len("/api/voice/record/"):].strip()
+        else:
+            qs = parse_qs(parsed.query)
+            qid = (qs.get("id") or [""])[0].strip()
+
+        if not qid or not QUESTION_ID_RE.fullmatch(qid) or qid not in _valid_question_ids():
+            return self._json(400, {"error": "ID de pergunta inválido ou inexistente no arquivo de avaliação."})
+
+        audio, _ = self._read_wav_body()
+        if audio is None:
+            return
+
+        root = Path(rec_dir).resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        target = (root / f"{qid}.wav").resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            return self._json(400, {"error": "Caminho de gravação inválido."})
+
+        target.write_bytes(audio)
+        print(f"[voice-record] salvo {target.name} ({len(audio)} bytes)")
+        return self._json(200, {"saved": True, "id": qid, "bytes": len(audio)})
 
     def _handle_chat(self):
         try:

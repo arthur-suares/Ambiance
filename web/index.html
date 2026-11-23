@@ -35,6 +35,17 @@
   button.secondary {
     background: var(--panel); color: var(--fg); border: 1px solid var(--border); font-weight: 500;
   }
+  button.recording { background: var(--error); color: #fff; }
+  .voice-summary { margin-top: 8px; padding: 6px 10px; font-size: 13px; color: var(--fg); background: var(--accent-soft); border: 1px solid var(--border); border-radius: 6px; }
+  .answer-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: 24px 0 8px; }
+  .answer-head h2 { margin: 0; }
+  .record-panel { margin-top: 22px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+  .record-panel h2 { margin-top: 0; }
+  .record-prompt { font-size: 16px; font-weight: 500; margin: 10px 0; padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+  .record-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .record-chip { padding: 3px 8px; font-size: 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg); color: var(--fg); cursor: pointer; }
+  .record-chip.done { background: var(--accent-soft); border-color: var(--accent); }
+  .record-chip.active { outline: 2px solid var(--accent); font-weight: 700; }
   .examples { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
   .chip {
     padding: 5px 10px; font-size: 12.5px; font-weight: 500; color: var(--fg);
@@ -82,6 +93,7 @@
     <textarea id="question" placeholder="Digite sua pergunta sobre legislação agroambiental ou dados da soja/carne bovina..." required></textarea>
     <div class="row">
       <button id="send" type="submit">Perguntar</button>
+      <button id="voice-btn" type="button" class="secondary" hidden>🎤 Falar</button>
       <button id="clear" type="button" class="secondary">Limpar</button>
       <label>Modo:
         <select id="mode">
@@ -101,6 +113,7 @@
       <label>Trechos de lei (k): <input id="k" type="number" min="1" max="20" value="6"></label>
       <span id="status" class="meta"></span>
     </div>
+    <div id="voice-summary" class="voice-summary" hidden></div>
 
     <div class="examples" aria-label="Exemplos de perguntas">
       <button type="button" class="chip" data-mode="laws" data-domain="law" data-q="Qual a diferença entre licenciamento ambiental geral na PNMA (Lei 6.938/1981) e a supressão de vegetação no Código Florestal?">Licenciamento PNMA vs Código Florestal</button>
@@ -110,8 +123,24 @@
     </div>
   </form>
 
+  <section id="record-panel" class="record-panel" hidden>
+    <h2>Modo de gravação para avaliação</h2>
+    <p class="meta" id="record-progress"></p>
+    <div class="record-prompt" id="record-prompt"></div>
+    <div class="row">
+      <button id="record-btn" type="button">🎤 Gravar áudio</button>
+      <button id="record-prev" type="button" class="secondary">← Anterior</button>
+      <button id="record-next" type="button" class="secondary">Pular / Próxima →</button>
+      <span id="record-status" class="meta"></span>
+    </div>
+    <div id="record-chips" class="record-chips"></div>
+  </section>
+
   <section id="result" hidden>
-    <h2>Resposta</h2>
+    <div class="answer-head">
+      <h2>Resposta</h2>
+      <button id="speak-btn" type="button" class="secondary" hidden>🔊 Ouvir resposta</button>
+    </div>
     <div id="answer"></div>
 
     <section id="dashboard-section" hidden>
@@ -223,6 +252,9 @@ function renderAnswer(text) {
 }
 
 function showResult(question, data) {
+  stopSpeaking();
+  lastAnswerText = data.answer || "";
+  $("speak-btn").hidden = (!voiceAvailable && !("speechSynthesis" in window)) || !lastAnswerText;
   $("answer").innerHTML = renderAnswer(data.answer);
   // Painel gerado pelo Agente de Dashboard (pipeline): link e pré-visualização embutida.
   const dashboards = data.dashboards || [];
@@ -291,6 +323,360 @@ document.querySelectorAll(".chip").forEach((chip) => {
   });
 });
 
+let lastAnswerText = "";
+let voiceAvailable = false;
+let voiceMaxSeconds = 60;
+let activeRecorder = null;
+let activeAudio = null;
+let activeAudioUrl = null;
+
+function formatTimer(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function encodeWavMono16k(chunks, inputSampleRate) {
+  const targetRate = 16000;
+  let totalLen = 0;
+  for (const c of chunks) totalLen += c.length;
+  const merged = new Float32Array(totalLen);
+  let offset = 0;
+  for (const c of chunks) { merged.set(c, offset); offset += c.length; }
+
+  let samples = merged;
+  if (inputSampleRate !== targetRate && totalLen > 0) {
+    const ratio = inputSampleRate / targetRate;
+    const outLen = Math.max(1, Math.round(totalLen / ratio));
+    samples = new Float32Array(outLen);
+    for (let i = 0; i < outLen; i++) {
+      const start = Math.floor(i * ratio);
+      const end = Math.min(totalLen, Math.floor((i + 1) * ratio));
+      let sum = 0;
+      let count = 0;
+      for (let j = start; j < end; j++) { sum += merged[j]; count++; }
+      samples[i] = count > 0 ? sum / count : merged[Math.min(start, totalLen - 1)];
+    }
+  }
+
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeStr = (pos, str) => { for (let i = 0; i < str.length; i++) view.setUint8(pos + i, str.charCodeAt(i)); };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, targetRate, true);
+  view.setUint32(28, targetRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let p = 44;
+  for (let i = 0; i < samples.length; i++, p += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function startWavRecording(onTick, onAutoStop) {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    throw new Error("Seu navegador não permite captura de microfone neste contexto.");
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const AudioCtx = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AudioCtx();
+  const source = ctx.createMediaStreamSource(stream);
+  const processor = ctx.createScriptProcessor(4096, 1, 1);
+  const chunks = [];
+  processor.onaudioprocess = (ev) => {
+    chunks.push(new Float32Array(ev.inputBuffer.getChannelData(0)));
+  };
+  source.connect(processor);
+  processor.connect(ctx.destination);
+
+  let elapsed = 0;
+  let stopped = false;
+  const timer = setInterval(() => {
+    elapsed += 1;
+    onTick(elapsed);
+    if (elapsed >= voiceMaxSeconds && !stopped) {
+      onAutoStop();
+    }
+  }, 1000);
+
+  return {
+    stop() {
+      if (stopped) return null;
+      stopped = true;
+      clearInterval(timer);
+      processor.disconnect();
+      source.disconnect();
+      stream.getTracks().forEach((t) => t.stop());
+      const rate = ctx.sampleRate || 16000;
+      ctx.close().catch(() => {});
+      return encodeWavMono16k(chunks, rate);
+    },
+  };
+}
+
+function applyVoiceSelectors(data) {
+  const sel = data.seletores || {};
+  let mode = sel.mode;
+  let domain = sel.domain;
+  if (!domain) {
+    if (data.tipo === "leis") { mode = "laws"; domain = "law"; }
+    else if (data.tipo === "misto" || data.commodity === "ambas") { mode = "agent"; domain = "mixed"; }
+    else if (data.tipo === "dados" && data.commodity === "soja") { mode = "agent"; domain = "soy"; }
+    else if (data.tipo === "dados" && data.commodity === "carne") { mode = "agent"; domain = "beef"; }
+    else { mode = null; domain = "auto"; }
+  }
+  if (mode) {
+    const opt = $("mode").querySelector(`option[value="${mode}"]`);
+    if (opt && !opt.disabled) $("mode").value = mode;
+  }
+  if (domain && $("domain").querySelector(`option[value="${domain}"]`)) {
+    $("domain").value = domain;
+  }
+}
+
+function formatVoiceSummary(data) {
+  const parts = [];
+  if (data.local) parts.push(data.local);
+  if (data.commodity) parts.push(data.commodity);
+  if (data.ano) parts.push(String(data.ano));
+  if (data.tipo) parts.push(data.tipo);
+  return parts.length ? `Entendi: ${parts.join(" · ")}` : "Entendi a transcrição (nenhum filtro específico identificado).";
+}
+
+function textForSpeech(markdown) {
+  const lines = String(markdown || "").split("\n");
+  const kept = [];
+  for (const line of lines) {
+    if (/^\s*\|.*\|\s*$/.test(line)) continue; // pula tabelas
+    let clean = line
+      .replace(/\[(?:D|L)\d+(?:[^\]]*)\]/g, "") // pula citações [D1], [L1, art. 12]
+      .replace(/^\s*#{1,6}\s+/, "")
+      .replace(/^\s*[-*•]\s+/, "")
+      .replace(/\*\*(.+?)\*\*/g, "$1")
+      .replace(/`([^`]+)`/g, "$1")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (clean) kept.push(clean);
+  }
+  return kept.join(". ");
+}
+
+function stopSpeaking() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+  }
+  if (activeAudioUrl) {
+    URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = null;
+  }
+  if ("speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+  }
+  if ($("speak-btn")) {
+    $("speak-btn").disabled = false;
+    $("speak-btn").textContent = "🔊 Ouvir resposta";
+  }
+}
+
+function speakWithBrowser(text) {
+  if (!("speechSynthesis" in window)) return;
+  const spoken = textForSpeech(text);
+  if (!spoken) return;
+  const utter = new SpeechSynthesisUtterance(spoken);
+  utter.lang = "pt-BR";
+  utter.onend = () => { $("speak-btn").textContent = "🔊 Ouvir resposta"; };
+  utter.onerror = () => { $("speak-btn").textContent = "🔊 Ouvir resposta"; };
+  $("speak-btn").textContent = "⏹ Parar leitura";
+  window.speechSynthesis.speak(utter);
+}
+
+$("speak-btn").addEventListener("click", async () => {
+  if (activeAudio || ("speechSynthesis" in window && window.speechSynthesis.speaking)) {
+    stopSpeaking();
+    return;
+  }
+  if (!lastAnswerText) return;
+
+  if (!voiceAvailable) {
+    speakWithBrowser(lastAnswerText);
+    return;
+  }
+
+  $("speak-btn").disabled = true;
+  $("speak-btn").textContent = "⏳ Gerando áudio...";
+  try {
+    const res = await fetch("/api/voice/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: lastAnswerText }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    activeAudioUrl = URL.createObjectURL(blob);
+    activeAudio = new Audio(activeAudioUrl);
+    activeAudio.onended = () => stopSpeaking();
+    activeAudio.onerror = () => stopSpeaking();
+    $("speak-btn").disabled = false;
+    $("speak-btn").textContent = "⏹ Parar leitura (Gemini)";
+    await activeAudio.play();
+  } catch (err) {
+    stopSpeaking();
+    // Fallback gratuito automático para a voz do navegador se a cota do Gemini TTS estiver esgotada
+    $("status").textContent = `Gemini TTS indisponível (${err.message}); usando voz do navegador.`;
+    speakWithBrowser(lastAnswerText);
+  }
+});
+
+async function finishVoiceQuestion() {
+  if (!activeRecorder) return;
+  const rec = activeRecorder;
+  activeRecorder = null;
+  const blob = rec.stop();
+  $("voice-btn").classList.remove("recording");
+  $("voice-btn").textContent = "⏳ Ouvindo...";
+  $("voice-btn").disabled = true;
+  $("status").textContent = "Transcrevendo e interpretando áudio...";
+  $("status").classList.remove("error");
+
+  try {
+    const res = await fetch("/api/voice", {
+      method: "POST",
+      headers: { "Content-Type": "audio/wav" },
+      body: blob,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    $("question").value = data.transcricao || "";
+    $("voice-summary").textContent = formatVoiceSummary(data);
+    $("voice-summary").hidden = false;
+    applyVoiceSelectors(data);
+    $("status").textContent = "Revise a transcrição e clique em Perguntar.";
+    $("question").focus();
+  } catch (err) {
+    $("status").textContent = `Não foi possível processar o áudio (${err.message}). Digite a pergunta.`;
+    $("status").classList.add("error");
+  } finally {
+    $("voice-btn").disabled = false;
+    $("voice-btn").textContent = "🎤 Falar";
+  }
+}
+
+$("voice-btn").addEventListener("click", async () => {
+  if (activeRecorder) {
+    await finishVoiceQuestion();
+    return;
+  }
+  $("voice-summary").hidden = true;
+  $("status").textContent = "";
+  $("status").classList.remove("error");
+  try {
+    activeRecorder = await startWavRecording(
+      (sec) => { $("voice-btn").textContent = `⏹ Parar (${formatTimer(sec)} / ${formatTimer(voiceMaxSeconds)})`; },
+      () => { finishVoiceQuestion(); },
+    );
+    $("voice-btn").classList.add("recording");
+    $("voice-btn").textContent = `⏹ Parar (0:00 / ${formatTimer(voiceMaxSeconds)})`;
+  } catch (err) {
+    $("status").textContent = `Microfone indisponível (${err.message}). Digite a pergunta.`;
+    $("status").classList.add("error");
+  }
+});
+
+// --- Modo de gravação para avaliação (Etapa 7) ---
+let evalQuestions = [];
+let evalIdx = 0;
+let evalRecorder = null;
+
+function renderRecordPanel() {
+  if (!evalQuestions.length) return;
+  const q = evalQuestions[evalIdx];
+  const doneCount = evalQuestions.filter((x) => x.recorded).length;
+  $("record-progress").textContent = `Gravadas: ${doneCount} de ${evalQuestions.length} · Atual: ${q.id} (${q.tipo})${q.recorded ? " · já gravada" : ""}`;
+  $("record-prompt").textContent = q.pergunta;
+  $("record-btn").textContent = q.recorded ? "🎤 Regravar áudio" : "🎤 Gravar áudio";
+  $("record-chips").innerHTML = evalQuestions.map((item, i) =>
+    `<button type="button" class="record-chip${item.recorded ? " done" : ""}${i === evalIdx ? " active" : ""}" data-ridx="${i}">${escapeHtml(item.id)}${item.recorded ? " ✓" : ""}</button>`
+  ).join("");
+}
+
+$("record-chips").addEventListener("click", (e) => {
+  const btn = e.target.closest(".record-chip");
+  if (!btn || evalRecorder) return;
+  evalIdx = Number(btn.dataset.ridx) || 0;
+  $("record-status").textContent = "";
+  renderRecordPanel();
+});
+
+$("record-prev").addEventListener("click", () => {
+  if (evalRecorder || !evalQuestions.length) return;
+  evalIdx = (evalIdx - 1 + evalQuestions.length) % evalQuestions.length;
+  $("record-status").textContent = "";
+  renderRecordPanel();
+});
+
+$("record-next").addEventListener("click", () => {
+  if (evalRecorder || !evalQuestions.length) return;
+  evalIdx = (evalIdx + 1) % evalQuestions.length;
+  $("record-status").textContent = "";
+  renderRecordPanel();
+});
+
+async function finishEvalRecording() {
+  if (!evalRecorder) return;
+  const rec = evalRecorder;
+  evalRecorder = null;
+  const blob = rec.stop();
+  const q = evalQuestions[evalIdx];
+  $("record-btn").classList.remove("recording");
+  $("record-btn").disabled = true;
+  $("record-status").textContent = `Salvando ${q.id}.wav...`;
+  try {
+    const res = await fetch(`/api/voice/record?id=${encodeURIComponent(q.id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "audio/wav" },
+      body: blob,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    q.recorded = true;
+    $("record-status").textContent = `Salvo ${q.id}.wav (${Math.round((data.bytes || 0) / 1024)} KB).`;
+    renderRecordPanel();
+  } catch (err) {
+    $("record-status").textContent = `Erro ao salvar: ${err.message}`;
+  } finally {
+    $("record-btn").disabled = false;
+  }
+}
+
+$("record-btn").addEventListener("click", async () => {
+  if (evalRecorder) {
+    await finishEvalRecording();
+    return;
+  }
+  $("record-status").textContent = "";
+  try {
+    evalRecorder = await startWavRecording(
+      (sec) => { $("record-btn").textContent = `⏹ Parar e salvar (${formatTimer(sec)} / ${formatTimer(voiceMaxSeconds)})`; },
+      () => { finishEvalRecording(); },
+    );
+    $("record-btn").classList.add("recording");
+    $("record-btn").textContent = `⏹ Parar e salvar (0:00 / ${formatTimer(voiceMaxSeconds)})`;
+  } catch (err) {
+    $("record-status").textContent = `Microfone indisponível: ${err.message}`;
+  }
+});
+
 fetch("/api/health").then((r) => r.json()).then((h) => {
   if (!h.analytics_available) {
     const agentOpt = $("mode").querySelector('option[value="agent"]');
@@ -301,12 +687,28 @@ fetch("/api/health").then((r) => r.json()).then((h) => {
     $("mode").value = "laws";
     $("domain").value = "law";
   }
+  if (h.voice_max_seconds) voiceMaxSeconds = Number(h.voice_max_seconds) || 60;
+  voiceAvailable = Boolean(h.voice_available);
+  if (voiceAvailable) $("voice-btn").hidden = false;
+  if (h.voice_record_mode) {
+    fetch("/api/voice/record/questions").then((r) => r.json()).then((d) => {
+      evalQuestions = d.questions || [];
+      if (evalQuestions.length) {
+        const firstPending = evalQuestions.findIndex((x) => !x.recorded);
+        evalIdx = firstPending >= 0 ? firstPending : 0;
+        $("record-panel").hidden = false;
+        renderRecordPanel();
+      }
+    }).catch(() => {});
+  }
 }).catch(() => {});
 
 $("clear").addEventListener("click", () => {
   $("question").value = "";
   $("status").textContent = "";
   $("status").classList.remove("error");
+  $("voice-summary").hidden = true;
+  stopSpeaking();
   $("question").focus();
 });
 
