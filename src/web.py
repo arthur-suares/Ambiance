@@ -360,7 +360,8 @@ class Handler(BaseHTTPRequestHandler):
             if not _analytics_available():
                 return self._json(503, {"error": "O painel completo precisa da base DuckDB (Trase) em data/processed/."})
             from src.dashboard.orchestrator import generate_dashboard
-            result = generate_dashboard(question)
+            chat_context = body.get("context") if isinstance(body.get("context"), dict) else None
+            result = generate_dashboard(question, chat_context=chat_context)
             if not result.output_path:
                 return self._json(500, {"error": "O agente não gerou o arquivo do painel."})
             return self._json(200, {

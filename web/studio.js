@@ -1007,10 +1007,32 @@
     loading.hidden = false;
     $("dash-loading-txt").textContent = "O agente de dashboard está montando o painel: escolhe os dados, desenha os gráficos e revisa… (cerca de 1 minuto)";
     try {
+      const chatCharts = (turn.data?.charts || []).map(c => ({
+        title: c.title || "",
+        subtitle: c.subtitle || "",
+        chart_type: c.chart_type || "bar",
+        x_label: c.x_label || "",
+        y_label: c.y_label || "",
+        unit: c.unit || "",
+        labels: Array.isArray(c.labels) ? c.labels.slice(0, 30) : [],
+        series: Array.isArray(c.series)
+          ? c.series.map(s => ({name: s.name || "", values: Array.isArray(s.values) ? s.values.slice(0, 30) : []}))
+          : [],
+      }));
+      const chatTables = (turn.data?.tables || []).map(t => ({
+        label: t.label || "",
+        purpose: t.purpose || "",
+        columns: Array.isArray(t.columns) ? t.columns : [],
+        rows: Array.isArray(t.rows) ? t.rows.slice(0, 60) : [],
+      }));
+      const payload = {question: turn.question};
+      if (chatCharts.length || chatTables.length) {
+        payload.context = {charts: chatCharts, tables: chatTables};
+      }
       const res = await fetch("/api/dashboard", {
         method: "POST",
         headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({question: turn.question}),
+        body: JSON.stringify(payload),
       });
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Falha ao gerar o painel.");
@@ -1034,13 +1056,14 @@
         const doc = frame.contentDocument;
         if (!doc) return;
         doc.documentElement.classList.add("is-embed");
+        doc.documentElement.setAttribute("data-theme", "light");
         const fontLink = document.querySelector('link[href*="fonts.googleapis.com"]');
         if (fontLink && !doc.head.querySelector('link[href*="fonts.googleapis.com"]')) {
           doc.head.appendChild(fontLink.cloneNode(true));
         }
       } catch { /* mesma origem */ }
     };
-    frame.src = `${url}?embed=1`;
+    frame.src = `${url}?embed=1&theme=light`;
   }
 
   async function openCanvasForTurn(turn, targetTab = null) {
