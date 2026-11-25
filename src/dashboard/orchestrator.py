@@ -42,7 +42,7 @@ from src.dashboard.dimensions import (
     detect_dimension,
     dimension_line,
 )
-from src.dashboard.reviewer_agent import review_dashboard
+from src.dashboard.reviewer_agent import auto_repair_spec, review_dashboard
 from src.dashboard.messages import user_message
 from src.dashboard.validator import find_illegality_claim, is_law_sourced, spec_has_law_source, widget_claims
 from src.dashboard.schemas import (
@@ -433,6 +433,7 @@ def generate_dashboard(
         total_out += d_out
 
         for attempt in range(MAX_REVISIONS + 1):
+            auto_repair_spec(spec, datasets)
             review = review_dashboard(question, spec, datasets, requested=plan.requested_chart,
                                       dimension=plan.requested_dimension, enforce_structure=True)
             reviews.append(review)
@@ -613,6 +614,7 @@ def build_dashboard_from_store(
 
         for attempt in range(MAX_REVISIONS + 1):
             t_val = time.perf_counter()
+            auto_repair_spec(spec, datasets)
             review = review_dashboard(question, spec, datasets, requested=plan.requested_chart,
                                       dimension=plan.requested_dimension, enforce_structure=True)
             reviews.append(review)

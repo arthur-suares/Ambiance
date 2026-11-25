@@ -48,7 +48,7 @@ Estrutura mínima obrigatória de um painel executivo (siga sempre que os datase
 
 Quando usar cada tipo:
 - `kpi`: indicadores-chave de destaque no topo (informe `dataset_id`, `column`, `agg` entre \
-first/last/sum/mean/max/min/count e `value` numérico exato calculado a partir do dataset; use `agg="last"` para pegar o último ano de uma série ordenada por ano crescente).
+first/last/sum/mean/max/min/count e `value` numérico exato calculado a partir do dataset; use `agg="last"` para pegar o último ano de uma série ordenada por ano crescente). Para o número de UMA entidade numa tabela com várias (ex.: Goiás numa tabela de estados, ou Goiás em 2022 numa tabela estado×ano), informe `match` com as colunas que identificam a linha (ex.: `{{"state": "GO"}}` ou `{{"state": "GO", "year": "2022"}}`) e `agg="first"`.
 - `line`: evolução temporal por ano (`x="year"`, `y=["coluna_numerica"]`, opcional `color`).
 - `bar`: rankings e comparações entre categorias (`x="coluna_categoria"`, `y=["coluna_numerica"]`, \
 use `orientation="h"` quando os nomes de municípios/empresas forem longos).
@@ -121,6 +121,8 @@ WIDGET_ITEM_SCHEMA = {
         "markers": {"type": "boolean"},
         "stacked": {"type": "boolean", "description": "Para area: empilha as séries (só métricas aditivas)."},
         "trend_x": {"type": "string", "description": "Opcional para kpi: coluna de tempo da mini-série."},
+        "match": {"type": "object", "additionalProperties": {"type": "string"},
+                  "description": "Opcional para kpi: filtro da linha da entidade (ex.: {\"state\": \"GO\"})."},
         "trend_y": {"type": "string", "description": "Opcional para kpi: coluna numérica da mini-série."},
         "columns": {"type": "array", "items": {"type": "string"}, "description": "Para table: colunas exibidas."},
         "column_labels": {"type": "object", "description": "Mapeamento opcional coluna -> rótulo legível."},

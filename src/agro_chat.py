@@ -9,7 +9,7 @@ from typing import Any
 from src.agro_db import CHOROPLETH_METRICS, run_readonly_sql
 from src.config import LLM_EXTRA_PARAMS, LLM_MAX_TOKENS, LLM_MODEL
 
-MAX_TURNS = 6
+MAX_TURNS = 8  # consultas + mapa/gráficos + texto; ao estourar, a resposta é escrita mesmo assim
 
 SYSTEM_PROMPT = """\
 Você é o assistente analítico e socioambiental da plataforma Agro/Ambiance.
@@ -44,6 +44,9 @@ Você responde perguntas em português e constrói em tempo real um **Canvas Int
 
 ## Regras obrigatórias
 - Sempre use `query_agro_sql` para números; nunca invente valores.
+- **Seja econômico em rodadas (o limite é curto):** chame TODAS as consultas independentes de uma vez, na MESMA \
+resposta (várias chamadas de ferramenta em paralelo); prefira 2 a 4 consultas bem agregadas a muitas pequenas. \
+Assim que tiver os números, chame `set_map_view` e `create_chart` JUNTOS numa única rodada e depois escreva a resposta.
 - Inclua `codigo_municipio_ibge` nos SELECTs municipais para que o mapa destaque os municípios encontrados.
 - **Mapa sob demanda (`set_map_view`):** sempre chame quando a pergunta envolver território, municípios, biomas, estados, fluxos, instalações, cobertura MapBiomas ou alertas DETER. Ative apenas as camadas relevantes para a pergunta, defina um `title` descritivo e escolha o recorte (`uf`/`bioma`/`year`/`metric`/`deter_mode`/`show_facilities`/`mapbiomas_mode`).
 - Quando o usuário pedir **cobertura e uso da terra (MapBiomas, floresta vs pastagem vs soja, 1985–2025)**, use `mapbiomas_mode: true`, `mapbiomas_year` (1985–2025) e `mapbiomas_classes` (opcional, IDs como 3=Floresta, 4=Savânica, 15=Pastagem, 39=Soja, 21=Mosaico, 24=Urbana, 33=Água).

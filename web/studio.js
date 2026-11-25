@@ -769,7 +769,8 @@
       const chartJsType = isHoriz ? "bar" : (isArea ? "line" : ch.chart_type);
 
       const datasets = ch.series.map((s, sIdx) => {
-        const base = s.color || CHART_COLORS[sIdx % CHART_COLORS.length];
+        // Mesma paleta e mesma ordem do Painel completo (a cor sugerida pela IA em s.color destoava dele).
+        const base = CHART_COLORS[sIdx % CHART_COLORS.length];
         if (isDoughnut) {
           return {
             label: s.name,
@@ -782,9 +783,10 @@
         return {
           label: s.name,
           data: s.values,
-          backgroundColor: isArea ? `${base}33` : `${base}cc`,
+          // Barras sólidas e arredondadas, sem contorno: iguais às do Painel completo.
+          backgroundColor: isArea ? `${base}33` : base,
           borderColor: base,
-          borderWidth: 2,
+          borderWidth: chartJsType === "bar" ? 0 : 2,
           borderRadius: (chartJsType === "bar") ? 5 : 0,
           fill: isArea,
           tension: 0.25,
@@ -854,6 +856,42 @@
     URL.revokeObjectURL(url);
   }
 
+  // Células da tabela: números em pt-BR (no máximo 2 casas), anos e códigos sem separador de milhar.
+  const fmtCell2 = new Intl.NumberFormat("pt-BR", {maximumFractionDigits: 2});
+  const RAW_NUM_COL = /(^|_)(ano|year|codigo|code|ibge|id|cnpj|cep)(_|$)/i;
+  function fmtCell(col, v) {
+    if (v === null || v === undefined || v === "") return "";
+    const n = typeof v === "number" ? v : (typeof v === "string" && /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN);
+    if (!Number.isFinite(n) || RAW_NUM_COL.test(col)) return String(v);
+    return fmtCell2.format(n);
+  }
+  const prettyCol = c => String(c).replace(/_/g, " ").replace(/\btco2e\b/i, "tCO₂e").replace(/^\w/, ch => ch.toUpperCase());
+
+  // Quando a IA não desenhou gráfico, monta um a partir da primeira tabela com rótulo + número
+  // (ranking em barras horizontais), para a aba Dados nunca ficar só com tabelas.
+  function autoChartsFromTables(tables) {
+    for (const t of (tables || [])) {
+      const rows = t.rows || [], cols = t.columns || [];
+      if (rows.length < 2) continue;
+      const isNum = c => rows.filter(r => r[c] !== null && r[c] !== "" && Number.isFinite(Number(r[c]))).length >= rows.length * 0.8;
+      const numCols = cols.filter(c => !RAW_NUM_COL.test(c) && isNum(c));
+      const labelCol = cols.find(c => !numCols.includes(c) && !RAW_NUM_COL.test(c));
+      if (!numCols.length || !labelCol) continue;
+      const items = rows.map(r => ({l: String(r[labelCol] ?? "—"), v: Number(r[numCols[0]])}))
+        .filter(d => Number.isFinite(d.v)).sort((a, b) => b.v - a.v).slice(0, 12);
+      if (items.length < 2) continue;
+      return [{
+        title: t.purpose || `${prettyCol(numCols[0])} por ${prettyCol(labelCol).toLowerCase()}`,
+        subtitle: `Gráfico automático a partir da tabela [${t.label || "D"}]`,
+        chart_type: "horizontal_bar",
+        labels: items.map(d => d.l),
+        series: [{name: prettyCol(numCols[0]), values: items.map(d => d.v)}],
+        unit: "",
+      }];
+    }
+    return [];
+  }
+
   function renderDataTab(tables, toolCalls) {
     const wrap = $("data-container");
     wrap.innerHTML = "";
@@ -867,8 +905,8 @@
         ? `<details class="sql-details"><summary>Detalhes técnicos da consulta (${meta.rows} registros em ${meta.seconds}s)</summary><pre>${escapeHtml(meta.output)}</pre></details>`
         : "";
       const tableHtml = tbl.rows?.length
-        ? `<div class="table-scroll"><table><thead><tr>${tbl.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>` +
-          tbl.rows.map(r => `<tr>${tbl.columns.map(c => `<td>${escapeHtml(r[c] ?? "")}</td>`).join("")}</tr>`).join("") +
+        ? `<div class="table-scroll"><table><thead><tr>${tbl.columns.map(c => `<th>${escapeHtml(prettyCol(c))}</th>`).join("")}</tr></thead><tbody>` +
+          tbl.rows.map(r => `<tr>${tbl.columns.map(c => `<td>${escapeHtml(fmtCell(c, r[c]))}</td>`).join("")}</tr>`).join("") +
           `</tbody></table></div>`
         : "<p class='msg-meta'>Nenhum registro encontrado para este recorte.</p>";
 
@@ -1278,6 +1316,9 @@
       if (!res.ok) throw new Error(data.error || "Erro ao consultar o assistente.");
 
       sessionHistory.push({role: "user", content: q}, {role: "assistant", content: data.answer || ""});
+      if (!data.charts?.length && data.tables?.length && data.domain !== "law") {
+        data.charts = autoChartsFromTables(data.tables);
+      }
       const turn = {id: turns.length + 1, question: q, data};
       turns.push(turn);
       appendMessageTurn(turn);

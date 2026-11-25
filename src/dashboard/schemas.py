@@ -109,6 +109,9 @@ class WidgetSpec:
     # KPI: série e variação calculadas em código a partir de colunas do mesmo dataset
     trend_x: str | None = None
     trend_y: str | None = None
+    # KPI: linha específica do dataset ({"state": "GO"} ou {"state": "GO", "year": "2022"}),
+    # para indicadores de uma entidade numa tabela com várias. Aplicado antes da agregação.
+    match: dict[str, str] = field(default_factory=dict)
     # Campos de tabela e ordenação/recorte
     columns: list[str] = field(default_factory=list)
     column_labels: dict[str, str] = field(default_factory=dict)
@@ -138,6 +141,8 @@ class WidgetSpec:
         if self.kind in ("kpi", "gauge"):
             out.update({"column": self.column, "agg": self.agg, "value": self.value,
                         "trend_x": self.trend_x, "trend_y": self.trend_y})
+            if self.match:
+                out["match"] = dict(self.match)
         elif self.kind in ("bar", "line", "area", "progress", "pie", "donut", "waterfall"):
             out.update({"x": self.x, "y": self.y, "color": self.color,
                         "sort_by": self.sort_by, "ascending": self.ascending, "top_n": self.top_n})
@@ -243,6 +248,23 @@ def format_dataset_for_llm(ds: DatasetResult, max_rows: int = MAX_ROWS_TO_LLM) -
     else:
         note = f"\n({len(ds.df)} linhas)"
     return f"{header}{csv_body}{note}\n"
+
+
+KPI_TIME_COLUMNS = ("year", "ano")
+
+
+def kpi_frame(df: pd.DataFrame, w, *, keep_time: bool = False) -> pd.DataFrame:
+    """Linhas do dataset que valem para o KPI (filtro `match`). keep_time=True ignora o filtro de ano,
+    para a mini-série da mesma entidade continuar com todos os anos."""
+    match = getattr(w, "match", None) or {}
+    if not match:
+        return df
+    out = df
+    for col, val in match.items():
+        if col not in out.columns or (keep_time and col.lower() in KPI_TIME_COLUMNS):
+            continue
+        out = out[out[col].astype(str).str.strip() == str(val).strip()]
+    return out
 
 
 def compute_kpi_value(df: pd.DataFrame, column: str, agg: str = "first") -> float | None:
@@ -390,6 +412,7 @@ def parse_widget_spec(raw: object, index: int) -> WidgetSpec:
         stacked=bool(raw.get("stacked", False)),
         trend_x=str(raw["trend_x"]).strip() if raw.get("trend_x") else None,
         trend_y=str(raw["trend_y"]).strip() if raw.get("trend_y") else None,
+        match={str(k): str(v) for k, v in raw["match"].items()} if isinstance(raw.get("match"), dict) else {},
         columns=_as_str_list(raw.get("columns")),
         column_labels=col_labels,
         column_units=col_units,

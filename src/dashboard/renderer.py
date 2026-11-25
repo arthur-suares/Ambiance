@@ -49,6 +49,7 @@ from src.dashboard.schemas import (
     DatasetResult,
     WidgetSpec,
     compute_kpi_value,
+    kpi_frame,
 )
 
 logger = logging.getLogger(__name__)
@@ -839,7 +840,7 @@ def _safe_update(trace, **props) -> None:
 
 def _build_kpi_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     """Mantida por compatibilidade: a página usa o cartão HTML de `_render_kpi_card`."""
-    actual = compute_kpi_value(df, w.column or "", w.agg)
+    actual = compute_kpi_value(kpi_frame(df, w), w.column or "", w.agg)
     if actual is None:
         raise ValueError(f"Não foi possível calcular o KPI em {w.dataset_id}.{w.column}.")
     fig = go.Figure(go.Indicator(mode="number", value=actual,
@@ -991,9 +992,13 @@ def _build_line_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
 
     direct = not stacked and 1 <= len(series) <= 6
     _direct_line_labels(fig, series, w, single=len(series) == 1)
+    # Margem direita do tamanho do maior rótulo de fim de linha (antes era fixa e cortava
+    # "Exposição ao desmata…" em séries com nome longo).
+    end_labels = [a.text or "" for a in fig.layout.annotations if a.xanchor == "left"]
+    longest = max((len(re.sub(r"<[^>]+>", "", t)) for t in end_labels), default=0)
+    right = min(220, max(56, int(longest * 6.6) + 18)) if direct else 56
     fig.update_layout(
-        **_base_layout(height=360, margin={"l": 8, "r": 112 if (direct and len(series) > 1) else 56,
-                                           "t": 24, "b": 40}),
+        **_base_layout(height=360, margin={"l": 8, "r": right, "t": 24, "b": 40}),
         showlegend=not direct and (len(w.y) > 1 or bool(w.color)),
         hovermode="x unified",
     )
@@ -1032,7 +1037,8 @@ def _direct_line_labels(fig: go.Figure, series, w: WidgetSpec, *, single: bool) 
             continue
         x_last, y_last = xs[valid].iloc[-1], ys[valid].iloc[-1]
         txt = format_compact_br(y_last, w.unit, with_unit=False)
-        fig.add_annotation(x=x_last, y=y_last, text=txt if single else f"{html.escape(name)} · {txt}",
+        short = name if len(name) <= 24 else name[:23].rstrip() + "…"  # nome inteiro continua na dica (hover)
+        fig.add_annotation(x=x_last, y=y_last, text=txt if single else f"{html.escape(short)} · {txt}",
                            showarrow=False, xanchor="left", xshift=8, font={"size": 11.5, "color": color})
     if not single:
         return
@@ -1220,7 +1226,7 @@ def _build_waterfall_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
 
 def _render_gauge_card(w: WidgetSpec, df: pd.DataFrame) -> str:
     """Medidor (B3) na fileira de indicadores: rosca pequena no lugar do ícone e o % ao lado."""
-    valor = compute_kpi_value(df, w.column or "", w.agg)
+    valor = compute_kpi_value(kpi_frame(df, w), w.column or "", w.agg)
     if valor is None:
         raise ValueError("medidor sem valor")
     pct = max(0.0, min(100.0, float(valor)))
@@ -1811,14 +1817,14 @@ def _render_valid_card(w: WidgetSpec, inner_html: str, df: pd.DataFrame | None =
 def _render_kpi_card(w: WidgetSpec, df: pd.DataFrame, featured: bool = False) -> str:
     """C1: ícone grande à esquerda, rótulo pequeno, número grande e, embaixo, a variação calculada dos
     dados ("+11,2% vs 2021"). Sem período anterior, não há linha de variação."""
-    actual = compute_kpi_value(df, w.column or "", w.agg)
+    actual = compute_kpi_value(kpi_frame(df, w), w.column or "", w.agg)
     if actual is None:
         raise ValueError(f"Não foi possível calcular o KPI em {w.dataset_id}.{w.column}.")
     exact = format_br_value(actual) + (f" {w.unit}" if w.unit else "")
     # Em contagens o rótulo já diz a unidade ("municípios"); no número ela só repetiria.
     count_unit = (w.unit or "").strip().lower() in COUNT_UNITS
     value_txt = format_compact_br(actual, w.unit, with_unit=not count_unit)
-    trend = kpi_trend(df, w)
+    trend = kpi_trend(kpi_frame(df, w, keep_time=True), w)
     delta = ""
     has_spark = ""
     if trend and trend["delta_pct"] is not None:

@@ -405,8 +405,9 @@ html.is-embed body {{
 .is-embed .plot-wrap {{ width: 100%; max-width: 100%; overflow: hidden; }}
 .is-embed .js-plotly-plot .plotly .main-svg text {{ font-family: var(--studio-font) !important; }}
 
-/* Responsivo: vira 1 coluna em tela estreita, sem rolagem horizontal */
-@media (max-width: 760px) {{
+/* Responsivo: vira 1 coluna quando o painel lateral é estreito (ranking com nomes longos não cabe em
+   meia largura abaixo de ~900 px), sem rolagem horizontal */
+@media (max-width: 900px) {{
   .is-embed main {{ padding: 12px 12px 22px; }}
   .is-embed .chart-grid {{ grid-template-columns: minmax(0, 1fr); }}
   .is-embed .card,

@@ -16,7 +16,9 @@ Em duas etapas, nesta ordem:
 from __future__ import annotations
 
 import json
+import logging
 import math
+import re
 
 import pandas as pd
 
@@ -38,6 +40,7 @@ from src.dashboard.schemas import (
     WidgetIssue,
     WidgetSpec,
     compute_kpi_value,
+    kpi_frame,
     format_dataset_for_llm,
 )
 from src.dashboard.data_base import check_common_base
@@ -48,6 +51,8 @@ from src.dashboard.validator import (
     validate_spec_methodological,
     validate_widget_methodological,
 )
+
+logger = logging.getLogger(__name__)
 
 KPI_REL_TOL = 0.01
 KPI_ABS_TOL = 0.05
@@ -113,7 +118,7 @@ def _check_new_kind(w: WidgetSpec, datasets_by_id: dict[str, DatasetResult]) -> 
     df = ds.df
     if w.kind == "gauge" and w.column in df.columns:
         # Medidor: só um percentual calculado dos dados (participação), sem meta inventada.
-        valor = compute_kpi_value(df, w.column, w.agg)
+        valor = compute_kpi_value(kpi_frame(df, w), w.column, w.agg)
         if not is_percentage_column_or_unit(w.column, w.unit, df):
             return [WidgetIssue(w.id, "deterministic",
                                 f"Medidor exige coluna percentual; '{w.column}' (unidade '{w.unit}') não é.",
@@ -161,6 +166,99 @@ def validate_law_widget(w: WidgetSpec, ds: DatasetResult) -> list[WidgetIssue]:
                                       "Faixa de multa com unidades diferentes no mesmo gráfico.",
                                       code="lei_unidade"))
     return issues
+
+
+_DS_REF = re.compile(r"\[\s*D\d+\s*\]", re.IGNORECASE)
+
+
+def _match_single_row(df: pd.DataFrame, column: str, value: float) -> dict[str, str] | None:
+    """Se o número bate com exatamente uma linha, devolve o menor filtro que identifica essa linha
+    (primeiro só a entidade, depois entidade + ano). Sem linha única, None."""
+    nums = pd.to_numeric(df[column], errors="coerce")
+    hits = [i for i, v in nums.items() if pd.notna(v) and math.isclose(float(v), value, rel_tol=KPI_REL_TOL,
+                                                                           abs_tol=KPI_ABS_TOL)]
+    if len(hits) != 1:
+        return None
+    row = df.loc[hits[0]]
+    keys = [c for c in df.columns if c != column and not pd.api.types.is_float_dtype(df[c])]
+    entity = [c for c in keys if c.lower() not in ("year", "ano")]
+    time = [c for c in keys if c.lower() in ("year", "ano")]
+    candidates = [[c] for c in entity] + [[c, t] for c in entity for t in time] + [[t] for t in time]
+    for cols in candidates:
+        mask = pd.Series(True, index=df.index)
+        for c in cols:
+            mask &= df[c].astype(str).str.strip() == str(row[c]).strip()
+        if int(mask.sum()) == 1:
+            return {c: str(row[c]).strip() for c in cols}
+    return None
+
+
+def auto_repair_spec(spec, datasets) -> list[str]:
+    """Conserta em código o que é mecânico, antes da revisão, em vez de esconder o componente.
+
+    - Fonte que cita outro dataset ("[D7]" num gráfico de D6) ou não cita nenhum → passa a citar o
+      dataset que o componente usa de fato (o desenho já vem desse dataset; só o texto estava errado).
+    - Fonte de dados do Trase sem a palavra "Trase" → recebe o prefixo.
+    - KPI cujo número escrito pelo agente bate com OUTRA agregação da mesma coluna (ex.: escreveu o
+      valor de 2022 com agg="last", mas a série vai até 2023 e 2022 é o máximo/primeiro) → troca a agg.
+      Sem número escrito, adota o calculado. Se não bater com nenhuma, nada muda: continua bloqueado,
+      porque mostrar um número que o agente não pretendia seria pior.
+    Devolve a lista do que foi consertado (para o log).
+    """
+    by_id = {d.dataset_id: d for d in datasets}
+    fixes: list[str] = []
+    for w in spec.widgets:
+        ds = by_id.get(w.dataset_id)
+        if ds is None or ds.database == LAWS_DATABASE:
+            continue
+        src = (w.source or "").strip()
+        tag = f"[{w.dataset_id}]"
+        if tag.lower() not in src.lower():
+            new_src = _DS_REF.sub(tag, src) if _DS_REF.search(src) else (f"{src} {tag}".strip() if src else f"Trase {tag}")
+            if new_src != src:
+                fixes.append(f"{w.id}: fonte {src!r} -> {new_src!r}")
+                w.source = src = new_src
+        if src and "trase" not in src.lower():
+            w.source = f"Trase — {src}"
+            fixes.append(f"{w.id}: fonte recebeu 'Trase'")
+        if w.kind in ("kpi", "gauge") and (w.trend_x or w.trend_y):
+            cols = list(ds.df.columns)
+            time_cols = [c for c in cols if c.lower() in ("year", "ano")]
+            if w.trend_y and (not w.trend_x or w.trend_x not in cols) and time_cols:
+                fixes.append(f"{w.id}: trend_x {w.trend_x!r} -> {time_cols[0]!r}")
+                w.trend_x = time_cols[0]
+            if w.trend_x and not w.trend_y and w.column in cols:
+                fixes.append(f"{w.id}: trend_y ausente -> {w.column!r}")
+                w.trend_y = w.column
+            if (w.trend_x and w.trend_x not in cols) or (w.trend_y and w.trend_y not in cols) \
+                    or not (w.trend_x and w.trend_y):
+                fixes.append(f"{w.id}: mini-série removida (colunas de tendência ausentes)")
+                w.trend_x = w.trend_y = None
+        if w.kind != "kpi" or not w.column or w.column not in ds.df.columns:
+            continue
+        actual = compute_kpi_value(kpi_frame(ds.df, w), w.column, w.agg) if w.agg in ALLOWED_KPI_AGGS else None
+        if w.value is None:
+            if actual is not None:
+                w.value = actual
+                fixes.append(f"{w.id}: value ausente -> {actual:.6g}")
+            continue
+        if actual is not None and math.isclose(w.value, actual, rel_tol=KPI_REL_TOL, abs_tol=KPI_ABS_TOL):
+            continue
+        for agg in ("first", "last", "max", "min", "sum", "mean"):
+            cand = compute_kpi_value(kpi_frame(ds.df, w), w.column, agg)
+            if cand is not None and math.isclose(w.value, cand, rel_tol=KPI_REL_TOL, abs_tol=KPI_ABS_TOL):
+                fixes.append(f"{w.id}: agg {w.agg!r} -> {agg!r} (bate com o valor escrito {w.value:.6g})")
+                w.agg = agg
+                break
+        else:
+            match = _match_single_row(ds.df, w.column, w.value)
+            if match:
+                fixes.append(f"{w.id}: KPI passa a ler a linha {match} (bate com o valor escrito {w.value:.6g})")
+                w.match = match
+                w.agg = "first"
+    if fixes:
+        logger.info("Consertos automáticos no painel: %s", "; ".join(fixes))
+    return fixes
 
 
 def validate_widget_deterministic(
@@ -259,7 +357,7 @@ def validate_widget_deterministic(
                 f"Agregação '{w.agg}' inválida em KPI (permitidas: {', '.join(ALLOWED_KPI_AGGS)}).",
             ))
         else:
-            actual = compute_kpi_value(df, w.column, w.agg)
+            actual = compute_kpi_value(kpi_frame(df, w), w.column, w.agg)
             if actual is None:
                 issues.append(WidgetIssue(
                     w.id, "deterministic",
