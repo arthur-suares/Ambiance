@@ -276,7 +276,7 @@ class Handler(BaseHTTPRequestHandler):
             law_names = ", ".join(dict.fromkeys(s.get("title", "") for s in formatted_sources[:3] if s.get("title")))
             available_views = [{
                 "key": "laws",
-                "label": f"Ler trechos da lei ({len(formatted_sources)})",
+                "label": f"Trechos da Lei ({len(formatted_sources)})",
                 "summary": law_names or "Artigos das leis ambientais brasileiras",
                 "what_you_see": f"{len(formatted_sources)} trecho(s) da legislação ambiental federal citados na resposta ({law_names}).",
                 "what_you_receive": "Texto original dos artigos consultados e link direto para o documento oficial.",

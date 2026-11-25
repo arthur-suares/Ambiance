@@ -329,37 +329,46 @@ def _evaluate_views(
             what_rec = "Visão em 2D ou 3D, imagem de satélite, nota explicando os limites dos dados e resumo completo ao clicar em qualquer município."
         views.append({
             "key": "map",
-            "label": "Ver no mapa",
+            "label": "Mapa",
             "summary": map_spec.get("title") or f"Visualização geográfica de {scope}",
             "what_you_see": what_see,
             "what_you_receive": what_rec,
         })
 
-    if charts:
-        titles = ", ".join(c.get("title", "Gráfico") for c in charts[:2])
-        views.append({
-            "key": "charts",
-            "label": f"Ver gráficos ({len(charts)})",
-            "summary": titles,
-            "what_you_see": f"{len(charts)} gráfico(s) interativo(s) montado(s) com os números desta resposta: {titles}.",
-            "what_you_receive": "Valores detalhados ao passar o mouse e opção para baixar o gráfico como imagem.",
-        })
-
-    if tables:
-        purposes = "; ".join(t.get("purpose", "Tabela") for t in tables[:2])
+    if domain != "law" and (charts or tables):
+        parts_lbl: list[str] = []
+        parts_see: list[str] = []
+        parts_rec: list[str] = []
+        summary_parts: list[str] = []
+        if charts:
+            titles = ", ".join(c.get("title", "Gráfico") for c in charts[:2])
+            parts_lbl.append(f"{len(charts)} gráfico{'s' if len(charts) != 1 else ''}")
+            parts_see.append(f"{len(charts)} gráfico(s) interativo(s) ({titles})")
+            parts_rec.append("valores ao passar o mouse e botão para baixar o gráfico como imagem")
+            summary_parts.append(titles)
+        if tables:
+            purposes = "; ".join(t.get("purpose", "Tabela") for t in tables[:2])
+            parts_lbl.append(f"{len(tables)} tabela{'s' if len(tables) != 1 else ''}")
+            parts_see.append(f"{len(tables)} tabela(s) completa(s) logo abaixo ({purposes})")
+            parts_rec.append("dados completos para conferência e botão para baixar a planilha pronta para Excel (CSV)")
+            if not summary_parts:
+                summary_parts.append(purposes)
+        see_text = " e ".join(parts_see)
+        rec_text = "; ".join(parts_rec)
+        counts_txt = " e ".join(parts_lbl)
         views.append({
             "key": "data",
-            "label": f"Ver tabela completa ({len(tables)})",
-            "summary": purposes,
-            "what_you_see": f"{len(tables)} tabela(s) com os números exatos usados na resposta: {purposes}.",
-            "what_you_receive": "Dados completos para conferência e botão para baixar a planilha pronta para Excel.",
+            "label": "Dados",
+            "summary": f"{counts_txt} — {summary_parts[0]}" if summary_parts else counts_txt,
+            "what_you_see": (see_text[:1].upper() + see_text[1:] + ".") if see_text else "",
+            "what_you_receive": (rec_text[:1].upper() + rec_text[1:] + ".") if rec_text else "",
         })
 
     if sources:
         law_names = ", ".join(dict.fromkeys(s.get("title", "") for s in sources[:3] if s.get("title")))
         views.append({
             "key": "laws",
-            "label": f"Ler trechos da lei ({len(sources)})",
+            "label": f"Trechos da Lei ({len(sources)})",
             "summary": law_names or "Artigos das leis ambientais brasileiras",
             "what_you_see": f"{len(sources)} trecho(s) da legislação ambiental federal citados na resposta ({law_names}).",
             "what_you_receive": "Texto original dos artigos consultados e link direto para o documento oficial.",

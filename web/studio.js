@@ -615,8 +615,9 @@
     if (includeSeries && mbData.series?.length) {
       const chart = buildMapbiomasChart(mbData.series);
       if (chart) {
-        $("tab-btn-charts").hidden = false;
-        $("tab-btn-charts").textContent = "Gráficos (1)";
+        $("tab-btn-data").hidden = false;
+        $("tab-btn-data").textContent = "Dados";
+        $("charts-container").hidden = false;
         renderCharts([chart]);
       }
     }
@@ -902,8 +903,52 @@
     }
   }
 
+  function normalizeViews(d) {
+    const raw = Array.isArray(d.available_views) && d.available_views.length
+      ? d.available_views
+      : [
+          ...(d.map_spec ? [{key: "map", label: "Mapa", summary: d.map_spec.title || "Mapa interativo"}] : []),
+          ...((d.charts?.length || d.tables?.length) ? [{
+            key: "data",
+            label: "Dados",
+            summary: d.charts?.[0]?.title || d.tables?.[0]?.purpose || "Gráficos e tabelas dos resultados",
+            what_you_see: "Gráficos interativos e tabelas completas com os números usados na resposta.",
+            what_you_receive: "Valores ao passar o mouse, download do gráfico como imagem e planilha em CSV pronta para Excel.",
+          }] : []),
+          ...(d.sources?.length ? [{key: "laws", label: `Trechos da Lei (${d.sources.length})`, summary: "Artigos citados na resposta"}] : []),
+        ];
+    const out = [];
+    let dataView = null;
+    for (const v of raw) {
+      if (d.domain === "law" && v.key !== "laws") continue;
+      if (v.key === "charts" || v.key === "data") {
+        if (!dataView) {
+          dataView = {...v, key: "data", label: "Dados"};
+          out.push(dataView);
+        } else {
+          dataView.summary = [dataView.summary, v.summary].filter(Boolean).join(" · ");
+          dataView.what_you_see = [dataView.what_you_see, v.what_you_see].filter(Boolean).join(" ");
+          dataView.what_you_receive = [dataView.what_you_receive, v.what_you_receive].filter(Boolean).join(" ");
+        }
+      } else {
+        out.push({...v});
+      }
+    }
+    if (d.tables?.length && d.domain !== "law" && !out.some(v => v.key === "dash")) {
+      out.push({
+        key: "dash",
+        label: "Painel completo",
+        summary: "Gerado pelo agente de dashboard (leva cerca de 1 minuto)",
+        what_you_see: "Painel montado pelo agente de dashboard: ele escolhe os dados na base Trase (carne e soja), desenha os gráficos e um revisor confere antes de mostrar.",
+        what_you_receive: "Indicadores e gráficos interativos (passe o mouse para ver os valores). Por usar consulta própria, alguns números podem diferir dos da resposta.",
+      });
+    }
+    return out;
+  }
+
   function updateCanvasDescription(turn, tabName) {
-    let view = turn?.data?.available_views?.find(v => v.key === tabName);
+    const views = turn?.views || turn?.data?.available_views || [];
+    let view = views.find(v => v.key === tabName);
     if (!view && activeSpec?.mapbiomas_mode && !turn) {
       view = tabName === "map"
         ? {
@@ -931,23 +976,24 @@
   }
 
   function switchCanvasTab(tabName) {
-    activeTab = tabName;
-    document.querySelectorAll(".canvas-tab").forEach(b => b.classList.toggle("is-active", b.dataset.tab === tabName));
+    const resolved = tabName === "charts" ? "data" : tabName;
+    activeTab = resolved;
+    document.querySelectorAll(".canvas-tab").forEach(b => b.classList.toggle("is-active", b.dataset.tab === resolved));
     document.querySelectorAll(".canvas-panel").forEach(p => {
-      const on = p.id === `panel-${tabName}`;
+      const on = p.id === `panel-${resolved}`;
       p.classList.toggle("is-active", on);
       p.hidden = !on;
     });
-    updateCanvasDescription(activeTurnObj, tabName);
+    updateCanvasDescription(activeTurnObj, resolved);
     if (activeTurnId) {
       document.querySelectorAll(".view-action-btn").forEach(el => {
-        el.classList.toggle("is-active", el.dataset.turnId === String(activeTurnId) && el.dataset.viewKey === tabName);
+        el.classList.toggle("is-active", el.dataset.turnId === String(activeTurnId) && el.dataset.viewKey === resolved);
       });
     }
-    if (tabName === "map") {
+    if (resolved === "map") {
       requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     }
-    if (tabName === "dash") loadDashboard(activeTurnObj);
+    if (resolved === "dash") loadDashboard(activeTurnObj);
   }
 
   // Painel completo: pede ao agente de dashboard (uma vez por resposta) e embute o HTML gerado.
@@ -984,7 +1030,15 @@
     if (frame.dataset.src === url) return;
     frame.dataset.src = url;
     frame.onload = () => {
-      try { frame.contentDocument.documentElement.classList.add("is-embed"); } catch { /* mesma origem */ }
+      try {
+        const doc = frame.contentDocument;
+        if (!doc) return;
+        doc.documentElement.classList.add("is-embed");
+        const fontLink = document.querySelector('link[href*="fonts.googleapis.com"]');
+        if (fontLink && !doc.head.querySelector('link[href*="fonts.googleapis.com"]')) {
+          doc.head.appendChild(fontLink.cloneNode(true));
+        }
+      } catch { /* mesma origem */ }
     };
     frame.src = `${url}?embed=1`;
   }
@@ -995,13 +1049,15 @@
       return;
     }
     const d = turn.data;
-    const hasMap = Boolean(d.map_spec);
-    const hasCharts = Boolean(d.charts?.length);
-    const hasData = Boolean(d.tables?.length);
+    const isLawOnly = d.domain === "law";
+    const hasMap = !isLawOnly && Boolean(d.map_spec);
+    const hasCharts = !isLawOnly && Boolean(d.charts?.length);
+    const hasTables = !isLawOnly && Boolean(d.tables?.length);
+    const hasDados = hasCharts || hasTables;
     const hasLaws = Boolean(d.sources?.length);
 
-    if (!hasMap && !hasCharts && !hasData && !hasLaws) return;
-    const hasDash = hasData && d.domain !== "law";
+    if (!hasMap && !hasDados && !hasLaws) return;
+    const hasDash = hasTables && !isLawOnly;
 
     activeTurnId = turn.id;
     activeTurnObj = turn;
@@ -1010,26 +1066,37 @@
     $("canvas-pane").hidden = false;
 
     $("tab-btn-map").hidden = !hasMap;
-    $("tab-btn-charts").hidden = !hasCharts;
-    $("tab-btn-data").hidden = !hasData;
+    $("tab-btn-data").hidden = !hasDados;
     $("tab-btn-laws").hidden = !hasLaws;
     $("tab-btn-dash").hidden = !hasDash;
 
-    $("tab-btn-charts").textContent = hasCharts ? `Gráficos (${d.charts.length})` : "Gráficos";
-    $("tab-btn-data").textContent = hasData ? `Tabela (${d.tables.length})` : "Tabela";
+    $("tab-btn-data").textContent = "Dados";
     $("tab-btn-laws").textContent = hasLaws ? `Trechos da Lei (${d.sources.length})` : "Trechos da Lei";
 
     $("canvas-title").textContent = d.map_spec?.title || d.charts?.[0]?.title || "Detalhes da Resposta";
     $("canvas-badge").hidden = !d.domain;
     $("canvas-badge").textContent = d.domain === "mixed" ? "Dados + Leis" : (d.domain === "law" ? "Legislação" : "Dados do Território");
 
-    const defaultTab = targetTab || (hasMap ? "map" : (hasCharts ? "charts" : (hasData ? "data" : "laws")));
+    const defaultTab = targetTab || (hasMap ? "map" : (hasDados ? "data" : "laws"));
     switchCanvasTab(defaultTab);
 
-    if (hasCharts) renderCharts(d.charts);
-    else destroyCharts();
+    const chartsWrap = $("charts-container");
+    const dataWrap = $("data-container");
+    if (hasCharts) {
+      chartsWrap.hidden = false;
+      renderCharts(d.charts);
+    } else {
+      destroyCharts();
+      chartsWrap.hidden = true;
+    }
 
-    if (hasData) renderDataTab(d.tables, d.tool_calls);
+    if (hasTables) {
+      dataWrap.hidden = false;
+      renderDataTab(d.tables, d.tool_calls);
+    } else {
+      dataWrap.innerHTML = "";
+      dataWrap.hidden = true;
+    }
     if (hasLaws) renderLawsTab(d.sources);
     if (hasMap) {
       try {
@@ -1071,21 +1138,8 @@
     body.innerHTML = renderMarkdown(d.answer || "Sem resposta textual.");
     aEl.append(body);
 
-    const views = Array.isArray(d.available_views) && d.available_views.length
-      ? d.available_views
-      : [
-          ...(d.map_spec ? [{key: "map", label: "Ver no mapa", summary: d.map_spec.title || "Mapa interativo"}] : []),
-          ...(d.charts?.length ? [{key: "charts", label: `Ver gráficos (${d.charts.length})`, summary: d.charts[0]?.title || "Gráficos"}] : []),
-          ...(d.tables?.length ? [{key: "data", label: `Ver tabela completa (${d.tables.length})`, summary: "Números detalhados e planilha"}] : []),
-          ...(d.sources?.length ? [{key: "laws", label: `Ler trechos da lei (${d.sources.length})`, summary: "Artigos citados na resposta"}] : []),
-        ];
-    if (d.tables?.length && d.domain !== "law" && !views.some(v => v.key === "dash")) {
-      views.push({
-        key: "dash", label: "Painel completo", summary: "Gerado pelo agente de dashboard (leva cerca de 1 minuto)",
-        what_you_see: "Painel montado pelo agente de dashboard: ele escolhe os dados na base Trase (carne e soja), desenha os gráficos e um revisor confere antes de mostrar.",
-        what_you_receive: "Indicadores e gráficos interativos (passe o mouse para ver os valores). Por usar consulta própria, alguns números podem diferir dos da resposta.",
-      });
-    }
+    const views = normalizeViews(d);
+    turn.views = views;
 
     if (views.length) {
       const box = document.createElement("div");
@@ -1217,6 +1271,11 @@
     selectedMun = null;
     currentBasemap = "light";
     destroyCharts();
+    $("data-container").innerHTML = "";
+    const frame = $("dash-frame");
+    delete frame.dataset.src;
+    frame.src = "about:blank";
+    frame.hidden = true;
     $("chat-messages").innerHTML = "";
     $("chat-messages").hidden = true;
     $("chat-welcome").hidden = false;
@@ -1233,9 +1292,13 @@
     document.body.classList.add("canvas-open");
     $("canvas-pane").hidden = false;
     $("tab-btn-map").hidden = false;
-    $("tab-btn-charts").hidden = false;
-    $("tab-btn-data").hidden = true;
+    $("tab-btn-data").hidden = false;
+    $("tab-btn-data").textContent = "Dados";
+    $("tab-btn-dash").hidden = true;
     $("tab-btn-laws").hidden = true;
+    $("charts-container").hidden = false;
+    $("data-container").innerHTML = "";
+    $("data-container").hidden = true;
     $("canvas-title").textContent = "Uso e Cobertura do Solo no Brasil (1985–2025)";
     $("canvas-badge").hidden = false;
     $("canvas-badge").textContent = "Todos os municípios";
