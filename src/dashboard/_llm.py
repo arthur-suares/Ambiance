@@ -6,7 +6,7 @@ Segue o mesmo padrão de `src/rag.py` e `src/agent.py`: usa `get_client()`
 
 from __future__ import annotations
 
-from src.config import LLM_MODEL
+from src.config import LLM_MAX_TOKENS, LLM_MODEL
 from src.dashboard.schemas import extract_json_dict
 from src.rag import get_client
 
@@ -26,18 +26,26 @@ def call_structured_llm(
     `tool_use` (padrão Anthropic) quanto JSON em bloco de texto (fallback para
     modelos no OpenRouter que ignorem `tool_choice`).
     """
-    response = get_client().messages.create(
-        model=LLM_MODEL,
-        max_tokens=max_tokens,
-        system=system,
-        tools=[{
-            "name": tool_name,
-            "description": tool_description,
-            "input_schema": input_schema,
-        }],
-        tool_choice={"type": "tool", "name": tool_name},
-        messages=[{"role": "user", "content": user_content}],
-    )
+    # Modelos com "thinking" (ex.: DeepSeek) gastam o max_tokens raciocinando e devolvem a
+    # ferramenta cortada. O limite configurado no .env (LLM_MAX_TOKENS) é o piso, e se mesmo
+    # assim cortar, tenta uma vez com o dobro.
+    budget = max(max_tokens, LLM_MAX_TOKENS)
+    for attempt in range(2):
+        response = get_client().messages.create(
+            model=LLM_MODEL,
+            max_tokens=budget,
+            system=system,
+            tools=[{
+                "name": tool_name,
+                "description": tool_description,
+                "input_schema": input_schema,
+            }],
+            tool_choice={"type": "tool", "name": tool_name},
+            messages=[{"role": "user", "content": user_content}],
+        )
+        if response.stop_reason != "max_tokens" or attempt == 1:
+            break
+        budget *= 2
     in_tok = getattr(response.usage, "input_tokens", 0) or 0
     out_tok = getattr(response.usage, "output_tokens", 0) or 0
 
