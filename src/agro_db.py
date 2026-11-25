@@ -119,6 +119,34 @@ CHOROPLETH_METRICS: dict[str, dict[str, str]] = {
     },
 }
 
+MAPBIOMAS_CLASSES: dict[int, dict[str, Any]] = {
+    3: {"label": "Formação Florestal", "group": "Floresta", "color": "#1f8d49", "rgb": [31, 141, 73]},
+    4: {"label": "Formação Savânica", "group": "Floresta", "color": "#7dc975", "rgb": [125, 201, 117]},
+    5: {"label": "Mangue", "group": "Floresta", "color": "#04381d", "rgb": [4, 56, 29]},
+    6: {"label": "Floresta Alagável", "group": "Floresta", "color": "#026975", "rgb": [2, 105, 117]},
+    49: {"label": "Restinga Arbórea", "group": "Floresta", "color": "#02d659", "rgb": [2, 214, 89]},
+    11: {"label": "Campo Alagado", "group": "Vegetação Herbácea", "color": "#519799", "rgb": [81, 151, 153]},
+    12: {"label": "Formação Campestre", "group": "Vegetação Herbácea", "color": "#d6bc74", "rgb": [214, 188, 116]},
+    13: {"label": "Outras Form. Não Florestais", "group": "Vegetação Herbácea", "color": "#d89f5c", "rgb": [216, 159, 92]},
+    29: {"label": "Afloramento Rochoso", "group": "Vegetação Herbácea", "color": "#ffaa5f", "rgb": [255, 170, 95]},
+    50: {"label": "Restinga Herbácea", "group": "Vegetação Herbácea", "color": "#ad5100", "rgb": [173, 81, 0]},
+    15: {"label": "Pastagem", "group": "Agropecuária", "color": "#edde8e", "rgb": [237, 222, 142]},
+    39: {"label": "Soja", "group": "Agropecuária", "color": "#f5b3c8", "rgb": [245, 179, 200]},
+    20: {"label": "Cana-de-açúcar", "group": "Agropecuária", "color": "#db7093", "rgb": [219, 112, 147]},
+    40: {"label": "Arroz", "group": "Agropecuária", "color": "#c71585", "rgb": [199, 21, 133]},
+    41: {"label": "Outras Lavouras Temp.", "group": "Agropecuária", "color": "#f54ca9", "rgb": [245, 76, 169]},
+    46: {"label": "Café", "group": "Agropecuária", "color": "#d68fe2", "rgb": [214, 143, 226]},
+    47: {"label": "Citrus", "group": "Agropecuária", "color": "#9932cc", "rgb": [153, 50, 204]},
+    48: {"label": "Outras Perenes", "group": "Agropecuária", "color": "#e6ccff", "rgb": [230, 204, 255]},
+    9: {"label": "Silvicultura", "group": "Agropecuária", "color": "#7a5900", "rgb": [122, 89, 0]},
+    21: {"label": "Mosaico de Usos", "group": "Agropecuária", "color": "#ffefc3", "rgb": [255, 239, 195]},
+    23: {"label": "Praia, Duna e Areal", "group": "Não Vegetada", "color": "#ffa07a", "rgb": [255, 160, 122]},
+    24: {"label": "Área Urbana", "group": "Não Vegetada", "color": "#d4271e", "rgb": [212, 39, 30]},
+    25: {"label": "Outras Áreas Não Vegetadas", "group": "Não Vegetada", "color": "#db4d4f", "rgb": [219, 77, 79]},
+    30: {"label": "Mineração", "group": "Não Vegetada", "color": "#9c0027", "rgb": [156, 0, 39]},
+    33: {"label": "Rio, Lago e Oceano", "group": "Água", "color": "#2532e4", "rgb": [37, 50, 228]},
+}
+
 
 def _to_jsonable(value: Any) -> Any:
     if isinstance(value, Decimal):
@@ -686,3 +714,167 @@ def run_readonly_sql(sql: str, max_rows: int = 100) -> tuple[list[str], list[dic
             rows = _clean_rows(cur.fetchall())
             cols = [d.name for d in cur.description] if cur.description else []
             return cols, rows
+
+
+def get_mapbiomas_coverage(
+    year: int = 2025,
+    class_ids: list[int] | None = None,
+    uf: str | None = None,
+    bioma: str | None = None,
+    mode: str = "dominant",
+    include_series: bool = True,
+) -> dict[str, Any]:
+    """Agrega cobertura e uso da terra do MapBiomas (1985-2025) por município."""
+    req_year = max(1985, min(2025, int(year)))
+    if mode not in ("dominant", "share"):
+        mode = "dominant"
+
+    valid_cids = [int(c) for c in (class_ids or []) if int(c) in MAPBIOMAS_CLASSES]
+    mun_clauses = ["m.lat IS NOT NULL", "m.lon IS NOT NULL"]
+    mun_params: list[Any] = []
+    if uf:
+        mun_clauses.append("m.uf = %s")
+        mun_params.append(uf.upper()[:2])
+    if bioma:
+        mun_clauses.append("unaccent(lower(m.bioma_predominante)) = unaccent(lower(%s))")
+        mun_params.append(bioma)
+    mun_where = " AND ".join(mun_clauses)
+
+    class_clause = "AND c.classe_id = ANY(%s)" if valid_cids else ""
+    year_params: list[Any] = [req_year, *mun_params]
+    if valid_cids:
+        year_params.append(valid_cids)
+
+    with readonly_conn(timeout_ms=15000) as con:
+        with con.cursor() as cur:
+            cur.execute(
+                f"""
+                WITH mun_cls AS (
+                    SELECT
+                        c.codigo_municipio_ibge AS code,
+                        m.municipio,
+                        m.uf,
+                        m.lon,
+                        m.lat,
+                        m.area_km2,
+                        c.classe_id,
+                        SUM(c.area_ha) AS area_ha
+                    FROM agro.fato_mapbiomas_cobertura c
+                    JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = c.codigo_municipio_ibge
+                    WHERE c.ano = %s AND {mun_where} {class_clause}
+                    GROUP BY c.codigo_municipio_ibge, m.municipio, m.uf, m.lon, m.lat, m.area_km2, c.classe_id
+                ),
+                ranked AS (
+                    SELECT
+                        code, municipio, uf, lon, lat, area_km2, classe_id, area_ha,
+                        SUM(area_ha) OVER (PARTITION BY code) AS selected_ha,
+                        ROW_NUMBER() OVER (PARTITION BY code ORDER BY area_ha DESC) AS rn
+                    FROM mun_cls
+                )
+                SELECT
+                    code, municipio, uf, lon, lat,
+                    classe_id AS dominant_id,
+                    ROUND(area_ha::numeric, 1) AS dominant_ha,
+                    ROUND(selected_ha::numeric, 1) AS selected_ha,
+                    ROUND((100.0 * area_ha / NULLIF(area_km2 * 100.0, 0))::numeric, 2) AS dominant_pct,
+                    ROUND((100.0 * selected_ha / NULLIF(area_km2 * 100.0, 0))::numeric, 2) AS selected_pct
+                FROM ranked
+                WHERE rn = 1
+                """,
+                year_params,
+            )
+            mun_rows = _clean_rows(cur.fetchall())
+
+            # Resumo de todas as classes no recorte territorial (para toggles da legenda)
+            cur.execute(
+                f"""
+                SELECT c.classe_id, ROUND(SUM(c.area_ha)::numeric, 1) AS area_ha
+                FROM agro.fato_mapbiomas_cobertura c
+                JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = c.codigo_municipio_ibge
+                WHERE c.ano = %s AND {mun_where}
+                GROUP BY c.classe_id
+                ORDER BY area_ha DESC
+                """,
+                [req_year, *mun_params],
+            )
+            raw_summary = _clean_rows(cur.fetchall())
+
+            series: list[dict[str, Any]] = []
+            if include_series:
+                cur.execute(
+                    f"""
+                    SELECT
+                        c.ano,
+                        ROUND(COALESCE(SUM(c.area_ha) FILTER (WHERE c.classe_id IN (3,4,5,6,49)), 0)::numeric, 0) AS floresta_ha,
+                        ROUND(COALESCE(SUM(c.area_ha) FILTER (WHERE c.classe_id = 15), 0)::numeric, 0) AS pastagem_ha,
+                        ROUND(COALESCE(SUM(c.area_ha) FILTER (WHERE c.classe_id IN (39,20,40,41,46,47,48)), 0)::numeric, 0) AS agricultura_ha,
+                        ROUND(COALESCE(SUM(c.area_ha) FILTER (WHERE c.classe_id IN (9,21)), 0)::numeric, 0) AS mosaico_silv_ha,
+                        ROUND(COALESCE(SUM(c.area_ha) FILTER (WHERE c.classe_id IN (11,12,13,29,50)), 0)::numeric, 0) AS herbacea_alagada_ha,
+                        ROUND(COALESCE(SUM(c.area_ha) FILTER (WHERE c.classe_id IN (23,24,25,30,33)), 0)::numeric, 0) AS outros_agua_ha
+                    FROM agro.fato_mapbiomas_cobertura c
+                    JOIN agro.dim_municipios m ON m.codigo_municipio_ibge = c.codigo_municipio_ibge
+                    WHERE {mun_where}
+                    GROUP BY c.ano
+                    ORDER BY c.ano
+                    """,
+                    mun_params,
+                )
+                series = _clean_rows(cur.fetchall())
+
+    total_area_all = sum(float(r["area_ha"] or 0) for r in raw_summary) or 1.0
+    summary = []
+    for r in raw_summary:
+        cid = int(r["classe_id"])
+        meta = MAPBIOMAS_CLASSES.get(cid)
+        if not meta:
+            continue
+        area = float(r["area_ha"] or 0)
+        summary.append({
+            "classe_id": cid,
+            "label": meta["label"],
+            "group": meta["group"],
+            "color": meta["color"],
+            "rgb": meta["rgb"],
+            "area_ha": area,
+            "pct": round(100.0 * area / total_area_all, 2),
+        })
+
+    values: dict[str, dict[str, Any]] = {}
+    pcts: list[float] = []
+    lons: list[float] = []
+    lats: list[float] = []
+    for r in mun_rows:
+        code = str(r["code"])
+        sel_pct = min(100.0, float(r["selected_pct"] or 0))
+        dom_pct = min(100.0, float(r["dominant_pct"] or 0))
+        values[code] = {
+            "name": r["municipio"],
+            "uf": r["uf"],
+            "dom": int(r["dominant_id"]),
+            "dom_ha": float(r["dominant_ha"] or 0),
+            "dom_pct": dom_pct,
+            "sel_ha": float(r["selected_ha"] or 0),
+            "sel_pct": sel_pct,
+        }
+        pcts.append(sel_pct)
+        if r["lon"] is not None and r["lat"] is not None:
+            lons.append(float(r["lon"]))
+            lats.append(float(r["lat"]))
+
+    max_pct = round(max(pcts), 1) if pcts else 100.0
+    bbox = [min(lons), min(lats), max(lons), max(lats)] if lons and lats else None
+
+    return {
+        "year": req_year,
+        "mode": mode,
+        "uf": uf,
+        "bioma": bioma,
+        "class_ids": valid_cids,
+        "classes_meta": {str(k): v for k, v in MAPBIOMAS_CLASSES.items()},
+        "count": len(values),
+        "max_pct": max_pct,
+        "bbox": bbox,
+        "values": values,
+        "summary": summary,
+        "series": series,
+    }

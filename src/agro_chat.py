@@ -13,10 +13,11 @@ MAX_TURNS = 6
 
 SYSTEM_PROMPT = """\
 Você é o assistente analítico e socioambiental da plataforma Agro/Ambiance.
-Você responde perguntas em português combinando:
+Você responde perguntas em português e constrói em tempo real um **Canvas Interativo** ao lado do chat combinando:
 1. Banco consolidado PostgreSQL + PostGIS (schemas `agro` e `gold`), via ferramenta `query_agro_sql`.
 2. Legislação ambiental federal (29 leis, busca híbrida pgvector + FTS), via ferramenta `search_laws`.
-3. Mapa interativo sincronizado, controlado pela ferramenta `set_map_view`.
+3. Mapa interativo sob demanda (`deck.gl`), controlado pela ferramenta `set_map_view`.
+4. Gráficos interativos (`Chart.js`), controlados pela ferramenta `create_chart`.
 
 ## Esquema disponível (somente leitura)
 - `gold.mv_territorio_municipal_ano` (chave: `ano`, `codigo_municipio_ibge`):
@@ -44,8 +45,15 @@ Você responde perguntas em português combinando:
 ## Regras obrigatórias
 - Sempre use `query_agro_sql` para números; nunca invente valores.
 - Inclua `codigo_municipio_ibge` nos SELECTs municipais para que o mapa destaque os municípios encontrados.
-- Sempre chame `set_map_view` quando a pergunta envolver território, municípios, biomas, estados, fluxos ou alertas DETER.
+- **Mapa sob demanda (`set_map_view`):** sempre chame quando a pergunta envolver território, municípios, biomas, estados, fluxos, instalações, cobertura MapBiomas ou alertas DETER. Ative apenas as camadas relevantes para a pergunta, defina um `title` descritivo e escolha o recorte (`uf`/`bioma`/`year`/`metric`/`deter_mode`/`show_facilities`/`mapbiomas_mode`).
+- Quando o usuário pedir **cobertura e uso da terra (MapBiomas, floresta vs pastagem vs soja, 1985–2025)**, use `mapbiomas_mode: true`, `mapbiomas_year` (1985–2025) e `mapbiomas_classes` (opcional, IDs como 3=Floresta, 4=Savânica, 15=Pastagem, 39=Soja, 21=Mosaico, 24=Urbana, 33=Água).
+- **Gráficos sob demanda (`create_chart`):** sempre chame quando `query_agro_sql` retornar ranking (`horizontal_bar`), série histórica anual (`line` ou `area`), comparação entre categorias/municípios (`bar`) ou composição setorial/destinos (`doughnut`). Use exatamente os números retornados pelo SQL.
 - Para perguntas sobre leis, obrigações, Código Florestal, CAR, PRA, crimes ambientais ou licenciamento, chame `search_laws`.
+- Em pedidos de refinamento conversacional ("filtre só 2025", "troque para hexágonos 3D", "mostre os frigoríficos", "compare com Altamira"), preserve ou adapte o recorte do Canvas atual.
+- Regras de clareza e linguagem acessível:
+  - Escreva para qualquer pessoa (cidadãos, pesquisadores, gestores e empresas), em português natural e claro.
+  - NUNCA use siglas técnicas sem explicá-las em palavras comuns primeiro (evite siglas soltas como DETER, SEEG, APP, CAR, PRA, SIF, IBGE, MUT, UNKNOWN ou SQL; escreva "alertas de satélite do INPE", "emissões de carbono e uso da terra", "área de preservação permanente", "cadastro ambiental rural", "frigoríficos e abatedouros", "parcela sem origem identificada").
+  - Nos títulos de gráficos e mapas (`title`, `subtitle`), também use linguagem humana sem siglas técnicas.
 - Regras metodológicas:
   - NUNCA some `trase_*_exposicao_5a_ha` entre anos (janela móvel de 5 anos).
   - NUNCA trate exposição ao desmatamento ou alerta territorial como prova de ilegalidade individual.
@@ -53,6 +61,8 @@ Você responde perguntas em português combinando:
   - Quando falar de fluxos da Trase, mencione que há parcela `UNKNOWN` (sem município rastreado) e cite a cobertura se relevante.
   - Valores de `bioma_predominante` em `mv_territorio_municipal_ano` usam acento ('Amazônia', 'Cerrado', 'Mata Atlântica', 'Caatinga', 'Pampa', 'Pantanal'); em `fato_inpe_deter` usam maiúsculas sem acento ('AMAZONIA', 'CERRADO', 'PANTANAL'). Use `unaccent(lower(...))` ao filtrar nomes/biomas.
 """
+
+CHART_TYPES = ("bar", "horizontal_bar", "line", "area", "doughnut")
 
 TOOLS = [
     {
@@ -80,26 +90,80 @@ TOOLS = [
     },
     {
         "name": "set_map_view",
-        "description": "Define o estado visual do mapa interativo sincronizado com a resposta.",
+        "description": "Constrói e configura o mapa interativo (deck.gl) no Canvas ao lado do chat.",
         "input_schema": {
             "type": "object",
             "properties": {
+                "title": {"type": "string", "description": "Título curto para a visualização do mapa."},
                 "metric": {
                     "type": "string",
                     "enum": sorted(CHOROPLETH_METRICS.keys()),
                     "description": "Métrica do mapa coroplético municipal.",
                 },
-                "year": {"type": "integer", "description": "Ano principal do recorte (ex.: 2022 ou 2025)."},
+                "year": {"type": "integer", "description": "Ano principal do recorte (ex.: 2022, 2025 ou 2026)."},
                 "uf": {"type": "string", "description": "Sigla de UF (2 letras, ex.: PA, MT), opcional."},
                 "bioma": {"type": "string", "description": "Bioma (ex.: Amazônia, Cerrado, Pantanal), opcional."},
-                "show_flows": {"type": "boolean", "description": "Exibir camada de fluxos comerciais Trase."},
+                "show_flows": {"type": "boolean", "description": "Exibir camada de arcos de fluxos comerciais Trase."},
                 "flow_product": {"type": "string", "enum": ["soja", "bovinos"]},
-                "show_deter": {"type": "boolean", "description": "Exibir camada de pontos de alertas INPE DETER."},
+                "show_deter": {"type": "boolean", "description": "Exibir camada de alertas INPE DETER."},
                 "deter_year": {"type": "integer", "description": "Ano dos alertas DETER (ex.: 2025 ou 2026)."},
+                "deter_mode": {
+                    "type": "string",
+                    "enum": ["hex", "points"],
+                    "description": "Modo de renderização dos alertas DETER: 'hex' (hexágonos 3D) ou 'points'.",
+                },
+                "show_facilities": {"type": "boolean", "description": "Exibir camada de frigoríficos ou armazéns/silos."},
+                "facilities_chain": {"type": "string", "enum": ["bovinos", "soja"]},
+                "view_3d": {"type": "boolean", "description": "Inclinar câmera para visualização 3D."},
+                "basemap": {"type": "string", "enum": ["dark", "terrain", "light"]},
+                "mapbiomas_mode": {"type": "boolean", "description": "Ativar visualização oficial de Cobertura e Uso da Terra MapBiomas (1985-2025)."},
+                "mapbiomas_year": {"type": "integer", "description": "Ano do MapBiomas entre 1985 e 2025."},
+                "mapbiomas_classes": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "IDs de classes MapBiomas para filtrar (ex.: [3,4,15,39]).",
+                },
                 "highlight_codes": {
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Códigos IBGE de 7 dígitos dos municípios principais citados na resposta.",
+                },
+            },
+        },
+    },
+    {
+        "name": "create_chart",
+        "description": "Cria um gráfico interativo (Chart.js) no Canvas com base nos dados consultados via SQL.",
+        "input_schema": {
+            "type": "object",
+            "required": ["title", "chart_type", "labels", "series"],
+            "properties": {
+                "title": {"type": "string", "description": "Título do gráfico."},
+                "subtitle": {"type": "string", "description": "Fonte, ano ou nota metodológica curta."},
+                "chart_type": {
+                    "type": "string",
+                    "enum": list(CHART_TYPES),
+                    "description": "Tipo de gráfico: horizontal_bar (ranking), bar (comparação), line/area (série temporal), doughnut (composição).",
+                },
+                "x_label": {"type": "string"},
+                "y_label": {"type": "string"},
+                "unit": {"type": "string", "description": "Unidade dos valores (ex.: km², ha, t, tCO2e)."},
+                "labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Rótulos do eixo de categorias/tempo (até 30 itens).",
+                },
+                "series": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "values"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "values": {"type": "array", "items": {"type": "number"}},
+                            "color": {"type": "string", "description": "Cor hex opcional (ex.: #10b981)."},
+                        },
+                    },
                 },
             },
         },
@@ -143,23 +207,182 @@ def _format_view_context(view_context: dict[str, Any] | None) -> str:
         parts.append(f"ano={view_context['year']}")
     if view_context.get("metric"):
         parts.append(f"métrica={view_context['metric']}")
+    if view_context.get("show_flows"):
+        parts.append(f"fluxos={view_context.get('flow_product') or 'ativos'}")
+    if view_context.get("show_deter"):
+        parts.append(f"DETER={view_context.get('deter_mode') or 'points'}({view_context.get('deter_year') or view_context.get('year') or 'recente'})")
+    if view_context.get("show_facilities"):
+        parts.append(f"instalações={view_context.get('facilities_chain') or 'bovinos'}")
+    if isinstance(view_context.get("view_3d"), bool):
+        parts.append("3D" if view_context["view_3d"] else "2D")
+    if view_context.get("basemap"):
+        parts.append(f"basemap={view_context['basemap']}")
     sel = view_context.get("selected_municipality")
     if isinstance(sel, dict) and sel.get("code"):
         parts.append(f"município_selecionado={sel.get('municipio', '')} ({sel.get('uf', '')}, IBGE {sel['code']})")
     if not parts:
         return ""
-    return "[Contexto atual do mapa: " + "; ".join(parts) + "]\n\n"
+    return "[Contexto atual do Canvas/mapa: " + "; ".join(parts) + "]\n\n"
 
 
-def ask_agro(question: str, k_laws: int = 6, view_context: dict[str, Any] | None = None) -> dict[str, Any]:
+def _sanitize_history(history: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    if not isinstance(history, list):
+        return []
+    cleaned: list[dict[str, Any]] = []
+    for item in history[-6:]:
+        if not isinstance(item, dict):
+            continue
+        role = item.get("role")
+        content = item.get("content")
+        if role not in ("user", "assistant") or not isinstance(content, str):
+            continue
+        text = content.strip()[:1500]
+        if not text:
+            continue
+        if cleaned and cleaned[-1]["role"] == role:
+            cleaned[-1]["content"] = (cleaned[-1]["content"] + "\n\n" + text)[:1500]
+        else:
+            cleaned.append({"role": role, "content": text})
+    while cleaned and cleaned[0]["role"] != "user":
+        cleaned.pop(0)
+    while cleaned and cleaned[-1]["role"] != "assistant":
+        cleaned.pop()
+    return cleaned
+
+
+def _sanitize_chart(inp: dict[str, Any]) -> dict[str, Any] | None:
+    raw_labels = inp.get("labels")
+    raw_series = inp.get("series")
+    if not isinstance(raw_labels, list) or not raw_labels or not isinstance(raw_series, list) or not raw_series:
+        return None
+    labels = [str(x)[:60] for x in raw_labels[:30]]
+    n = len(labels)
+    chart_type = inp.get("chart_type")
+    if chart_type not in CHART_TYPES:
+        chart_type = "bar"
+    series: list[dict[str, Any]] = []
+    for s in raw_series[:8]:
+        if not isinstance(s, dict):
+            continue
+        vals = s.get("values")
+        if not isinstance(vals, list):
+            continue
+        nums: list[float] = []
+        for i in range(n):
+            v = vals[i] if i < len(vals) else 0
+            try:
+                nums.append(float(v))
+            except (TypeError, ValueError):
+                nums.append(0.0)
+        entry: dict[str, Any] = {
+            "name": str(s.get("name") or f"Série {len(series) + 1}")[:60],
+            "values": nums,
+        }
+        if isinstance(s.get("color"), str) and s["color"].strip():
+            entry["color"] = s["color"].strip()[:32]
+        series.append(entry)
+    if not series:
+        return None
+    return {
+        "title": str(inp.get("title") or "Gráfico")[:120],
+        "subtitle": str(inp.get("subtitle") or "")[:180],
+        "chart_type": chart_type,
+        "x_label": str(inp.get("x_label") or "")[:60],
+        "y_label": str(inp.get("y_label") or "")[:60],
+        "unit": str(inp.get("unit") or "")[:30],
+        "labels": labels,
+        "series": series,
+    }
+
+
+def _evaluate_views(
+    domain: str,
+    tables: list[dict[str, Any]],
+    charts: list[dict[str, Any]],
+    map_spec: dict[str, Any] | None,
+    sources: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, str]]]:
+    """Avalia a resposta gerada e define apenas as visualizações pertinentes, com descrição do que o usuário verá e receberá."""
+    if domain == "law":
+        map_spec = None
+        charts = []
+
+    views: list[dict[str, str]] = []
+
+    if map_spec:
+        scope = map_spec.get("uf") or map_spec.get("bioma") or "Brasil"
+        if map_spec.get("mapbiomas_mode"):
+            yr = map_spec.get("mapbiomas_year") or map_spec.get("year") or 2025
+            what_see = f"Mapa dos municípios mostrando a cobertura do solo (florestas, pastagens, lavouras e água) em {scope} no ano de {yr}."
+            what_rec = "Filtro por tipo de vegetação ou uso rural, comparação ano a ano (1985 a 2025) e resumo ao clicar em cada município."
+        else:
+            layers = ["municípios coloridos pelo indicador escolhido"]
+            if map_spec.get("show_deter"):
+                layers.append(f"alertas recentes de desmatamento por satélite ({'colunas em 3D' if map_spec.get('deter_mode') == 'hex' else 'pontos no mapa'})")
+            if map_spec.get("show_flows"):
+                layers.append(f"rotas de exportação de {map_spec.get('flow_product') or 'produção rural'} para outros países")
+            if map_spec.get("show_facilities"):
+                layers.append("localização de frigoríficos e armazéns")
+            hl = len(map_spec.get("highlight_codes") or [])
+            yr = map_spec.get("year") or map_spec.get("deter_year") or "ano mais recente"
+            what_see = f"Mapa interativo de {scope} ({yr}) com {', '.join(layers)}" + (f" e {hl} município(s) em destaque." if hl else ".")
+            what_rec = "Visão em 2D ou 3D, imagem de satélite, nota explicando os limites dos dados e resumo completo ao clicar em qualquer município."
+        views.append({
+            "key": "map",
+            "label": "Ver no mapa",
+            "summary": map_spec.get("title") or f"Visualização geográfica de {scope}",
+            "what_you_see": what_see,
+            "what_you_receive": what_rec,
+        })
+
+    if charts:
+        titles = ", ".join(c.get("title", "Gráfico") for c in charts[:2])
+        views.append({
+            "key": "charts",
+            "label": f"Ver gráficos ({len(charts)})",
+            "summary": titles,
+            "what_you_see": f"{len(charts)} gráfico(s) interativo(s) montado(s) com os números desta resposta: {titles}.",
+            "what_you_receive": "Valores detalhados ao passar o mouse e opção para baixar o gráfico como imagem.",
+        })
+
+    if tables:
+        purposes = "; ".join(t.get("purpose", "Tabela") for t in tables[:2])
+        views.append({
+            "key": "data",
+            "label": f"Ver tabela completa ({len(tables)})",
+            "summary": purposes,
+            "what_you_see": f"{len(tables)} tabela(s) com os números exatos usados na resposta: {purposes}.",
+            "what_you_receive": "Dados completos para conferência e botão para baixar a planilha pronta para Excel.",
+        })
+
+    if sources:
+        law_names = ", ".join(dict.fromkeys(s.get("title", "") for s in sources[:3] if s.get("title")))
+        views.append({
+            "key": "laws",
+            "label": f"Ler trechos da lei ({len(sources)})",
+            "summary": law_names or "Artigos das leis ambientais brasileiras",
+            "what_you_see": f"{len(sources)} trecho(s) da legislação ambiental federal citados na resposta ({law_names}).",
+            "what_you_receive": "Texto original dos artigos consultados e link direto para o documento oficial.",
+        })
+
+    return map_spec, charts, views
+
+
+def ask_agro(
+    question: str,
+    k_laws: int = 6,
+    view_context: dict[str, Any] | None = None,
+    history: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     from src.rag import get_client
 
     client = get_client()
     user_content = _format_view_context(view_context) + question
-    messages: list[dict[str, Any]] = [{"role": "user", "content": user_content}]
+    messages: list[dict[str, Any]] = [*_sanitize_history(history), {"role": "user", "content": user_content}]
     tool_calls_log: list[dict[str, Any]] = []
     law_sources: list[dict[str, Any]] = []
     tables: list[dict[str, Any]] = []
+    charts: list[dict[str, Any]] = []
     map_spec: dict[str, Any] = {}
     discovered_codes: list[str] = []
 
@@ -249,6 +472,8 @@ def ask_agro(question: str, k_laws: int = 6, view_context: dict[str, Any] | None
 
             elif name == "set_map_view":
                 spec: dict[str, Any] = {}
+                if isinstance(inp.get("title"), str) and inp["title"].strip():
+                    spec["title"] = inp["title"].strip()[:120]
                 if inp.get("metric") in CHOROPLETH_METRICS:
                     spec["metric"] = inp["metric"]
                 if isinstance(inp.get("year"), int):
@@ -265,40 +490,78 @@ def ask_agro(question: str, k_laws: int = 6, view_context: dict[str, Any] | None
                     spec["show_deter"] = inp["show_deter"]
                 if isinstance(inp.get("deter_year"), int):
                     spec["deter_year"] = inp["deter_year"]
+                if inp.get("deter_mode") in ("hex", "points"):
+                    spec["deter_mode"] = inp["deter_mode"]
+                if isinstance(inp.get("show_facilities"), bool):
+                    spec["show_facilities"] = inp["show_facilities"]
+                if inp.get("facilities_chain") in ("bovinos", "soja"):
+                    spec["facilities_chain"] = inp["facilities_chain"]
+                if isinstance(inp.get("view_3d"), bool):
+                    spec["view_3d"] = inp["view_3d"]
+                if inp.get("basemap") in ("dark", "terrain", "light"):
+                    spec["basemap"] = inp["basemap"]
+                if isinstance(inp.get("mapbiomas_mode"), bool):
+                    spec["mapbiomas_mode"] = inp["mapbiomas_mode"]
+                if isinstance(inp.get("mapbiomas_year"), int):
+                    spec["mapbiomas_year"] = max(1985, min(2025, inp["mapbiomas_year"]))
+                if isinstance(inp.get("mapbiomas_classes"), list):
+                    spec["mapbiomas_classes"] = [int(c) for c in inp["mapbiomas_classes"] if isinstance(c, int)][:25]
                 if isinstance(inp.get("highlight_codes"), list):
                     spec["highlight_codes"] = [
                         str(c).strip() for c in inp["highlight_codes"]
                         if str(c).strip().isdigit() and len(str(c).strip()) == 7
                     ][:25]
                 map_spec.update(spec)
-                tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": "MapSpec atualizado."})
+                tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": "MapSpec atualizado no Canvas."})
+
+            elif name == "create_chart":
+                chart = _sanitize_chart(inp)
+                if chart:
+                    charts.append(chart)
+                    out_txt = f"Gráfico '{chart['title']}' ({chart['chart_type']}) adicionado ao Canvas."
+                else:
+                    out_txt = "Parâmetros de gráfico inválidos; forneça labels e series numéricas não vazias."
+                tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out_txt})
 
         messages.append({"role": "user", "content": tool_results})
 
-    if discovered_codes and "highlight_codes" not in map_spec:
+    if discovered_codes and map_spec and "highlight_codes" not in map_spec:
         map_spec["highlight_codes"] = discovered_codes[:15]
+
+    domain = "mixed" if (tables and law_sources) else ("law" if law_sources else "agro")
+    formatted_sources = [
+        {
+            "label": f"L{i}",
+            "title": s["title"],
+            "artigo": s["metadata"].get("artigo"),
+            "parte": s["metadata"].get("parte"),
+            "partes": s["metadata"].get("partes"),
+            "excerpt": (s.get("content") or "")[:600],
+            "url": s["url"],
+            "score": float(s["score"]),
+            "semantic_rank": s.get("semantic_rank"),
+            "keyword_rank": s.get("keyword_rank"),
+        }
+        for i, s in enumerate(law_sources, 1)
+    ]
+    final_map, final_charts, available_views = _evaluate_views(
+        domain=domain,
+        tables=tables,
+        charts=charts,
+        map_spec=map_spec if map_spec else None,
+        sources=formatted_sources,
+    )
 
     return {
         "answer": final_text,
-        "domain": "mixed" if (tables and law_sources) else ("law" if law_sources else "agro"),
+        "domain": domain,
         "stop_reason": stop_reason,
         "input_tokens": in_tokens,
         "output_tokens": out_tokens,
         "tool_calls": tool_calls_log,
         "tables": tables,
-        "map_spec": map_spec if map_spec else None,
-        "sources": [
-            {
-                "label": f"L{i}",
-                "title": s["title"],
-                "artigo": s["metadata"].get("artigo"),
-                "parte": s["metadata"].get("parte"),
-                "partes": s["metadata"].get("partes"),
-                "url": s["url"],
-                "score": float(s["score"]),
-                "semantic_rank": s.get("semantic_rank"),
-                "keyword_rank": s.get("keyword_rank"),
-            }
-            for i, s in enumerate(law_sources, 1)
-        ],
+        "charts": final_charts,
+        "map_spec": final_map,
+        "available_views": available_views,
+        "sources": formatted_sources,
     }

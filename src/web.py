@@ -74,28 +74,36 @@ def _map_chat_available() -> bool:
     return bool(OPENROUTER_API_KEY) and source_path().is_file()
 
 
-def _law_source(source):
+def _law_source(source, label: str | None = None):
     metadata = source["metadata"]
-    return {
+    out = {
         "title": source["title"], "artigo": metadata.get("artigo"),
         "parte": metadata.get("parte"), "partes": metadata.get("partes"),
+        "excerpt": (source.get("content") or "")[:600],
         "url": source["url"], "score": float(source["score"]),
         "semantic_rank": source.get("semantic_rank"), "keyword_rank": source.get("keyword_rank"),
     }
+    if label:
+        out["label"] = label
+    return out
 
 
 class Handler(BaseHTTPRequestHandler):
     def _handle_agro_get(self) -> bool:
         parsed = urlsplit(self.path)
         p = parsed.path
-        if p in ("/explorar", "/explorar/", "/mapa", "/mapa/"):
+        if p in ("/mapa", "/mapa/"):
             self.send_response(302)
-            self.send_header("Location", "/")
+            self.send_header("Location", "/explorar")
             self.end_headers()
             return True
         assets = {
-            "/": ("agro_map.html", "text/html; charset=utf-8"),
-            "/index.html": ("agro_map.html", "text/html; charset=utf-8"),
+            "/": ("studio.html", "text/html; charset=utf-8"),
+            "/index.html": ("studio.html", "text/html; charset=utf-8"),
+            "/studio.css": ("studio.css", "text/css; charset=utf-8"),
+            "/studio.js": ("studio.js", "text/javascript; charset=utf-8"),
+            "/explorar": ("agro_map.html", "text/html; charset=utf-8"),
+            "/explorar/": ("agro_map.html", "text/html; charset=utf-8"),
             "/explorar/agro_map.css": ("agro_map.css", "text/css; charset=utf-8"),
             "/explorar/agro_map.js": ("agro_map.js", "text/javascript; charset=utf-8"),
             "/explorar/ufs.geojson": ("data/ufs.geojson", "application/geo+json; charset=utf-8"),
@@ -157,6 +165,18 @@ class Handler(BaseHTTPRequestHandler):
                     chain=g("chain", "bovinos"),
                     uf=g("uf") or None,
                     limit=min(15000, int(g("limit", "10000"))),
+                ))
+                return True
+            if p == "/api/agro/mapbiomas":
+                cls_raw = g("classes")
+                cls_ids = [int(c.strip()) for c in cls_raw.split(",") if c.strip().isdigit()] if cls_raw else None
+                self._json(200, agro_db.get_mapbiomas_coverage(
+                    year=int(g("year", "2025")),
+                    class_ids=cls_ids,
+                    uf=g("uf") or None,
+                    bioma=g("bioma") or None,
+                    mode=g("mode", "dominant"),
+                    include_series=g("include_series", "1") != "0",
                 ))
                 return True
             if p == "/api/agro/search":
@@ -222,7 +242,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not OPENROUTER_API_KEY:
                     return self._json(503, {"error": "Configure OPENROUTER_API_KEY no .env para usar o assistente IA."})
                 from src.agro_chat import ask_agro
-                result = ask_agro(question, k_laws=k, view_context=body.get("view_context"))
+                result = ask_agro(
+                    question,
+                    k_laws=k,
+                    view_context=body.get("view_context"),
+                    history=body.get("history"),
+                )
                 result["seconds"] = round(time.perf_counter() - start, 1)
                 return self._json(200, result)
             if mode == "map":
@@ -247,6 +272,16 @@ class Handler(BaseHTTPRequestHandler):
             result = answer(question, k=k, domain=law_domain)
             elapsed = time.perf_counter() - start
 
+            formatted_sources = [_law_source(source, label=f"L{i}") for i, source in enumerate(result.sources, 1)]
+            law_names = ", ".join(dict.fromkeys(s.get("title", "") for s in formatted_sources[:3] if s.get("title")))
+            available_views = [{
+                "key": "laws",
+                "label": f"Ler trechos da lei ({len(formatted_sources)})",
+                "summary": law_names or "Artigos das leis ambientais brasileiras",
+                "what_you_see": f"{len(formatted_sources)} trecho(s) da legislação ambiental federal citados na resposta ({law_names}).",
+                "what_you_receive": "Texto original dos artigos consultados e link direto para o documento oficial.",
+            }] if formatted_sources else []
+
             self._json(200, {
                 "answer": result.text,
                 "stop_reason": result.stop_reason,
@@ -255,7 +290,8 @@ class Handler(BaseHTTPRequestHandler):
                 "seconds": round(elapsed, 1),
                 "domain": result.domain,
                 "context": build_context(result.sources) if result.sources else "",
-                "sources": [_law_source(source) for source in result.sources],
+                "available_views": available_views,
+                "sources": formatted_sources,
             })
         except Exception as e:  # mostra o erro na página em vez de derrubar o servidor
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
@@ -365,8 +401,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
-        # Página, CSS e JS mudam com frequência: o navegador nunca deve usar uma cópia velha.
-        self.send_header("Cache-Control", "no-store")
+        if content_type.startswith(("text/html", "text/css", "text/javascript")):
+            self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(payload)
 

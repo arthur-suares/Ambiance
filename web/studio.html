@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ambiance — Dados Socioambientais e Leis do Brasil</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+  <link rel="stylesheet" href="/studio.css" />
+</head>
+<body>
+  <div class="studio-shell">
+    <header class="studio-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <div>
+          <strong>Ambiance</strong>
+          <small>Dados Socioambientais e Legislação do Brasil</small>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="open-mapbiomas-btn" type="button" class="hdr-btn">Mapa de Uso da Terra (1985–2025)</button>
+        <button id="new-chat-btn" type="button" class="hdr-btn hdr-btn-primary" hidden>Nova conversa</button>
+      </div>
+    </header>
+
+    <main class="studio-workspace">
+      <section class="chat-pane" aria-label="Conversa">
+        <div class="chat-scroll" id="chat-scroll">
+          <div id="chat-welcome" class="chat-welcome">
+            <div class="welcome-eyebrow">Monitoramento territorial e legislação ambiental</div>
+            <h1>Entenda o território, a produção rural e as leis ambientais do Brasil</h1>
+            <p class="welcome-sub">
+              Pergunte em linguagem natural sobre desmatamento, produção agropecuária, exportações, emissões de carbono ou regras ambientais. Quando fizer sentido, liberamos mapas e gráficos interativos para você explorar.
+            </p>
+          </div>
+
+          <div id="chat-messages" class="chat-messages" hidden></div>
+          <div id="chat-progress" class="chat-progress" hidden>
+            <span class="spinner" aria-hidden="true"></span>
+            <span id="progress-text">Analisando sua pergunta…</span>
+          </div>
+        </div>
+
+        <div class="composer-stage">
+          <form id="chat-form" class="chat-composer">
+            <textarea
+              id="chat-input"
+              rows="2"
+              placeholder="Ex.: Onde o desmatamento mais cresceu na Amazônia em 2026 e o que diz a lei?"
+              required
+            ></textarea>
+            <div class="composer-bar">
+              <select id="ask-mode" aria-label="Tipo de pesquisa">
+                <option value="agro">Análise completa (dados e leis)</option>
+                <option value="laws">Somente legislação ambiental</option>
+              </select>
+              <button id="send-btn" type="submit" class="send-btn">Perguntar</button>
+            </div>
+          </form>
+
+          <div id="starter-grid" class="starter-grid">
+            <button type="button" class="starter-card" data-q="Quais os 10 municípios da Amazônia com maior área de alertas recentes de desmatamento por satélite em 2026 e quais obrigações da lei florestal se aplicam?">
+              <strong>Onde o desmatamento mais avançou na Amazônia?</strong>
+              <span>Municípios com mais alertas recentes e regras da lei</span>
+            </button>
+            <button type="button" class="starter-card" data-q="Mostre os principais fluxos de exportação de soja do Mato Grosso em 2022, os países de destino e qual parcela tem origem não identificada.">
+              <strong>Para onde vai a soja produzida no Mato Grosso?</strong>
+              <span>Destinos internacionais e parcela sem origem rastreada</span>
+            </button>
+            <button type="button" class="starter-card" data-q="Como evoluíram as emissões de carbono da agropecuária comparadas às emissões por perda de vegetação no Pará de 2015 a 2025? Gere um gráfico de evolução e o mapa.">
+              <strong>Como mudaram as emissões de carbono no Pará?</strong>
+              <span>Evolução da pecuária e da perda de floresta em 10 anos</span>
+            </button>
+            <button type="button" class="starter-card" data-q="Quais são as regras de preservação de margens de rios, reserva legal em imóveis rurais e regularização ambiental segundo o Código Florestal brasileiro?">
+              <strong>O que a lei exige de preservação em fazendas?</strong>
+              <span>Regras sobre matas ciliares, reservas e regularização</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="canvas-pane" class="canvas-pane" hidden aria-label="Painel visual">
+        <div class="canvas-header">
+          <div class="canvas-title-wrap">
+            <h2 id="canvas-title">Visualização</h2>
+            <span id="canvas-badge" class="canvas-badge" hidden></span>
+          </div>
+          <div class="canvas-tabs" role="tablist">
+            <button type="button" class="canvas-tab is-active" data-tab="map" id="tab-btn-map">Mapa</button>
+            <button type="button" class="canvas-tab" data-tab="charts" id="tab-btn-charts">Gráficos</button>
+            <button type="button" class="canvas-tab" data-tab="data" id="tab-btn-data">Tabela</button>
+            <button type="button" class="canvas-tab" data-tab="laws" id="tab-btn-laws">Trechos da Lei</button>
+          </div>
+          <button id="canvas-close" type="button" class="icon-btn" title="Fechar painel">×</button>
+        </div>
+
+        <div id="canvas-desc-bar" class="canvas-desc-bar" hidden>
+          <div class="desc-content">
+            <div class="desc-line"><strong>O que você está vendo:</strong> <span id="canvas-desc-see"></span></div>
+            <div class="desc-line"><strong>O que você recebe:</strong> <span id="canvas-desc-receive"></span></div>
+          </div>
+          <button type="button" id="canvas-desc-toggle" class="btn-ghost-sm">Ocultar</button>
+        </div>
+
+        <div class="canvas-body">
+          <div id="panel-map" class="canvas-panel is-active">
+            <div id="canvas-map-container" class="map-container"></div>
+
+            <div class="map-top-left">
+              <div id="map-scope-pill" class="scope-pill">Carregando mapa…</div>
+              <div id="map-fallback-badge" class="fallback-badge" hidden></div>
+            </div>
+
+            <div class="map-top-right">
+              <button type="button" class="map-ctrl-btn is-active" id="btn-cam-2d">2D</button>
+              <button type="button" class="map-ctrl-btn" id="btn-cam-3d">3D</button>
+              <button type="button" class="map-ctrl-btn" id="btn-terrain">Satélite</button>
+              <button type="button" class="map-ctrl-btn" id="btn-fit">Centralizar</button>
+            </div>
+
+            <div id="map-legend-card" class="legend-card" hidden>
+              <div id="legend-title" class="legend-title"></div>
+              <div id="legend-bar" class="legend-bar"></div>
+              <div class="legend-scale">
+                <span id="legend-min">0</span>
+                <span id="legend-mid"></span>
+                <span id="legend-max"></span>
+              </div>
+              <div id="legend-extras" class="legend-extras" hidden></div>
+              <div id="ub-source" class="ub-line"></div>
+              <div id="ub-coverage" class="ub-line"></div>
+              <button type="button" id="toggle-caveat" class="caveat-btn" aria-expanded="false">Entenda os limites deste dado ▾</button>
+              <p id="ub-caveat" class="ub-caveat" hidden></p>
+            </div>
+
+            <div id="mb-legend-card" class="mb-legend-card" hidden>
+              <div class="mb-leg-head">
+                <strong>Uso e Cobertura do Solo</strong>
+                <div class="mb-mode-group">
+                  <button type="button" class="mb-mode-btn is-active" data-mb-mode="dominant">Principal</button>
+                  <button type="button" class="mb-mode-btn" data-mb-mode="share">% da área</button>
+                </div>
+              </div>
+              <div class="mb-presets">
+                <button type="button" class="mb-preset-btn is-active" data-mb-preset="all">Todas</button>
+                <button type="button" class="mb-preset-btn" data-mb-preset="forest">Florestas</button>
+                <button type="button" class="mb-preset-btn" data-mb-preset="agro">Agropecuária</button>
+              </div>
+              <div id="mb-class-list" class="mb-class-list"></div>
+            </div>
+
+            <div id="mb-timebar" class="mb-timebar" hidden>
+              <button type="button" id="mb-play" class="mb-play-btn" title="Avançar anos automaticamente">▶</button>
+              <input type="range" id="mb-year-slider" min="1985" max="2025" step="1" value="2025" aria-label="Ano do mapa" />
+              <span id="mb-year-label" class="mb-year-label">2025</span>
+            </div>
+
+            <aside id="mun-minicard" class="mun-minicard" hidden>
+              <div class="mun-mini-head">
+                <div>
+                  <strong id="mun-mini-title"></strong>
+                  <small id="mun-mini-sub"></small>
+                </div>
+                <button type="button" id="mun-mini-close" class="icon-btn-sm">×</button>
+              </div>
+              <div id="mun-mini-kpis" class="mun-mini-kpis"></div>
+              <button type="button" id="mun-mini-ask" class="mun-mini-ask">Perguntar sobre este município</button>
+            </aside>
+
+            <div id="map-tooltip" class="map-tooltip" hidden></div>
+          </div>
+
+          <div id="panel-charts" class="canvas-panel scrollable" hidden>
+            <div id="charts-container" class="charts-grid"></div>
+          </div>
+
+          <div id="panel-data" class="canvas-panel scrollable" hidden>
+            <div id="data-container" class="data-stack"></div>
+          </div>
+
+          <div id="panel-laws" class="canvas-panel scrollable" hidden>
+            <div id="laws-container" class="laws-stack"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/studio.js" defer></script>
+</body>
+</html>
