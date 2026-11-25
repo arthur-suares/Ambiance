@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
+from math import isfinite
+from numbers import Real
 from typing import Any
 
 from src.agro_db import CHOROPLETH_METRICS, run_readonly_sql
 from src.config import LLM_EXTRA_PARAMS, LLM_MAX_TOKENS, LLM_MODEL
+from src.temporal import METRICS, get_temporal
 
 MAX_TURNS = 6
+logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
 Você é o assistente analítico e socioambiental da plataforma Agro/Ambiance.
@@ -17,7 +22,9 @@ Você responde perguntas em português e constrói em tempo real um **Canvas Int
 1. Banco consolidado PostgreSQL + PostGIS (schemas `agro` e `gold`), via ferramenta `query_agro_sql`.
 2. Legislação ambiental federal (29 leis, busca híbrida pgvector + FTS), via ferramenta `search_laws`.
 3. Mapa interativo sob demanda (`deck.gl`), controlado pela ferramenta `set_map_view`.
-4. Gráficos interativos (`Chart.js`), controlados pela ferramenta `create_chart`.
+4. Linha do Tempo e Dashboard, abastecidos pela ferramenta `set_temporal_view` e pelas consultas SQL.
+
+Comece a resposta final com uma conclusão em texto, mesmo que o usuário peça só uma visualização. Para exportações sem produto especificado, identifique as cadeias cobertas pelas consultas e informe que elas são um recorte. No Comex Stat, a UF corresponde ao domicílio fiscal do exportador. Para carne bovina fresca, refrigerada ou congelada, filtre os códigos 0201 e 0202. Para a cadeia bovina mais ampla, explicite os códigos e o conjunto de produtos consultado.
 
 ## Esquema disponível (somente leitura)
 - `gold.mv_territorio_municipal_ano` (chave: `ano`, `codigo_municipio_ibge`):
@@ -43,11 +50,13 @@ Você responde perguntas em português e constrói em tempo real um **Canvas Int
 - `agro.dim_fontes` (catálogo de fontes, cobertura temporal e limitações).
 
 ## Regras obrigatórias
-- Sempre use `query_agro_sql` para números; nunca invente valores.
+- Use `query_agro_sql` ou `set_temporal_view` para números; nunca invente valores.
 - Inclua `codigo_municipio_ibge` nos SELECTs municipais para que o mapa destaque os municípios encontrados.
 - **Mapa sob demanda (`set_map_view`):** sempre chame quando a pergunta envolver território, municípios, biomas, estados, fluxos, instalações, cobertura MapBiomas ou alertas DETER. Ative apenas as camadas relevantes para a pergunta, defina um `title` descritivo e escolha o recorte (`uf`/`bioma`/`year`/`metric`/`deter_mode`/`show_facilities`/`mapbiomas_mode`).
 - Quando o usuário pedir **cobertura e uso da terra (MapBiomas, floresta vs pastagem vs soja, 1985–2025)**, use `mapbiomas_mode: true`, `mapbiomas_year` (1985–2025) e `mapbiomas_classes` (opcional, IDs como 3=Floresta, 4=Savânica, 15=Pastagem, 39=Soja, 21=Mosaico, 24=Urbana, 33=Água).
-- **Gráficos sob demanda (`create_chart`):** sempre chame quando `query_agro_sql` retornar ranking (`horizontal_bar`), série histórica anual (`line` ou `area`), comparação entre categorias/municípios (`bar`) ou composição setorial/destinos (`doughnut`). Use exatamente os números retornados pelo SQL.
+- **Evolução territorial:** quando a pergunta pedir intervalo, evolução, série, play, marcos ou animação de uma métrica territorial, use `set_temporal_view` antes de responder. A ferramenta consulta números e distingue anos ausentes. Para esse indicador use os valores [T1] da ferramenta como fonte dos números; SQL separado só para contexto complementar. Não chame `set_map_view` em paralelo para repetir a mesma visualização.
+- Selecione os fatos mais relevantes com `choose_temporal_milestones`, em ordem do tempo. A interface escreve os textos dos marcos a partir dos fatos calculados e mostra suas fontes. Para datas não informadas, use o intervalo pertinente à pergunta e explique o recorte. Use meses apenas para DETER.
+- **Dashboard:** os resultados das ferramentas alimentam o agente de Dashboard. Prefira resultados com colunas claras e unidades no nome ou no propósito da consulta.
 - Para perguntas sobre leis, obrigações, Código Florestal, CAR, PRA, crimes ambientais ou licenciamento, chame `search_laws`.
 - Em pedidos de refinamento conversacional ("filtre só 2025", "troque para hexágonos 3D", "mostre os frigoríficos", "compare com Altamira"), preserve ou adapte o recorte do Canvas atual.
 - Regras de clareza e linguagem acessível:
@@ -65,6 +74,36 @@ Você responde perguntas em português e constrói em tempo real um **Canvas Int
 CHART_TYPES = ("bar", "horizontal_bar", "line", "area", "doughnut")
 
 TOOLS = [
+    {
+        "name": "set_temporal_view",
+        "description": "Carrega dados do recorte para Linha do Tempo, mapa animado e Dashboard, sem substituir períodos ausentes.",
+        "input_schema": {
+            "type": "object",
+            "required": ["metric", "start_year", "end_year"],
+            "properties": {
+                "metric": {"type": "string", "enum": list(METRICS),
+                           "description": "Escolha flows_soja/flows_bovinos para arcos internacionais, land_cover para cobertura MapBiomas e deter_count/deter_area para alertas."},
+                "start_year": {"type": "integer"},
+                "end_year": {"type": "integer"},
+                "frequency": {"type": "string", "enum": ["annual", "monthly"]},
+                "start_month": {"type": "integer"},
+                "end_month": {"type": "integer"},
+                "uf": {"type": "string"},
+                "bioma": {"type": "string"},
+                "code": {"type": "string", "description": "Código IBGE de sete dígitos para restringir a série a um município."},
+                "classes": {"type": "array", "items": {"type": "integer"},
+                            "description": "Para land_cover: 3 floresta, 15 pastagem, 39 soja, entre outras classes."},
+            },
+        },
+    },
+    {
+        "name": "choose_temporal_milestones",
+        "description": "Seleciona as evidências que viram marcos. Os textos, datas e números são montados a partir dos fatos retornados.",
+        "input_schema": {
+            "type": "object", "required": ["ids"],
+            "properties": {"ids": {"type": "array", "items": {"type": "string"}, "maxItems": 6}},
+        },
+    },
     {
         "name": "query_agro_sql",
         "description": "Executa consulta SQL SELECT somente-leitura nos schemas agro e gold do PostgreSQL.",
@@ -205,6 +244,10 @@ def _format_view_context(view_context: dict[str, Any] | None) -> str:
         parts.append(f"bioma={view_context['bioma']}")
     if view_context.get("year"):
         parts.append(f"ano={view_context['year']}")
+    if view_context.get("start_period") and view_context.get("end_period"):
+        parts.append(f"período={view_context['start_period']} a {view_context['end_period']}")
+    if view_context.get("classes"):
+        parts.append(f"classes MapBiomas={view_context['classes']}")
     if view_context.get("metric"):
         parts.append(f"métrica={view_context['metric']}")
     if view_context.get("show_flows"):
@@ -349,7 +392,7 @@ def _evaluate_views(
         purposes = "; ".join(t.get("purpose", "Tabela") for t in tables[:2])
         views.append({
             "key": "data",
-            "label": f"Ver tabela completa ({len(tables)})",
+            "label": f"Ver resultados ({len(tables)})",
             "summary": purposes,
             "what_you_see": f"{len(tables)} tabela(s) com os números exatos usados na resposta: {purposes}.",
             "what_you_receive": "Dados completos para conferência e botão para baixar a planilha pronta para Excel.",
@@ -366,6 +409,57 @@ def _evaluate_views(
         })
 
     return map_spec, charts, views
+
+
+def _answer_value(value: Any) -> str:
+    if value is None:
+        return "sem dados"
+    if isinstance(value, int) and not isinstance(value, bool):
+        return f"{value:,}".replace(",", ".")
+    if isinstance(value, Real) and not isinstance(value, bool):
+        if not isfinite(value):
+            return "sem dados"
+        fmt = ",.0f" if value == int(value) else ",.2f"
+        return format(value, fmt).translate(str.maketrans(",.", ".,"))
+    return str(value)
+
+
+def _answer_from_evidence(temporal, tables, law_sources, tool_log, has_map, charts) -> str:
+    paragraphs = []
+    if temporal:
+        observed = [frame for frame in temporal["frames"] if frame["value"] is not None]
+        heading = f'{temporal["label"]} em {temporal["scope"]}'
+        if observed:
+            values = [
+                f'{frame["period"]}: {_answer_value(frame["value"])} {temporal["unit"]}'
+                + (f' (dados até {frame["coverage_through"]})' if frame.get("coverage_through") else "")
+                for frame in observed
+            ]
+            values = values if len(values) <= 6 else [values[0], values[-1]]
+            paragraphs.append(f'{heading}. {" · ".join(values)}. Fonte: {temporal["source"]} [T1].')
+            if len(observed) < len(temporal["frames"]):
+                paragraphs.append("A série tem períodos sem dados.")
+        else:
+            paragraphs.append(f"{heading}. A série consultada não contém valores para o período [T1].")
+    for table in [item for item in tables if item["rows"]][:2]:
+        lines = [
+            " · ".join(f'{col.replace("_", " ")}: {_answer_value(row.get(col))}' for col in table["columns"][:8])
+            for row in table["rows"][:6]
+        ]
+        paragraphs.append(f'{table["purpose"]} [{table["label"]}].\n\n' + "\n".join(f"- {line}" for line in lines))
+        if len(table["rows"]) > len(lines):
+            paragraphs.append("Veja as demais linhas na aba Dados.")
+    if law_sources:
+        paragraphs.append(f'A busca jurídica encontrou {len(law_sources)} trechos. A aba de legislação abre os textos consultados, incluindo {law_sources[0]["title"]} [L1].')
+    if paragraphs:
+        return "\n\n".join(paragraphs)
+    if tables:
+        return "A consulta não encontrou registros para esse recorte. Você pode ajustar o período ou o território."
+    if any(not call["ok"] for call in tool_log):
+        return "A consulta à fonte falhou. Vale tentar novamente para recuperar os dados do recorte."
+    if has_map or charts:
+        return "A visualização foi preparada. Abra o painel para conferir o recorte e os dados exibidos."
+    return "Não consegui concluir a análise. Reformule a pergunta indicando o território, o tema e o período de interesse."
 
 
 def ask_agro(
@@ -385,6 +479,8 @@ def ask_agro(
     charts: list[dict[str, Any]] = []
     map_spec: dict[str, Any] = {}
     discovered_codes: list[str] = []
+    temporal = None
+    milestone_ids = []
 
     in_tokens = 0
     out_tokens = 0
@@ -393,14 +489,20 @@ def ask_agro(
     stop_reason = ""
 
     for _ in range(MAX_TURNS):
-        resp = client.messages.create(
-            model=LLM_MODEL,
-            max_tokens=min(LLM_MAX_TOKENS, 4096),
-            system=SYSTEM_PROMPT,
-            messages=messages,
-            tools=TOOLS,
-            **LLM_EXTRA_PARAMS,
-        )
+        try:
+            resp = client.messages.create(
+                model=LLM_MODEL,
+                max_tokens=min(LLM_MAX_TOKENS, 4096),
+                system=SYSTEM_PROMPT,
+                messages=messages,
+                tools=TOOLS,
+                **LLM_EXTRA_PARAMS,
+            )
+        except Exception:
+            if not (tables or temporal or law_sources or map_spec or charts):
+                raise
+            logger.warning("Resposta interrompida após recuperar evidências.", exc_info=True)
+            break
         in_tokens += resp.usage.input_tokens
         out_tokens += resp.usage.output_tokens
         stop_reason = resp.stop_reason or ""
@@ -418,7 +520,28 @@ def ask_agro(
             t0 = time.perf_counter()
             name = tu.name
             inp = tu.input or {}
-            if name == "query_agro_sql":
+            if name == "set_temporal_view":
+                try:
+                    temporal = get_temporal(inp)
+                    milestone_ids = []
+                    out_txt = json.dumps({
+                        "source": temporal["source"], "scope": temporal["scope"], "unit": temporal["unit"],
+                        "series_T1": [(f["period"], f["value"], f.get("coverage_through")) for f in temporal["frames"]],
+                        "milestone_options": temporal["facts"],
+                    }, ensure_ascii=False)
+                except (ValueError, TypeError) as exc:
+                    out_txt = f"Recorte temporal inválido: {exc}"
+                tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out_txt})
+
+            elif name == "choose_temporal_milestones":
+                valid = {f["id"] for f in temporal["facts"]} if temporal else set()
+                items = inp.get("ids")
+                if valid and isinstance(items, list):
+                    milestone_ids = list(dict.fromkeys(i for i in items if isinstance(i, str) and i in valid))[:6]
+                tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
+                                     "content": f"Marcos associados aos fatos: {', '.join(milestone_ids)}."})
+
+            elif name == "query_agro_sql":
                 d_idx += 1
                 label = f"D{d_idx}"
                 sql = str(inp.get("sql", ""))
@@ -429,7 +552,8 @@ def ask_agro(
                         code = r.get("codigo_municipio_ibge") or r.get("code")
                         if isinstance(code, str) and len(code) == 7 and code.isdigit() and code not in discovered_codes:
                             discovered_codes.append(code)
-                    tables.append({"label": label, "purpose": purpose, "columns": cols, "rows": rows[:30]})
+                    tables.append({"label": label, "purpose": purpose, "columns": cols, "rows": rows,
+                                   "row_limit": 100, "at_limit": len(rows) == 100})
                     out_txt = _format_table_for_llm(cols, rows, label, purpose)
                     tool_calls_log.append({
                         "label": label, "name": name, "summary": purpose,
@@ -525,10 +649,41 @@ def ask_agro(
 
         messages.append({"role": "user", "content": tool_results})
 
+    if not final_text and (tables or temporal or law_sources or map_spec or charts):
+        note = {
+            "type": "text",
+            "text": "Agora responda em português à pergunta original, em texto. Resuma os achados das ferramentas com dados e referências, informe os limites do recorte e encerre sem pedir novas ferramentas.",
+        }
+        if messages[-1]["role"] == "assistant" and not messages[-1]["content"]:
+            messages.pop()
+        if messages[-1]["role"] == "user":
+            previous = messages[-1]["content"]
+            blocks = previous if isinstance(previous, list) else [{"type": "text", "text": previous}]
+            messages[-1]["content"] = [*blocks, note]
+        else:
+            messages.append({"role": "user", "content": [note]})
+        try:
+            response = client.with_options(timeout=12, max_retries=0).messages.create(
+                model=LLM_MODEL,
+                max_tokens=1400,
+                system=SYSTEM_PROMPT,
+                messages=messages,
+                **LLM_EXTRA_PARAMS,
+            )
+            in_tokens += response.usage.input_tokens
+            out_tokens += response.usage.output_tokens
+            stop_reason = response.stop_reason or stop_reason
+            final_text = "\n".join(b.text for b in response.content if b.type == "text").strip()
+        except Exception:
+            logger.warning("Síntese indisponível. Usando resumo calculado a partir das evidências.", exc_info=True)
+
+    if not final_text:
+        final_text = _answer_from_evidence(temporal, tables, law_sources, tool_calls_log, bool(map_spec), charts)
+
     if discovered_codes and map_spec and "highlight_codes" not in map_spec:
         map_spec["highlight_codes"] = discovered_codes[:15]
 
-    domain = "mixed" if (tables and law_sources) else ("law" if law_sources else "agro")
+    domain = "mixed" if ((tables or temporal) and law_sources) else ("law" if law_sources else "agro")
     formatted_sources = [
         {
             "label": f"L{i}",
@@ -552,8 +707,30 @@ def ask_agro(
         sources=formatted_sources,
     )
 
+    dashboard = None
+    if tables or temporal:
+        from src.dashboard.studio import build_studio_dashboard
+
+        dashboard = build_studio_dashboard(question, tables, temporal)
+        if dashboard:
+            if temporal:
+                chosen = set(milestone_ids)
+                temporal["milestones"] = [f["id"] for f in temporal["facts"] if not chosen or f["id"] in chosen]
+                final_map = None
+                available_views = [v for v in available_views if v["key"] not in {"map", "data", "charts"}]
+                available_views.insert(0, {"key": "timeline", "label": "Reproduzir evolução", "summary": temporal["label"]})
+                tables = dashboard["tables"]
+            else:
+                available_views = [v for v in available_views if v["key"] != "charts"]
+            available_views.append({"key": "dashboard", "label": "Abrir dashboard", "summary": dashboard["title"]})
+            if temporal:
+                available_views.append({"key": "data", "label": "Conferir dados", "summary": "Série temporal e recorte"})
+            final_charts = []
+
     return {
         "answer": final_text,
+        "temporal": temporal,
+        "dashboard": dashboard,
         "domain": domain,
         "stop_reason": stop_reason,
         "input_tokens": in_tokens,

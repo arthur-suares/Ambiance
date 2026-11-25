@@ -1,0 +1,31 @@
+.satellite-dialog {
+  background: #fbfcf9;
+  color: #16211b;
+  border: 1px solid #c8d3c9;
+  border-radius: 12px;
+  padding: 18px;
+  width: min(900px, 94vw);
+  max-height: 90vh;
+  overflow: auto;
+}
+.satellite-dialog::backdrop { background: #080e0caa; }
+.satellite-dialog form { float: right; }
+.satellite-dialog form button { cursor: pointer; }
+.satellite-dialog a { color: #14532d; }
+.satellite-images { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.satellite-images figure { margin: 0; }
+.satellite-images figcaption { padding: 4px 0; }
+.satellite-credit { display: block; color: #455c52; }
+.satellite-frame { position: relative; background: #e9ece7; }
+.satellite-frame img { width: 100%; aspect-ratio: 1; display: block; }
+.satellite-frame::after {
+  content: "+";
+  position: absolute;
+  inset: 50% auto auto 50%;
+  transform: translate(-50%, -50%);
+  color: white;
+  font: bold 22px sans-serif;
+  text-shadow: 0 0 3px black;
+  pointer-events: none;
+}
+@media (max-width: 540px) { .satellite-images { grid-template-columns: 1fr; } }

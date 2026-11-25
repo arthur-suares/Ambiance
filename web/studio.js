@@ -27,10 +27,12 @@
     [254, 240, 217], [253, 204, 138], [252, 141, 89],
     [227, 74, 51], [179, 0, 0], [127, 0, 0],
   ];
-  const CHART_COLORS = ["#10b981", "#38bdf8", "#f59e0b", "#f43f5e", "#a855f7", "#eab308", "#14b8a6", "#fb7185"];
+  const CHART_COLORS = ["#2f7956", "#39768c", "#b37639", "#a74e61", "#8063a4", "#a98a30", "#2b8c80", "#b96989"];
   const MATERIAL_3D = {ambient: 0.55, diffuse: 0.65, shininess: 36, specularColor: [60, 64, 70]};
 
   const turns = [];
+  const exampleScope = {metric: "ibge_soja_producao_t", uf: "MT", start_year: 2015, end_year: 2025};
+  const tabViews = {timeline: "timeline", charts: "dashboard", data: "data"};
   const sessionHistory = [];
   let activeTurnId = null;
   let activeSpec = null;
@@ -40,6 +42,7 @@
 
   let deckgl = null;
   let geojson = null;
+  let states = null;
   let geojsonPromise = null;
   let choroData = null;
   let flowsData = null;
@@ -52,12 +55,16 @@
   let progressTimer = null;
   let mbData = null;
   let mbState = {year: 2025, mode: "dominant", classIds: [], uf: "", bioma: ""};
+  let mbRequest = null;
+  let mbTiles = null;
+  let mbRasterRequest = null;
   let mbPlayTimer = null;
   let activeTurnObj = null;
+  let temporalRequest = null;
   const MB_PRESETS = {
     all: [],
-    forest: [3, 4, 5, 6, 49],
-    agro: [15, 39, 20, 40, 41, 46, 47, 48, 9, 21],
+    forest: [3, 4, 5, 6, 7, 49],
+    agro: [15, 39, 20, 40, 41, 46, 47, 48, 35, 62, 9, 21],
   };
 
   function escapeHtml(s) {
@@ -68,7 +75,7 @@
     return escapeHtml(s)
       .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
       .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/\[(D\d+)\]/g, '<span class="cite-pill cite-data">[$1]</span>')
+      .replace(/\[([DT]\d+)\]/g, '<span class="cite-pill cite-data">[$1]</span>')
       .replace(/\[(L\d+)\]/g, '<span class="cite-pill cite-law">[$1]</span>');
   }
 
@@ -234,6 +241,17 @@
     return [...pal[idx], alpha];
   }
 
+  function drillState(uf) {
+    if (!activeSpec || activeSpec.mapbiomas_mode) return;
+    selectedCode = null;
+    selectedMun = null;
+    $("mun-minicard").hidden = true;
+    const deterMode = uf && activeSpec.show_deter ? "points" : activeSpec.deter_mode;
+    renderMapSpec({...activeSpec, uf, deter_mode: deterMode, highlight_codes: [], flow_origin: null}).catch(error => {
+      $("map-scope-pill").textContent = `Erro no mapa · ${error.message}`;
+    });
+  }
+
   function showTooltip(info) {
     const tip = $("map-tooltip");
     if (!info || !info.object) {
@@ -242,7 +260,13 @@
     }
     const o = info.object;
     let html = "";
-    if (info.layer.id === "municipalities") {
+    if (info.layer.id === "states") {
+      const {uf, name} = o.properties;
+      const value = choroData?.values?.[uf];
+      html = `<strong>${escapeHtml(name)}</strong><br>` +
+        `${value == null ? "Sem registro" : n(value) + " " + escapeHtml(choroData?.meta?.unit)}<br>` +
+        "<small>Clique para ver os municípios</small>";
+    } else if (info.layer.id === "municipalities") {
       const code = String(o.properties?.codarea || "");
       if (activeSpec?.mapbiomas_mode && mbData) {
         const v = mbData.values?.[code];
@@ -272,13 +296,16 @@
     } else if (info.layer.id === "deter-alerts") {
       html = `<strong>Alerta por satélite · ${escapeHtml(o.bioma)}</strong><br>` +
         `${escapeHtml(o.municipio || "—")} (${escapeHtml(o.uf || "—")})<br>` +
-        `${escapeHtml(o.classname || "—")} · ${n(o.area_km2, 2)} km²`;
+        `${escapeHtml(o.classname || "—")} · ${n(o.area_km2, 2)} km²<br>` +
+        "<small>Clique para comparar imagens</small>";
     } else if (info.layer.id === "trade-flows") {
       html = `<strong>${escapeHtml(o.origin_name)} → ${escapeHtml(o.target_name)}</strong><br>` +
         `Volume: ${n(o.volume_t)} t<br>Exposição recente ao desmatamento: ${n(o.exposicao_ha)} ha`;
     } else if (info.layer.id === "facilities") {
-      html = `<strong>${escapeHtml(o.empresa || "Unidade produtiva")}</strong><br>` +
-        `${escapeHtml(o.tipo || o.cadeia)} · ${escapeHtml(o.municipio || "—")} (${escapeHtml(o.uf || "—")})`;
+      html = facilitiesData?.grain === "state"
+        ? `<strong>${escapeHtml(o.uf_name)}</strong><br>${n(o.total, 0)} instalações de ${o.cadeia === "soja" ? "soja" : "bovinos"}<br><small>Clique para ver as instalações</small>`
+        : `<strong>${escapeHtml(o.empresa || "Unidade produtiva")}</strong><br>` +
+          `${escapeHtml(o.tipo || o.cadeia)} · ${escapeHtml(o.municipio || "—")} (${escapeHtml(o.uf || "—")})`;
     }
     if (!html) {
       tip.hidden = true;
@@ -299,9 +326,10 @@
     const terrainMode = currentBasemap === "terrain";
     const hexDeterActive = Boolean(spec?.show_deter && spec?.deter_mode === "hex" && deterData?.points?.length);
     const hlSet = new Set(spec?.highlight_codes || []);
+    const pixelMode = Boolean(spec?.mapbiomas_mode && mbTiles);
 
     const terrainExtensions = [];
-    if (terrainMode && deck.TerrainLayer) {
+    if (terrainMode && !pixelMode && deck.TerrainLayer) {
       layers.push(new deck.TerrainLayer({
         id: "terrain-3d",
         minZoom: 0,
@@ -316,9 +344,44 @@
       if (deck._TerrainExtension) terrainExtensions.push(new deck._TerrainExtension());
     }
 
-    layers.push(new deck.GeoJsonLayer({
+    if (pixelMode) {
+      const state = states?.features.find(f => f.properties.uf === mbData.uf);
+      const mask = state && deck.MaskExtension ? {
+        maskId: "mapbiomas-state", extensions: [new deck.MaskExtension()], maskByInstance: false,
+      } : {};
+      if (mask.maskId) layers.push(new deck.GeoJsonLayer({id: mask.maskId, data: state, operation: "mask"}));
+      layers.push(new deck.TileLayer({
+        id: "mapbiomas-pixels", data: mbTiles, tileSize: 256, maxZoom: 14, maxRequests: 6,
+        renderSubLayers: props => {
+          if (!props.data) return null;
+          const {west, south, east, north} = props.tile.bbox;
+          return new deck.BitmapLayer(props, {
+            data: null, image: props.data, bounds: [west, south, east, north],
+            textureParameters: {minFilter: "nearest", magFilter: "nearest"},
+            ...mask,
+          });
+        },
+        onTileError: () => {
+          if (mbTiles) $("mb-pixels-status").textContent = "Alguns blocos do mapa de pixels estão indisponíveis neste zoom.";
+        },
+      }));
+    }
+
+    const byState = !spec?.mapbiomas_mode && choroData?.grain === "state";
+    if (byState && states) {
+      layers.push(new deck.GeoJsonLayer({
+        id: "states", data: states, pickable: true,
+        lineWidthMinPixels: 1,
+        getFillColor: f => rampColor(values[f.properties.uf], maxRef, palette, hexDeterActive ? 80 : 180),
+        getLineColor: [100, 135, 125, 195],
+        updateTriggers: {getFillColor: [choroData, hexDeterActive]},
+        onHover: showTooltip,
+        onClick: info => { if (info.object) drillState(info.object.properties.uf); },
+      }));
+    }
+    if (!byState) layers.push(new deck.GeoJsonLayer({
       id: "municipalities",
-      data: geojson,
+      data: AmbianceMap.municipalitiesIn(geojson, states, spec?.mapbiomas_mode ? mbData?.uf : spec?.uf),
       pickable: true,
       stroked: true,
       filled: true,
@@ -328,6 +391,7 @@
       terrainDrawMode: terrainMode ? "drape" : undefined,
       getFillColor: f => {
         const code = String(f.properties?.codarea || "");
+        if (pixelMode) return code === selectedCode ? [250, 204, 21, 65] : [0, 0, 0, 0];
         if (code === selectedCode) return [250, 204, 21, 210];
         if (hlSet.has(code)) {
           return hexDeterActive ? [245, 158, 11, 85] : [245, 158, 11, 205];
@@ -362,7 +426,7 @@
       },
       lineWidthUnits: "pixels",
       updateTriggers: {
-        getFillColor: [choroData, mbData, mbState.mode, hexDeterActive, selectedCode, currentBasemap, (spec?.highlight_codes || []).join(",")],
+        getFillColor: [choroData, mbData, mbState.mode, hexDeterActive, selectedCode, currentBasemap, pixelMode, (spec?.highlight_codes || []).join(",")],
         getLineColor: [hexDeterActive, selectedCode, currentBasemap, (spec?.highlight_codes || []).join(",")],
         getLineWidth: [selectedCode, (spec?.highlight_codes || []).join(",")],
       },
@@ -387,6 +451,12 @@
         getWidth: d => Math.min(5, 1.2 + Math.log1p(d.volume_t / 5000) * 0.65),
         widthUnits: "pixels",
         onHover: showTooltip,
+        onClick: info => {
+          const flow = info.object;
+          if (!flow) return;
+          if (flowsData.grain === "state") drillState(flow.origin_uf);
+          else openMunicipality(flow.origin_code);
+        },
       }));
     }
 
@@ -432,28 +502,13 @@
             return [168, 85, 247, 210];
           },
           onHover: showTooltip,
+          onClick: info => AmbianceMap.compareAlert(info.object),
         }));
       }
     }
 
     if (spec?.show_facilities && facilitiesData?.points?.length) {
-      layers.push(new deck.ScatterplotLayer({
-        id: "facilities",
-        data: facilitiesData.points,
-        pickable: true,
-        stroked: true,
-        lineWidthUnits: "pixels",
-        getLineWidth: 1,
-        getLineColor: [255, 255, 255, 220],
-        radiusUnits: "pixels",
-        radiusMinPixels: 3,
-        radiusMaxPixels: 7,
-        extensions: terrainExtensions,
-        getPosition: d => [d.lon, d.lat],
-        getRadius: 4.5,
-        getFillColor: d => d.cadeia === "bovinos" ? [20, 184, 166, 235] : [250, 204, 21, 235],
-        onHover: showTooltip,
-      }));
+      layers.push(AmbianceMap.facilityLayer(facilitiesData, terrainExtensions, showTooltip, drillState));
     }
 
     deckgl.setProps({layers});
@@ -469,8 +524,8 @@
       $("legend-min").textContent = "Menor";
       $("legend-mid").textContent = "Moderada";
       $("legend-max").textContent = "Crítica (mais alta)";
-      $("ub-source").textContent = `Alertas de satélite · Ano ${deterData.year}`;
-      $("ub-coverage").textContent = "Cada coluna agrupa alertas próximos. Quanto mais alta e vermelha, maior a área de alerta.";
+      $("ub-source").textContent = `INPE (DETER) · ${deterData.year}`;
+      $("ub-coverage").textContent = `${n(deterData.returned, 0)} de ${n(deterData.total_alerts, 0)} registros com localização exibidos. Cada coluna agrupa alertas próximos.`;
     } else {
       const pal = PALETTES[choroData.meta.palette] || PALETTES.reds;
       const stops = pal.map(c => `rgb(${c[0]},${c[1]},${c[2]})`).join(", ");
@@ -483,9 +538,10 @@
       if (choroData.coverage) {
         const pct = choroData.coverage.pct_rastreado;
         const unk = (100 - Number(pct)).toFixed(1).replace(".", ",");
-        $("ub-coverage").textContent = `Origem identificada: ${n(pct)}% (${unk}% sem origem informada nos registros).`;
+        $("ub-coverage").textContent = `Rastreabilidade no Brasil: ${n(pct)}% (${unk}% sem município de origem).`;
       } else {
-        $("ub-coverage").textContent = `${n(choroData.count, 0)} municípios com dados neste recorte.`;
+        const territory = choroData.grain === "state" ? "estados" : "municípios";
+      $("ub-coverage").textContent = `${n(choroData.count, 0)} ${territory} com dados neste recorte.`;
       }
     }
 
@@ -502,10 +558,14 @@
     $("legend-extras").innerHTML = extras.join("");
     $("legend-extras").hidden = extras.length === 0;
 
-    $("ub-caveat").textContent = choroData.meta.caveat;
+    $("ub-caveat").textContent = hexDeterActive
+      ? "Alertas destinados à fiscalização. A taxa oficial anual de desmatamento vem do PRODES."
+      : choroData.meta.caveat;
+    $("studio-method").href = "/metodologia#" + (hexDeterActive ? "deter_area" : choroData.metric);
     $("map-legend-card").hidden = false;
 
     const scopeParts = [spec.uf || spec.bioma || "Brasil"];
+    if (choroData.grain === "state") scopeParts.push("por estado · clique para detalhar");
     if (spec.show_deter) scopeParts.push(`Alertas por satélite ${deterData?.year || spec.deter_year || spec.year || 2026}`);
     if (spec.show_flows) scopeParts.push(`Exportações de ${spec.flow_product || "bovinos"} (${flowsData?.year || spec.year || 2022})`);
     if (spec.show_facilities) scopeParts.push("Frigoríficos e armazéns");
@@ -537,11 +597,12 @@
     });
     const selSet = new Set(mbState.classIds);
     const list = $("mb-class-list");
-    list.replaceChildren(...(mbData.summary || []).slice(0, 18).map(item => {
+    list.replaceChildren(...(mbData.summary || []).map(item => {
       const btn = document.createElement("button");
       btn.type = "button";
       const active = selSet.size === 0 || selSet.has(item.classe_id);
       btn.className = `mb-class-item ${selSet.has(item.classe_id) ? "is-selected" : ""} ${active ? "" : "is-muted"}`;
+      btn.setAttribute("aria-pressed", String(selSet.has(item.classe_id)));
       const mha = item.area_ha / 1e6;
       const areaTxt = mha >= 1 ? `${n(mha, 1)} M ha` : `${n(item.area_ha / 1000, 0)} mil ha`;
       btn.innerHTML = `
@@ -557,17 +618,27 @@
         else s.add(item.classe_id);
         mbState.classIds = [...s];
         document.querySelectorAll(".mb-preset-btn").forEach(b => b.classList.remove("is-active"));
-        loadMapbiomas(false);
+        loadMapbiomas();
       });
       return btn;
     }));
   }
 
-  function buildMapbiomasChart(series) {
+  function buildMapbiomasChart(series, classes, territory) {
     if (!series?.length) return null;
+    if (classes.length) {
+      return {
+        title: classes.length === 1 ? classes[0] : "Evolução das classes selecionadas",
+        subtitle: `${territory} · MapBiomas (hectares)`,
+        chart_type: "line",
+        unit: "ha",
+        labels: series.map(r => String(r.ano)),
+        series: [{name: "Área selecionada", values: series.map(r => r.area_selecionada_ha)}],
+      };
+    }
     return {
       title: `Evolução da Cobertura do Solo (${series[0].ano}–${series[series.length - 1].ano})`,
-      subtitle: `${mbState.uf || mbState.bioma || "Brasil"} · MapBiomas (milhões de hectares)`,
+      subtitle: `${territory} · MapBiomas (milhões de hectares)`,
       chart_type: "area",
       stacked: true,
       unit: "M ha",
@@ -583,51 +654,132 @@
     };
   }
 
-  async function loadMapbiomas(includeSeries = true) {
+  async function loadMapbiomasRaster() {
+    mbRasterRequest?.abort();
+    mbTiles = null;
+    const status = $("mb-pixels-status");
+    const spec = activeSpec;
+    const data = mbData;
+    const enabled = spec?.mapbiomas_mode && data && $("mb-pixels").checked;
+    status.hidden = !enabled;
+    drawMapLayers(spec);
+    if (!enabled) return;
+
+    status.textContent = "Carregando pixels da Coleção 11…";
+    const request = new AbortController();
+    mbRasterRequest = request;
+    const qs = new URLSearchParams({year: data.year, classes: data.class_ids.join(",")});
+    try {
+      const res = await fetch(`/api/agro/mapbiomas-tiles?${qs}`, {signal: request.signal});
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Camada de pixels indisponível.");
+      if (request.signal.aborted || activeSpec !== spec || mbData !== data) return;
+      mbTiles = result.url;
+      status.textContent = result.url
+        ? "MapBiomas · Coleção 11 · cobertura de 30 m"
+        : "A seleção só tem classes das estatísticas municipais.";
+      if (result.url && result.omitted.length) {
+        status.textContent += ". Algumas classes selecionadas aparecem só nas estatísticas.";
+      }
+      drawMapLayers(spec);
+    } catch (error) {
+      if (!request.signal.aborted && activeSpec === spec) {
+        status.textContent = "Pixels indisponíveis. Exibindo o resumo municipal.";
+      }
+    } finally {
+      if (mbRasterRequest === request) mbRasterRequest = null;
+    }
+  }
+
+  async function loadMapbiomas() {
+    mbRequest?.abort();
+    const request = new AbortController();
+    mbRequest = request;
+    const spec = activeSpec;
+    const {year, mode, uf, bioma, classIds} = mbState;
+    const prev = mbData?.uf === (uf || null) && mbData?.bioma === (bioma || null)
+      && mbData.class_ids.join(",") === classIds.join(",") ? mbData : null;
+    const includeSeries = !prev;
     const qs = new URLSearchParams({
-      year: String(mbState.year),
-      mode: mbState.mode,
+      year: String(year),
+      mode,
       include_series: includeSeries ? "1" : "0",
     });
-    if (mbState.classIds.length) qs.set("classes", mbState.classIds.join(","));
-    if (mbState.uf) qs.set("uf", mbState.uf);
-    if (mbState.bioma) qs.set("bioma", mbState.bioma);
+    if (classIds.length) qs.set("classes", classIds.join(","));
+    if (uf) qs.set("uf", uf);
+    if (bioma) qs.set("bioma", bioma);
 
-    $("map-scope-pill").textContent = `MapBiomas ${mbState.year} · carregando…`;
-    const prevSeries = mbData?.series || null;
-    const res = await fetch(`/api/agro/mapbiomas?${qs}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    mbData = await res.json();
-    if (!includeSeries && prevSeries) mbData.series = prevSeries;
+    $("map-scope-pill").textContent = `MapBiomas ${year} · carregando…`;
+    let data;
+    try {
+      const res = await fetch(`/api/agro/mapbiomas?${qs}`, {signal: request.signal});
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    } catch (error) {
+      if (!request.signal.aborted && activeSpec === spec) {
+        stopMbPlay();
+        $("map-scope-pill").textContent = `Erro ao carregar MapBiomas ${year} · ${error.message}`;
+      }
+      return false;
+    } finally {
+      if (mbRequest === request) mbRequest = null;
+    }
+    if (request.signal.aborted || activeSpec !== spec) return false;
+    mbData = data;
+    if (prev) mbData.series = prev.series;
 
     $("map-legend-card").hidden = true;
     $("map-fallback-badge").hidden = true;
     $("mb-legend-card").hidden = false;
     $("mb-timebar").hidden = false;
 
-    const scopeParts = ["MapBiomas", mbState.uf || mbState.bioma || "Brasil", String(mbData.year)];
-    scopeParts.push(mbState.classIds.length ? `${mbState.classIds.length} classe(s)` : "Todas as classes");
+    const territory = [uf, bioma].filter(Boolean).join(" · ") || "Brasil";
+    const scopeParts = ["MapBiomas", territory, String(mbData.year)];
+    scopeParts.push(classIds.length ? `${classIds.length} classe(s)` : "Todas as classes");
     $("map-scope-pill").textContent = scopeParts.join(" · ");
 
     renderMapbiomasLegend();
-    drawMapLayers(activeSpec);
+    loadMapbiomasRaster();
 
-    if (includeSeries && mbData.series?.length) {
-      const chart = buildMapbiomasChart(mbData.series);
-      if (chart) {
-        $("tab-btn-charts").hidden = false;
-        $("tab-btn-charts").textContent = "Gráficos (1)";
-        renderCharts([chart]);
-      }
+    if (includeSeries && !activeTurnObj?.data?.dashboard) {
+      const classes = classIds.map(id => mbData.classes_meta[id]?.label || String(id));
+      const chart = buildMapbiomasChart(mbData.series, classes, territory);
+      const charts = [...(activeTurnObj?.data?.charts || []), ...(chart ? [chart] : [])];
+      $("tab-btn-charts").hidden = !charts.length;
+      $("tab-btn-charts").textContent = "Dashboard";
+      renderCharts(charts);
     }
+    const columns = ["Ano", "Território", "Código da classe", "Classe", "Área (ha)", "% da área mapeada"];
+    const rows = mbData.summary
+      .filter(row => !classIds.length || classIds.includes(row.classe_id))
+      .map(row => {
+        const values = [mbData.year, territory, row.classe_id, row.label, row.area_ha, row.pct];
+        return Object.fromEntries(columns.map((col, index) => [col, values[index]]));
+      });
+    $("tab-btn-data").hidden = false;
+    $("tab-btn-data").textContent = "Tabela";
+    const turnData = activeTurnObj?.data;
+    renderDataTab([
+      {label: "mapbiomas-cobertura", purpose: `Área por classe · ${territory} · ${mbData.year}`, columns, rows},
+      ...(turnData?.tables || []),
+    ], turnData?.tool_calls);
+    if (selectedCode) renderMapbiomasMunicipality(selectedCode);
+    return true;
   }
 
   async function renderMapSpec(spec) {
+    stopMbPlay();
+    mbRequest?.abort();
+    mbRasterRequest?.abort();
+    mbTiles = null;
     activeSpec = spec;
     if (!spec) return;
     $("map-scope-pill").textContent = "Carregando camadas do mapa…";
-    await ensureGeojson();
+    const [, stateShapes] = await Promise.all([ensureGeojson(), AmbianceMap.loadStates()]);
+    if (activeSpec !== spec) return;
+    states = stateShapes;
     ensureDeck();
+    $("map-brazil").hidden = spec.mapbiomas_mode || !spec.uf;
 
     const targetBasemap = spec.basemap === "terrain" ? "terrain" : "light";
     if (currentBasemap !== targetBasemap) {
@@ -637,6 +789,12 @@
     $("btn-terrain").classList.toggle("is-active", currentBasemap === "terrain");
 
     if (spec.mapbiomas_mode) {
+      mbData = null;
+      $("mb-pixels").checked = false;
+      $("mb-pixels-status").hidden = true;
+      selectedCode = null;
+      selectedMun = null;
+      $("mun-minicard").hidden = true;
       mbState = {
         year: spec.mapbiomas_year || spec.year || 2025,
         mode: spec.mapbiomas_classes?.length ? "share" : "dominant",
@@ -647,7 +805,21 @@
       flowsData = null;
       deterData = null;
       facilitiesData = null;
-      await loadMapbiomas(true);
+      const ufSelect = $("mb-uf");
+      if (ufSelect.options.length === 1) {
+        try {
+          const res = await fetch("/api/agro/meta");
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const meta = await res.json();
+          ufSelect.replaceChildren(new Option("Brasil", ""), ...meta.ufs.map(uf => new Option(uf, uf)));
+          ufSelect.disabled = false;
+        } catch {
+          ufSelect.disabled = true;
+        }
+      }
+      if (activeSpec !== spec) return;
+      ufSelect.value = mbState.uf;
+      if (!await loadMapbiomas()) return;
       lastBbox = computeHighlightBbox(spec.highlight_codes) || mbData?.bbox || null;
       const targetPitch = spec.view_3d ? 46 : 0;
       if (lastBbox) fitBbox(lastBbox, targetPitch);
@@ -655,7 +827,6 @@
       return;
     }
 
-    stopMbPlay();
     $("mb-legend-card").hidden = true;
     $("mb-timebar").hidden = true;
 
@@ -666,42 +837,36 @@
     );
     const year = spec.year || spec.deter_year || 2025;
 
-    const choroQs = new URLSearchParams({metric, year: String(year)});
-    if (spec.uf) choroQs.set("uf", spec.uf);
-    if (spec.bioma) choroQs.set("bioma", spec.bioma);
-
-    const tasks = [fetch(`/api/agro/choropleth?${choroQs}`).then(r => r.json()).then(d => { choroData = d; })];
-
-    if (spec.show_flows) {
-      const fqs = new URLSearchParams({product: spec.flow_product || "bovinos", year: String(year)});
-      if (spec.uf) fqs.set("uf", spec.uf);
-      tasks.push(fetch(`/api/agro/flows?${fqs}`).then(r => r.json()).then(d => { flowsData = d; }));
-    } else {
-      flowsData = null;
-    }
-
-    if (spec.show_deter) {
-      const dqs = new URLSearchParams({year: String(spec.deter_year || spec.year || 2026), limit: "10000"});
-      if (spec.uf) dqs.set("uf", spec.uf);
-      if (spec.bioma) dqs.set("bioma", spec.bioma);
-      tasks.push(fetch(`/api/agro/deter?${dqs}`).then(r => r.json()).then(d => { deterData = d; }));
-    } else {
-      deterData = null;
-    }
-
-    if (spec.show_facilities) {
-      const iqs = new URLSearchParams({chain: spec.facilities_chain || spec.flow_product || "bovinos", limit: "6000"});
-      if (spec.uf) iqs.set("uf", spec.uf);
-      tasks.push(fetch(`/api/agro/facilities?${iqs}`).then(r => r.json()).then(d => { facilitiesData = d; }));
-    } else {
-      facilitiesData = null;
-    }
-
-    await Promise.all(tasks);
+    const uf = spec.uf || "";
+    const bioma = spec.bioma || "";
+    const detailed = (spec.highlight_codes?.length || 0) && (!spec.show_flows || spec.highlight_codes.length === 1);
+    const grain = uf || detailed ? "municipality" : "state";
+    const flowGrain = uf || detailed ? "municipality" : "state";
+    const flowOrigin = spec.flow_origin || (detailed && spec.highlight_codes?.length === 1 ? spec.highlight_codes[0] : "");
+    const readLayer = async (name, params) => {
+      const qs = new URLSearchParams(Object.entries(params).filter(([, value]) => value !== ""));
+      const res = await fetch(`/api/agro/${name}?${qs}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      return data;
+    };
+    const [choro, flows, deter, facilities] = await Promise.all([
+      readLayer("choropleth", {metric, year, uf, bioma, grain}),
+      spec.show_flows ? readLayer("flows", {
+        product: spec.flow_product || "bovinos", year, uf,
+        origin: flowOrigin, grain: flowGrain, limit: flowGrain === "state" ? 90 : 180,
+      }) : null,
+      spec.show_deter ? readLayer("deter", {year: spec.deter_year || spec.year || 2026, limit: 10000, uf, bioma}) : null,
+      spec.show_facilities ? readLayer("facilities", {
+        chain: spec.facilities_chain || spec.flow_product || "bovinos", limit: 6000, uf, grain,
+      }) : null,
+    ]);
+    if (activeSpec !== spec) return;
+    [choroData, flowsData, deterData, facilitiesData] = [choro, flows, deter, facilities];
     updateLegendAndScope(spec);
     drawMapLayers(spec);
 
-    const hlBbox = computeHighlightBbox(spec.highlight_codes);
+    const hlBbox = grain === "municipality" ? computeHighlightBbox(spec.highlight_codes) : null;
     lastBbox = hlBbox || choroData?.bbox || null;
     const want3d = spec.view_3d === true || spec.deter_mode === "hex";
     const targetPitch = want3d ? 42 : 0;
@@ -712,10 +877,34 @@
     }
   }
 
+  function renderMapbiomasMunicipality(code) {
+    const value = mbData?.values?.[code];
+    selectedMun = value ? {code, municipio: value.name, uf: value.uf} : null;
+    $("mun-mini-title").textContent = value ? `${value.name} (${value.uf})` : `Município IBGE ${code}`;
+    $("mun-mini-sub").textContent = `MapBiomas · ${mbData?.year || mbState.year}`;
+    $("mun-mini-kpis").innerHTML = value ? [
+      ["Classe principal do recorte", mbData.classes_meta[value.dom]?.label || "—"],
+      ["Área das classes selecionadas", `${n(value.sel_ha)} ha · ${n(value.sel_pct)}%`],
+    ].map(([label, metric]) => `<div class="mini-kpi"><strong>${escapeHtml(metric)}</strong><span>${label}</span></div>`).join("")
+      : "<p>Sem dados das classes neste recorte.</p>";
+    $("mun-mini-ask").hidden = !value;
+    $("mun-minicard").hidden = false;
+  }
+
   async function openMunicipality(code) {
     selectedCode = code;
     drawMapLayers(activeSpec);
-    const year = activeSpec?.year || 2025;
+    if (activeSpec?.mapbiomas_mode) {
+      renderMapbiomasMunicipality(code);
+      return;
+    }
+    const spec = activeSpec;
+    if (spec?.show_flows && spec.uf && spec.flow_origin !== code) {
+      renderMapSpec({...spec, flow_origin: code, highlight_codes: [code]}).catch(error => {
+        $("map-scope-pill").textContent = `Erro no mapa · ${error.message}`;
+      });
+    }
+    const year = spec?.year || 2025;
     const res = await fetch(`/api/agro/municipality?code=${encodeURIComponent(code)}&year=${encodeURIComponent(year)}`);
     if (!res.ok) return;
     const data = await res.json();
@@ -732,6 +921,7 @@
       ["Exposição recente (5 anos)", `${n(s.trase_bovinos_exposicao_5a_ha, 0)} / ${n(s.trase_soja_exposicao_5a_ha, 0)} ha`],
     ];
     $("mun-mini-kpis").innerHTML = kpis.map(([k, v]) => `<div class="mini-kpi"><strong>${v}</strong><span>${k}</span></div>`).join("");
+    $("mun-mini-ask").hidden = false;
     $("mun-minicard").hidden = false;
   }
 
@@ -747,6 +937,13 @@
     const wrap = $("charts-container");
     wrap.innerHTML = "";
     if (!charts?.length) return;
+    if (typeof window.Chart !== "function") {
+      const status = document.createElement("p");
+      status.setAttribute("role", "status");
+      status.textContent = "O visualizador de gráficos está indisponível. Os valores estão na tabela abaixo.";
+      wrap.append(status);
+      return;
+    }
 
     charts.forEach((ch, idx) => {
       const card = document.createElement("div");
@@ -759,6 +956,12 @@
         </div>
         <div class="chart-canvas-wrap"><canvas></canvas></div>
       `;
+      if (ch.milestone) {
+        const note = document.createElement("p");
+        note.className = "chart-annotation";
+        note.textContent = ch.milestone.label;
+        card.append(note);
+      }
       wrap.append(card);
 
       const ctx = card.querySelector("canvas").getContext("2d");
@@ -786,47 +989,69 @@
           borderWidth: 2,
           borderRadius: (chartJsType === "bar") ? 5 : 0,
           fill: isArea,
-          tension: 0.25,
-          pointRadius: (chartJsType === "line") ? 3 : 0,
+          tension: ch.timeline ? 0 : 0.25,
+          pointRadius: chartJsType === "line" ? context =>
+            ch.labels[context.dataIndex] === ch.milestone?.period ? 6 : 3 : 0,
+          pointBackgroundColor: context => ch.labels[context.dataIndex] === ch.milestone?.period ? "#a66a2b" : base,
+          pointBorderColor: context => ch.labels[context.dataIndex] === ch.milestone?.period ? "#a66a2b" : base,
+          spanGaps: false,
         };
       });
 
-      const instance = new Chart(ctx, {
-        type: chartJsType,
-        data: {labels: ch.labels, datasets},
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          indexAxis: isHoriz ? "y" : "x",
-          plugins: {
-            legend: {
-              display: ch.series.length > 1 || isDoughnut,
-              labels: {color: "#16211b", font: {size: 11}},
-            },
-            tooltip: {
-              callbacks: {
-                label: c => {
-                  const val = typeof c.raw === "number" ? fmt.format(c.raw) : c.raw;
-                  return `${c.dataset.label}: ${val}${ch.unit ? " " + ch.unit : ""}`;
+      let instance;
+      try {
+        instance = new Chart(ctx, {
+          type: chartJsType,
+          data: {labels: ch.labels, datasets},
+          options: {
+            responsive: true,
+            locale: "pt-BR",
+            maintainAspectRatio: false,
+            indexAxis: isHoriz ? "y" : "x",
+            onClick: ch.timeline ? (_event, elements) => {
+              const point = elements[0];
+              if (point) {
+                switchCanvasTab("timeline");
+                AmbianceTimeline.goTo(ch.labels[point.index]);
+              }
+            } : undefined,
+            plugins: {
+              legend: {
+                display: ch.series.length > 1 || isDoughnut,
+                labels: {color: "#16211b", font: {size: 11}},
+              },
+              tooltip: {
+                callbacks: {
+                  label: c => {
+                    const val = typeof c.raw === "number" ? fmt.format(c.raw) : c.raw;
+                    return `${c.dataset.label}: ${val}${ch.unit ? " " + ch.unit : ""}`;
+                  },
                 },
               },
             },
-          },
-          scales: isDoughnut ? {} : {
-            x: {
-              ticks: {color: "#5a6a61", font: {size: 11}},
-              grid: {color: "rgba(22, 33, 27, 0.08)"},
-              title: ch.x_label ? {display: true, text: ch.x_label, color: "#5a6a61"} : undefined,
+            scales: isDoughnut ? {} : {
+              x: {
+                stacked: Boolean(ch.stacked && isHoriz),
+                ticks: {color: "#5a6a61", font: {size: 11}},
+                grid: {color: "rgba(22, 33, 27, 0.08)"},
+                title: ch.x_label ? {display: true, text: ch.x_label, color: "#5a6a61"} : undefined,
+              },
+              y: {
+                stacked: Boolean(ch.stacked && (!isHoriz || isArea)),
+                ticks: {color: "#5a6a61", font: {size: 11}},
+                grid: {color: "rgba(22, 33, 27, 0.08)"},
+                title: ch.y_label ? {display: true, text: ch.y_label, color: "#5a6a61"} : undefined,
+              },
             },
-            y: {
-              stacked: Boolean(ch.stacked),
-              ticks: {color: "#5a6a61", font: {size: 11}},
-              grid: {color: "rgba(22, 33, 27, 0.08)"},
-              title: ch.y_label ? {display: true, text: ch.y_label, color: "#5a6a61"} : undefined,
-            },
           },
-        },
-      });
+        });
+      } catch {
+        const status = document.createElement("p");
+        status.textContent = "Falha ao desenhar este gráfico. Os valores estão disponíveis na tabela.";
+        card.querySelector(".chart-canvas-wrap").replaceWith(status);
+        card.querySelector("[data-dl]").hidden = true;
+        return;
+      }
       chartInstances.push(instance);
 
       card.querySelector("[data-dl]").addEventListener("click", () => {
@@ -853,8 +1078,12 @@
     URL.revokeObjectURL(url);
   }
 
-  function renderDataTab(tables, toolCalls) {
-    const wrap = $("data-container");
+  function renderDataTab(tables, toolCalls, wrap = $("data-container")) {
+    const inspect = wrap.id === "data-container";
+    if (inspect) {
+      $("data-detail").hidden = true;
+      wrap.parentElement.classList.remove("has-selection");
+    }
     wrap.innerHTML = "";
     const sqlByLabel = new Map((toolCalls || []).filter(c => c.name === "query_agro_sql").map(c => [c.label, c]));
 
@@ -865,9 +1094,16 @@
       const sqlHtml = meta
         ? `<details class="sql-details"><summary>Detalhes técnicos da consulta (${meta.rows} registros em ${meta.seconds}s)</summary><pre>${escapeHtml(meta.output)}</pre></details>`
         : "";
+      const formatCell = (col, val) => {
+        if (val == null) return col === "valor" && tbl.label === "T1" ? "Sem dados" : "";
+        if (typeof val === "number" && Number.isFinite(val) && !/^(ano|year|periodo|codigo|code|ibge)/i.test(col)) {
+          return n(val, Number.isInteger(val) ? 0 : 1);
+        }
+        return String(val);
+      };
       const tableHtml = tbl.rows?.length
         ? `<div class="table-scroll"><table><thead><tr>${tbl.columns.map(c => `<th>${escapeHtml(c)}</th>`).join("")}</tr></thead><tbody>` +
-          tbl.rows.map(r => `<tr>${tbl.columns.map(c => `<td>${escapeHtml(r[c] ?? "")}</td>`).join("")}</tr>`).join("") +
+          tbl.rows.map(r => `<tr${tbl.label === "T1" ? ` data-period="${escapeHtml(r.periodo)}"` : ""}>${tbl.columns.map(c => `<td>${escapeHtml(formatCell(c, r[c]))}</td>`).join("")}</tr>`).join("") +
           `</tbody></table></div>`
         : "<p class='msg-meta'>Nenhum registro encontrado para este recorte.</p>";
 
@@ -880,7 +1116,300 @@
         ${sqlHtml}
       `;
       card.querySelector("button").addEventListener("click", () => downloadCsv(tbl));
+      if (inspect) {
+        card.querySelectorAll("tbody tr").forEach((row, index) => {
+          row.tabIndex = 0;
+          row.dataset.record = "";
+          const select = () => showDataRecord(tbl, tbl.rows[index], row);
+          row.addEventListener("click", select);
+          row.addEventListener("keydown", event => {
+            if (event.key === "Enter" || event.key === " ") {
+              event.preventDefault();
+              select();
+            }
+          });
+        });
+      }
+      if (tbl.source || tbl.method_url) {
+        const source = document.createElement(tbl.method_url ? "a" : "p");
+        if (tbl.method_url) source.href = tbl.method_url;
+        source.textContent = tbl.source || "Metodologia do indicador";
+        card.append(source);
+      }
+      if (tbl.at_limit) {
+        const note = document.createElement("p");
+        note.className = "msg-meta";
+        note.textContent = `A consulta atingiu o limite de ${tbl.row_limit} linhas. O CSV contém os resultados exibidos.`;
+        card.append(note);
+      }
       wrap.append(card);
+    }
+  }
+
+  function showDataRecord(table, record, row) {
+    $("data-container").querySelector(".timeline-selected-row")?.classList.remove("timeline-selected-row");
+    row.classList.add("timeline-selected-row");
+    $("data-detail-title").textContent = record.periodo ? `Registro de ${record.periodo}` : table.purpose;
+    const fields = $("data-detail-fields");
+    fields.replaceChildren();
+    for (const column of table.columns) {
+      const term = document.createElement("dt");
+      term.textContent = column.replaceAll("_", " ");
+      const value = document.createElement("dd");
+      value.textContent = typeof record[column] === "number" ? n(record[column]) : record[column] ?? "Sem dados";
+      fields.append(term, value);
+    }
+    const action = $("data-to-timeline");
+    action.hidden = !row.dataset.period;
+    action.dataset.period = row.dataset.period || "";
+    $("data-detail-method").href = table.method_url || "/metodologia";
+    $("data-detail").hidden = false;
+    row.closest(".product-data-layout").classList.add("has-selection");
+  }
+
+  async function renderDashboardTerritory(evidence, frame) {
+    const card = $("dashboard-territory");
+    const hideCard = () => {
+      const had = !card.hidden;
+      card.hidden = true;
+      card.parentElement.classList.remove("has-territory");
+      if (had) requestAnimationFrame(() => chartInstances.forEach(c => c.resize()));
+    };
+    if (!frame?.areas?.length) {
+      hideCard();
+      return;
+    }
+    try {
+      const [states, municipalities] = await Promise.all([
+        AmbianceMap.loadStates(), evidence.grain === "state" ? null : ensureGeojson(),
+      ]);
+      if (activeTurnObj?.data.temporal !== evidence) return;
+      const shapes = evidence.grain === "state" ? states
+        : AmbianceMap.municipalitiesIn(municipalities, states, evidence.uf);
+      const values = new Map(frame.areas.map(area => [String(area.code), area.value]));
+      const features = shapes.features.filter(feature =>
+        values.has(String(feature.properties.uf || feature.properties.codarea)) ||
+        (evidence.uf && evidence.grain !== "state"));
+      const polygons = features.map(feature => ({
+        code: String(feature.properties.uf || feature.properties.codarea || ""),
+        value: values.get(String(feature.properties.uf || feature.properties.codarea)),
+        parts: feature.geometry.type === "Polygon" ? [feature.geometry.coordinates] : feature.geometry.coordinates,
+      }));
+      let west = Infinity, south = Infinity, east = -Infinity, north = -Infinity;
+      for (const {parts} of polygons) for (const part of parts) for (const ring of part) for (const [lon, lat] of ring) {
+        west = Math.min(west, lon); east = Math.max(east, lon);
+        south = Math.min(south, lat); north = Math.max(north, lat);
+      }
+      if (!Number.isFinite(west) || east === west || north === south) {
+        hideCard();
+        return;
+      }
+      const canvas = $("dashboard-overview");
+      const ctx = canvas.getContext("2d");
+      const cosLat = Math.max(0.25, Math.cos(((north + south) / 2) * Math.PI / 180));
+      const scale = Math.min((canvas.width - 28) / ((east - west) * cosLat), (canvas.height - 28) / (north - south));
+      const x = lon => canvas.width / 2 + (lon - (east + west) / 2) * cosLat * scale;
+      const y = lat => canvas.height / 2 - (lat - (north + south) / 2) * scale;
+      const max = frame.areas.reduce((cap, area) => Math.max(cap, area.value), 1);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      for (const {code, value, parts} of polygons) {
+        ctx.beginPath();
+        for (const part of parts) for (const ring of part) {
+          ring.forEach(([lon, lat], index) => index ? ctx.lineTo(x(lon), y(lat)) : ctx.moveTo(x(lon), y(lat)));
+          ctx.closePath();
+        }
+        if (evidence.code) {
+          ctx.fillStyle = code === evidence.code ? "#216247" : "#e5e7dd";
+        } else {
+          ctx.fillStyle = value == null ? "#e5e7dd" : `hsl(143 38% ${83 - 52 * Math.sqrt(Math.max(0, value / max))}%)`;
+        }
+        ctx.fill("evenodd");
+        ctx.strokeStyle = "#fffef9";
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+      }
+      $("dashboard-territory-title").textContent = `${evidence.scope} · ${frame.period}`;
+      $("dashboard-overview-note").textContent = `${evidence.label} por ${evidence.grain === "state" ? "UF" : "município"} · ${evidence.source}`;
+      card.hidden = false;
+      card.parentElement.classList.add("has-territory");
+      requestAnimationFrame(() => chartInstances.forEach(c => c.resize()));
+    } catch {
+      hideCard();
+    }
+  }
+
+  function renderDashboard(dashboard, toolCalls, evidence = null) {
+    const summary = $("dashboard-summary");
+    const dataArea = $("dashboard-data");
+    summary.replaceChildren();
+    dataArea.replaceChildren();
+    const latest = evidence?.frames.findLast(frame => frame.value != null);
+    const territoryCard = $("dashboard-territory");
+    const hasTerritory = Boolean(latest?.areas?.length);
+    territoryCard.hidden = !hasTerritory;
+    territoryCard.parentElement.classList.toggle("has-territory", hasTerritory);
+    renderDashboardTerritory(evidence, latest);
+    if (!dashboard) {
+      renderCharts([]);
+      return;
+    }
+    const title = document.createElement("h3");
+    title.textContent = dashboard.title;
+    const method = document.createElement("a");
+    method.href = dashboard.method_url;
+    method.textContent = "Metodologia e fontes";
+    summary.append(title, method);
+    if (dashboard.scope) {
+      const scope = document.createElement("p");
+      scope.textContent = dashboard.scope;
+      summary.append(scope);
+    }
+    const kpis = document.createElement("div");
+    kpis.className = "dashboard-kpis";
+    function addKpi(title, value, source) {
+      const item = document.createElement("div");
+      const emphasis = document.createElement("strong");
+      emphasis.textContent = value;
+      const foot = document.createElement("small");
+      foot.textContent = source;
+      item.append(title, emphasis, foot);
+      kpis.append(item);
+    }
+    if (latest) {
+      addKpi(`Último valor disponível · ${latest.period}`, `${n(latest.value)} ${evidence.unit}`, evidence.source);
+      const change = evidence.facts.find(fact => fact.title === "Variação no período");
+      if (change) addKpi(`Variação · ${change.baseline_period} a ${change.period}`,
+        `${change.change_pct > 0 ? "+" : ""}${n(change.change_pct)}%`, evidence.source);
+      const lead = latest.areas?.reduce((top, area) => !top || area.value > top.value ? area : top, null);
+      if (lead && latest.areas.length > 1) addKpi(`Maior valor por ${evidence.grain === "state" ? "UF" : "município"} · ${latest.period}`,
+        lead.name, `${n(lead.value)} ${evidence.unit} · ${evidence.source}`);
+    }
+    const tableById = new Map(dashboard.tables.map(t => [t.label, t]));
+    const dip = evidence?.facts.find(fact => fact.title === "Maior queda entre períodos consecutivos");
+    const milestone = dip && {period: dip.period, label: AmbianceTimeline.describeFact(dip, evidence.unit)};
+    const toNumber = val => {
+      if (val == null || val === "") return null;
+      const num = Number(val);
+      return Number.isFinite(num) ? num : null;
+    };
+    const charts = [];
+    for (const widget of dashboard.widgets) {
+      const data = tableById.get(widget.dataset_id);
+      if (!data) continue;
+      if (widget.kind === "kpi") {
+        if (!latest && widget.value != null && Number.isFinite(Number(widget.value))) {
+          addKpi(widget.title, `${n(Number(widget.value))} ${widget.unit}`, widget.source);
+        }
+      } else if (widget.kind === "line" || widget.kind === "bar") {
+        let rows = data.rows;
+        if (widget.sort_by && data.label !== "T1") {
+          rows = [...rows].sort((a, b) => {
+            const va = a[widget.sort_by], vb = b[widget.sort_by];
+            const sign = widget.ascending ? 1 : -1;
+            if (va == null || vb == null) return Number(va == null) - Number(vb == null);
+            return sign * (typeof va === "number" && typeof vb === "number"
+              ? va - vb : String(va).localeCompare(String(vb), "pt-BR", {numeric: true}));
+          });
+        }
+        if (widget.top_n && data.label !== "T1") rows = rows.slice(0, widget.top_n);
+        let labels;
+        let series;
+        if (widget.color && widget.y.length === 1) {
+          const yCol = widget.y[0];
+          const xSet = [];
+          const groups = [];
+          const grid = new Map();
+          for (const row of rows) {
+            const xv = String(row[widget.x] ?? "—");
+            const gv = String(row[widget.color] ?? "—");
+            if (!xSet.includes(xv)) xSet.push(xv);
+            if (!groups.includes(gv) && groups.length < 8) groups.push(gv);
+            grid.set(`${xv}\0${gv}`, toNumber(row[yCol]));
+          }
+          labels = xSet;
+          series = groups.map(gv => ({
+            name: gv,
+            values: xSet.map(xv => grid.get(`${xv}\0${gv}`) ?? null),
+          }));
+        } else {
+          labels = rows.map(row => String(row[widget.x] ?? "—"));
+          series = widget.y.map(column => ({
+            name: column === "valor" ? dashboard.title : column,
+            values: rows.map(row => toNumber(row[column])),
+          }));
+        }
+        charts.push({
+          title: widget.title,
+          subtitle: [widget.subtitle, widget.source].filter(Boolean).join(" · "),
+          chart_type: widget.kind === "bar" && widget.orientation === "h" ? "horizontal_bar" : widget.kind,
+          stacked: widget.barmode === "stack",
+          unit: widget.unit,
+          labels,
+          timeline: widget.dataset_id === "T1",
+          milestone: widget.dataset_id === "T1" ? milestone : null,
+          series,
+        });
+      }
+    }
+    if (kpis.children.length) summary.append(kpis);
+    renderCharts(charts);
+    if (!charts.length && dashboard.tables.length) {
+      const note = document.createElement("p");
+      note.className = "msg-meta";
+      note.textContent = "Este resultado está disponível como indicadores e tabela.";
+      summary.append(note);
+    }
+    renderDataTab(dashboard.tables, toolCalls, dataArea);
+  }
+
+  async function setTimelineInputs(evidence) {
+    const select = $("timeline-metric");
+    if (!select.options.length) {
+      const res = await fetch("/api/agro/methodology");
+      if (!res.ok) throw new Error("Não foi possível carregar os indicadores.");
+      const {metrics} = await res.json();
+      select.replaceChildren(...Object.entries(metrics)
+        .filter(([key]) => key !== "inpe_deter_area_km2")
+        .map(([key, metric]) => new Option(metric.label, key)));
+    }
+    const start = evidence.frames[0].period.split("-");
+    const end = evidence.frames.at(-1).period.split("-");
+    const form = $("timeline-scope").elements;
+    const input = {metric: evidence.metric, uf: evidence.uf, code: evidence.code, bioma: evidence.bioma,
+      start_year: start[0], end_year: end[0], frequency: start[1] ? "monthly" : "annual",
+      start_month: start[1] || "", end_month: end[1] || "", classes: (evidence.classes || []).join(",")};
+    for (const [name, field] of Object.entries(input)) form.namedItem(name).value = field || "";
+  }
+
+  async function requestTemporal(scope, targetTab = "timeline") {
+    temporalRequest?.abort();
+    const request = new AbortController();
+    temporalRequest = request;
+    $("timeline-status").textContent = "Consultando o recorte…";
+    try {
+      const res = await fetch("/api/agro/temporal", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(scope), signal: request.signal,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      if (request.signal.aborted) return;
+      await openCanvasForTurn({
+        id: `timeline-${Date.now()}`, data: {...data, tables: data.dashboard.tables, domain: "agro"},
+      }, targetTab);
+      $("timeline-status").textContent = "";
+    } catch (error) {
+      if (!request.signal.aborted) {
+        $("timeline-status").textContent = error.message;
+        if ($("canvas-badge").dataset.loading) {
+          $("canvas-badge").textContent = error.message;
+          $("canvas-badge").hidden = false;
+        }
+      }
+    } finally {
+      if (temporalRequest === request) {
+        temporalRequest = null;
+      }
     }
   }
 
@@ -903,7 +1432,7 @@
   }
 
   function updateCanvasDescription(turn, tabName) {
-    let view = turn?.data?.available_views?.find(v => v.key === tabName);
+    let view = turn?.data?.available_views?.find(v => v.key === tabName || (tabName === "charts" && v.key === "dashboard"));
     if (!view && activeSpec?.mapbiomas_mode && !turn) {
       view = tabName === "map"
         ? {
@@ -915,7 +1444,7 @@
             what_you_receive: "Valores anuais detalhados ao passar o mouse e opção para baixar o gráfico como imagem.",
           };
     }
-    if (!view) {
+    if (!view || (!view.what_you_see && !view.what_you_receive)) {
       $("canvas-desc-bar").hidden = true;
       return;
     }
@@ -924,8 +1453,10 @@
     $("canvas-desc-bar").hidden = false;
   }
 
-  function switchCanvasTab(tabName) {
+  function switchCanvasTab(tabName, preview = false) {
     activeTab = tabName;
+    showProductView(preview ? "studio" : tabViews[tabName] || "studio");
+    if (tabName !== "timeline") AmbianceTimeline.hide();
     document.querySelectorAll(".canvas-tab").forEach(b => b.classList.toggle("is-active", b.dataset.tab === tabName));
     document.querySelectorAll(".canvas-panel").forEach(p => {
       const on = p.id === `panel-${tabName}`;
@@ -935,27 +1466,37 @@
     updateCanvasDescription(activeTurnObj, tabName);
     if (activeTurnId) {
       document.querySelectorAll(".view-action-btn").forEach(el => {
-        el.classList.toggle("is-active", el.dataset.turnId === String(activeTurnId) && el.dataset.viewKey === tabName);
+        el.classList.toggle("is-active", el.dataset.turnId === String(activeTurnId) && (el.dataset.viewKey === tabName || (tabName === 'charts' && el.dataset.viewKey === 'dashboard')));
       });
     }
+    if (tabName === "timeline") AmbianceTimeline.show();
+    if (tabName === "charts") requestAnimationFrame(() => {
+      if (activeTab === "charts") chartInstances.forEach(chart => chart.resize());
+    });
     if (tabName === "map") {
       requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     }
   }
 
-  async function openCanvasForTurn(turn, targetTab = null) {
-    if (activeTurnId === turn.id && targetTab && document.body.classList.contains("canvas-open")) {
-      switchCanvasTab(targetTab);
+  async function openCanvasForTurn(turn, targetTab = null, preview = false) {
+    if (activeTurnId === turn.id && targetTab) {
+      document.body.classList.add("canvas-open");
+      $("canvas-pane").hidden = false;
+      switchCanvasTab(targetTab === "dashboard" ? "charts" : targetTab, preview);
       return;
     }
     const d = turn.data;
     const hasMap = Boolean(d.map_spec);
-    const hasCharts = Boolean(d.charts?.length);
+    const hasTimeline = Boolean(d.temporal);
+    const hasCharts = Boolean(d.dashboard || d.charts?.length);
     const hasData = Boolean(d.tables?.length);
     const hasLaws = Boolean(d.sources?.length);
 
-    if (!hasMap && !hasCharts && !hasData && !hasLaws) return;
+    if (!hasTimeline && !hasMap && !hasCharts && !hasData && !hasLaws) return;
 
+    stopMbPlay();
+    mbRequest?.abort();
+    if (!hasMap) activeSpec = null;
     activeTurnId = turn.id;
     activeTurnObj = turn;
 
@@ -963,23 +1504,29 @@
     $("canvas-pane").hidden = false;
 
     $("tab-btn-map").hidden = !hasMap;
+    $("tab-btn-timeline").hidden = !hasTimeline;
+    AmbianceTimeline.setEvidence(d.temporal);
+    if (hasTimeline) setTimelineInputs(d.temporal).catch(error => {
+      $("timeline-status").textContent = error.message;
+    });
     $("tab-btn-charts").hidden = !hasCharts;
     $("tab-btn-data").hidden = !hasData;
     $("tab-btn-laws").hidden = !hasLaws;
 
-    $("tab-btn-charts").textContent = hasCharts ? `Gráficos (${d.charts.length})` : "Gráficos";
-    $("tab-btn-data").textContent = hasData ? `Tabela (${d.tables.length})` : "Tabela";
+    $("tab-btn-charts").textContent = "Dashboard";
+    $("tab-btn-data").textContent = hasData ? `Dados (${d.tables.length})` : "Dados";
     $("tab-btn-laws").textContent = hasLaws ? `Trechos da Lei (${d.sources.length})` : "Trechos da Lei";
 
-    $("canvas-title").textContent = d.map_spec?.title || d.charts?.[0]?.title || "Detalhes da Resposta";
+    $("canvas-title").textContent = d.temporal?.label || d.map_spec?.title || d.dashboard?.title || d.charts?.[0]?.title || "Detalhes da Resposta";
     $("canvas-badge").hidden = !d.domain;
+    delete $("canvas-badge").dataset.loading;
     $("canvas-badge").textContent = d.domain === "mixed" ? "Dados + Leis" : (d.domain === "law" ? "Legislação" : "Dados do Território");
 
-    const defaultTab = targetTab || (hasMap ? "map" : (hasCharts ? "charts" : (hasData ? "data" : "laws")));
-    switchCanvasTab(defaultTab);
+    const defaultTab = targetTab === "dashboard" ? "charts" : targetTab || (hasTimeline ? "timeline" : hasMap ? "map" : hasCharts ? "charts" : hasData ? "data" : "laws");
+    switchCanvasTab(defaultTab, preview);
 
-    if (hasCharts) renderCharts(d.charts);
-    else destroyCharts();
+    renderDashboard(d.dashboard, d.tool_calls, d.temporal);
+    if (!d.dashboard && d.charts?.length) renderCharts(d.charts);
 
     if (hasData) renderDataTab(d.tables, d.tool_calls);
     if (hasLaws) renderLawsTab(d.sources);
@@ -1020,7 +1567,7 @@
     const d = turn.data;
     const body = document.createElement("div");
     body.className = "msg-body";
-    body.innerHTML = renderMarkdown(d.answer || "Sem resposta textual.");
+    body.innerHTML = renderMarkdown(d.answer?.trim() || "A análise terminou sem uma conclusão escrita. Os resultados disponíveis aparecem abaixo.");
     aEl.append(body);
 
     const views = Array.isArray(d.available_views) && d.available_views.length
@@ -1111,8 +1658,15 @@
     const mode = $("ask-mode").value;
     startProgress(mode);
 
-    const viewContext = activeSpec ? {
+    const timeData = $("canvas-pane").hidden ? null : activeTurnObj?.data?.temporal;
+    const viewContext = timeData ? {
+      metric: timeData.metric, uf: timeData.uf, bioma: timeData.bioma,
+      start_period: timeData.frames[0].period, end_period: timeData.frames.at(-1).period,
+      classes: timeData.classes,
+      selected_municipality: timeData.code ? {code: timeData.code, municipio: timeData.focus?.name, uf: timeData.uf} : null,
+    } : activeSpec ? {
       ...activeSpec,
+      ...(activeSpec.mapbiomas_mode ? {year: mbData?.year || mbState.year, uf: mbState.uf, bioma: mbState.bioma} : {}),
       selected_municipality: selectedMun ? {code: selectedMun.code, municipio: selectedMun.municipio, uf: selectedMun.uf} : null,
     } : null;
 
@@ -1136,6 +1690,10 @@
       const turn = {id: turns.length + 1, question: q, data};
       turns.push(turn);
       appendMessageTurn(turn);
+      if (document.body.dataset.productView === "studio" && matchMedia("(min-width: 1100px)").matches &&
+          (data.dashboard || data.charts?.length)) {
+        openCanvasForTurn(turn, "charts", true);
+      }
     } catch (err) {
       document.body.classList.add("has-messages");
       $("chat-welcome").hidden = true;
@@ -1152,7 +1710,11 @@
   }
 
   function resetConversation() {
+    AmbianceTimeline.setEvidence(null);
+    temporalRequest?.abort();
     stopMbPlay();
+    mbRequest?.abort();
+    mbRasterRequest?.abort();
     turns.length = 0;
     sessionHistory.length = 0;
     activeTurnId = null;
@@ -1169,21 +1731,26 @@
     $("mun-minicard").hidden = true;
     $("canvas-pane").hidden = true;
     document.body.classList.remove("canvas-open", "has-messages");
+    showProductView("studio");
   }
 
   async function openStandaloneMapbiomas() {
+    temporalRequest?.abort();
     activeTurnId = null;
     activeTurnObj = null;
     activeSpec = {mapbiomas_mode: true, mapbiomas_year: 2025};
     document.body.classList.add("canvas-open");
     $("canvas-pane").hidden = false;
     $("tab-btn-map").hidden = false;
-    $("tab-btn-charts").hidden = false;
+    $("tab-btn-timeline").hidden = true;
+    AmbianceTimeline.setEvidence(null);
+    renderDashboard(null);
+    $("tab-btn-charts").hidden = true;
     $("tab-btn-data").hidden = true;
     $("tab-btn-laws").hidden = true;
     $("canvas-title").textContent = "Uso e Cobertura do Solo no Brasil (1985–2025)";
     $("canvas-badge").hidden = false;
-    $("canvas-badge").textContent = "Todos os municípios";
+    $("canvas-badge").textContent = "MapBiomas · Coleção 11";
     switchCanvasTab("map");
     await renderMapSpec({
       mapbiomas_mode: true,
@@ -1193,8 +1760,166 @@
     });
   }
 
+  function exploreLandCover(temporal, period) {
+    const year = Number(String(period || temporal.frames.at(-1)?.period).slice(0, 4));
+    if (!Number.isInteger(year)) return;
+    $("tab-btn-map").hidden = false;
+    switchCanvasTab("map");
+    renderMapSpec({
+      mapbiomas_mode: true,
+      mapbiomas_year: year,
+      mapbiomas_classes: temporal.classes,
+      uf: temporal.uf,
+      bioma: temporal.bioma,
+      highlight_codes: temporal.code ? [temporal.code] : [],
+    }).catch(error => {
+      $("map-scope-pill").textContent = error.message;
+    });
+  }
+
+  function showProductView(view) {
+    document.body.dataset.productView = view;
+    $("product-title").textContent = AmbianceProduct.pages[view].label;
+    updateProductScope();
+    AmbianceProduct.highlight(view);
+    const external = view === "explore" || view === "method";
+    document.querySelector(".studio-workspace").hidden = external;
+    $("product-external").hidden = !external;
+    $("product-explore").hidden = view !== "explore";
+    $("product-method").hidden = view !== "method";
+    $("open-mapbiomas-btn").hidden = view !== "studio";
+    $("new-chat-btn").hidden = view !== "studio" || !turns.length;
+  }
+
+  function updateProductScope(period) {
+    const {temporal, map_spec: map} = activeTurnObj?.data || {};
+    const year = period || temporal?.frames.findLast(frame => frame.value != null)?.period || map?.year;
+    const territory = temporal?.scope || map?.uf || map?.bioma || "Brasil";
+    $("product-scope").textContent = [territory, year || "Dados socioambientais"].join(" · ");
+  }
+
+  function openExternalView(view, href, carryContext = false) {
+    const currentView = document.body.dataset.productView;
+    const period = currentView === "timeline" ? AmbianceTimeline.getPeriod() : null;
+    const {temporal, map_spec: map} = activeTurnObj?.data || {};
+    const id = temporal?.metric || map?.metric;
+    if (view === "explore" && carryContext && !href && id === "land_cover") {
+      exploreLandCover(temporal, period);
+      return;
+    }
+    const url = new URL(href || AmbianceProduct.pages[view].href, location.origin);
+    if (url.origin !== location.origin || url.pathname !== AmbianceProduct.pages[view].href) return;
+    url.searchParams.set("embedded", "1");
+    if (view === "explore" && carryContext && !href) {
+      const year = period || temporal?.frames.findLast(frame => frame.value != null)?.period || map?.year;
+      for (const [key, value] of Object.entries({metric: id, uf: temporal?.uf || map?.uf, bioma: temporal?.bioma || map?.bioma,
+        code: temporal?.code || map?.highlight_codes?.[0], year: year && String(year).slice(0, 4),
+        flow: map?.show_flows ? map.flow_product : null})) {
+        if (value) url.searchParams.set(key, value);
+      }
+    }
+    if (view === "method" && !href && id) url.hash = id;
+    temporalRequest?.abort();
+    AmbianceTimeline.hide();
+    stopMbPlay();
+    const frame = $(`product-${view}`);
+    showProductView(view);
+    if (period && carryContext) updateProductScope(period);
+    if (frame.dataset.route !== url.href) {
+      frame.dataset.route = url.href;
+      frame.src = url.href;
+    }
+    requestAnimationFrame(() => frame.contentWindow?.dispatchEvent(new frame.contentWindow.Event("resize")));
+  }
+
+  function navigateProduct(view, href, carryContext = false) {
+    if (view === "explore" || view === "method") {
+      openExternalView(view, href, carryContext);
+      return;
+    }
+    if (view === "studio") {
+      temporalRequest?.abort();
+      AmbianceTimeline.hide();
+      stopMbPlay();
+      $("canvas-pane").hidden = true;
+      document.body.classList.remove("canvas-open");
+      showProductView("studio");
+      return;
+    }
+    const tab = view === "dashboard" ? "charts" : view;
+    let linkedScope;
+    if ((view === "timeline" || view === "dashboard") && href) {
+      const url = new URL(href, location.origin);
+      if (url.origin === location.origin && url.pathname === "/" && url.searchParams.has("metric")) {
+        linkedScope = Object.fromEntries(["metric", "uf", "bioma", "code", "start_year", "end_year"]
+          .filter(key => url.searchParams.has(key)).map(key => [key, url.searchParams.get(key)]));
+      }
+    }
+    const hasView = turn => {
+      const data = turn?.data;
+      if (tab === "timeline") return Boolean(data?.temporal);
+      if (tab === "charts") return Boolean(data?.dashboard || data?.charts?.length);
+      return Boolean(data?.tables?.length);
+    };
+    const turn = !linkedScope && [activeTurnObj, ...[...turns].reverse()].find(hasView);
+    if (turn) {
+      temporalRequest?.abort();
+      openCanvasForTurn(turn, tab);
+      return;
+    }
+    if (!linkedScope && temporalRequest && document.body.dataset.productView === view) return;
+    activeTurnObj = null;
+    activeTurnId = null;
+    AmbianceTimeline.setEvidence(null);
+    document.body.classList.add("canvas-open");
+    $("canvas-pane").hidden = false;
+    $("canvas-title").textContent = AmbianceProduct.pages[view].label;
+    $("canvas-badge").dataset.loading = "true";
+    $("canvas-badge").textContent = linkedScope ? "Carregando recorte do mapa" : "Carregando exemplo · Mato Grosso";
+    $("canvas-badge").hidden = false;
+    for (const id of ["map", "timeline", "charts", "data", "laws"]) $(`tab-btn-${id}`).hidden = id !== tab;
+    renderDashboard(null);
+    renderDataTab([]);
+    switchCanvasTab(tab);
+    requestTemporal(linkedScope || exampleScope, tab);
+  }
+
   function setupListeners() {
     $("open-mapbiomas-btn").addEventListener("click", openStandaloneMapbiomas);
+    document.addEventListener("ambiance:navigate", event =>
+      navigateProduct(event.detail.view, event.detail.href, Boolean(event.detail.carryContext)));
+    window.addEventListener("message", event => {
+      if (event.origin !== location.origin || event.data?.type !== "ambiance:navigate") return;
+      if (![$("product-explore").contentWindow, $("product-method").contentWindow].includes(event.source)) return;
+      if (Object.hasOwn(AmbianceProduct.pages, event.data.view)) {
+        navigateProduct(event.data.view, event.data.href, Boolean(event.data.carryContext));
+      }
+    });
+    document.addEventListener("ambiance:period", event => {
+      if (document.body.dataset.productView === "timeline") updateProductScope(event.detail);
+    });
+    $("timeline-evidence").addEventListener("click", () => {
+      const period = $("timeline-evidence").dataset.period;
+      switchCanvasTab("data");
+      const row = [...$("data-container").querySelectorAll("[data-period]")].find(row => row.dataset.period === period);
+      row?.click();
+      row?.scrollIntoView({block: "nearest"});
+    });
+    $("data-to-timeline").addEventListener("click", event => {
+      switchCanvasTab("timeline");
+      AmbianceTimeline.goTo(event.currentTarget.dataset.period);
+    });
+    $("timeline-scope").addEventListener("submit", event => {
+      event.preventDefault();
+      const fields = Object.fromEntries(new FormData(event.target));
+      const ids = fields.classes.trim().split(/[,\s]+/).filter(Boolean);
+      if (ids.some(id => !/^\d+$/.test(id))) {
+        $("timeline-status").textContent = "Informe os códigos de classe separados por vírgula.";
+        return;
+      }
+      requestTemporal({...fields, classes: ids.map(Number)});
+    });
+    $("mb-pixels").addEventListener("change", loadMapbiomasRaster);
 
     document.querySelectorAll(".mb-mode-btn").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1208,7 +1933,7 @@
         document.querySelectorAll(".mb-preset-btn").forEach(b => b.classList.toggle("is-active", b === btn));
         mbState.classIds = [...(MB_PRESETS[btn.dataset.mbPreset] || [])];
         mbState.mode = mbState.classIds.length ? "share" : "dominant";
-        loadMapbiomas(false);
+        loadMapbiomas();
       });
     });
     $("mb-year-slider").addEventListener("input", () => {
@@ -1217,7 +1942,18 @@
     });
     $("mb-year-slider").addEventListener("change", () => {
       stopMbPlay();
-      loadMapbiomas(false);
+      loadMapbiomas();
+    });
+    $("mb-uf").addEventListener("change", async () => {
+      stopMbPlay();
+      mbState.uf = $("mb-uf").value;
+      selectedCode = null;
+      selectedMun = null;
+      $("mun-minicard").hidden = true;
+      if (await loadMapbiomas()) {
+        lastBbox = mbData.bbox;
+        if (lastBbox) fitBbox(lastBbox, 0);
+      }
     });
     $("mb-play").addEventListener("click", () => {
       if (mbPlayTimer) {
@@ -1226,8 +1962,9 @@
       }
       $("mb-play").textContent = "⏸";
       mbPlayTimer = setInterval(async () => {
+        if (mbRequest) return;
         mbState.year = mbState.year >= 2025 ? 1985 : mbState.year + 1;
-        await loadMapbiomas(false);
+        await loadMapbiomas();
       }, 1100);
     });
 
@@ -1249,15 +1986,12 @@
     document.querySelectorAll(".canvas-tab").forEach(btn => {
       btn.addEventListener("click", () => switchCanvasTab(btn.dataset.tab));
     });
-    $("canvas-close").addEventListener("click", () => {
-      stopMbPlay();
-      $("canvas-pane").hidden = true;
-      document.body.classList.remove("canvas-open");
-    });
+    $("canvas-close").addEventListener("click", () => navigateProduct("studio"));
     $("canvas-desc-toggle").addEventListener("click", () => {
       $("canvas-desc-bar").hidden = true;
     });
 
+    $("map-brazil").addEventListener("click", () => drillState(""));
     $("btn-cam-2d").addEventListener("click", () => setView({pitch: 0, bearing: 0}));
     $("btn-cam-3d").addEventListener("click", () => setView({pitch: 46, bearing: -10}));
     $("btn-terrain").addEventListener("click", () => {
@@ -1278,8 +2012,13 @@
     });
     $("mun-mini-close").addEventListener("click", () => {
       selectedCode = null;
+      selectedMun = null;
       $("mun-minicard").hidden = true;
-      drawMapLayers(activeSpec);
+      if (activeSpec?.flow_origin) {
+        renderMapSpec({...activeSpec, flow_origin: null, highlight_codes: []}).catch(error => {
+          $("map-scope-pill").textContent = `Erro no mapa · ${error.message}`;
+        });
+      } else drawMapLayers(activeSpec);
     });
     $("mun-mini-ask").addEventListener("click", () => {
       if (!selectedMun) return;
@@ -1290,7 +2029,17 @@
   }
 
   function init() {
+    AmbianceTimeline.init();
     setupListeners();
+    if (window.ResizeObserver && $("charts-container")) {
+      new ResizeObserver(() => requestAnimationFrame(() => {
+        if (activeTab === "charts" && !$("panel-charts").hidden) chartInstances.forEach(chart => chart.resize());
+      })).observe($("charts-container"));
+    }
+    const view = new URLSearchParams(location.search).get("view");
+    if (view && Object.hasOwn(AmbianceProduct.pages, view)) {
+      navigateProduct(view, view === "timeline" || view === "dashboard" ? location.href : null);
+    }
   }
 
   window.addEventListener("DOMContentLoaded", init);

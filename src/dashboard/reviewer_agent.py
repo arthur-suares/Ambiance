@@ -117,7 +117,7 @@ def validate_widget_deterministic(
     if not w.source.strip():
         issues.append(WidgetIssue(w.id, "deterministic", "Fonte de dados ausente no componente."))
     else:
-        if "trase" not in src_lower:
+        if "trase" not in src_lower and getattr(datasets_by_id.get(w.dataset_id), "database", None) != "postgresql":
             issues.append(WidgetIssue(
                 w.id, "deterministic",
                 f"A fonte ('{w.source}') deve citar explicitamente 'Trase'.",

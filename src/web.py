@@ -60,6 +60,14 @@ class Handler(BaseHTTPRequestHandler):
             "/index.html": ("studio.html", "text/html; charset=utf-8"),
             "/studio.css": ("studio.css", "text/css; charset=utf-8"),
             "/studio.js": ("studio.js", "text/javascript; charset=utf-8"),
+            "/product.css": ("product.css", "text/css; charset=utf-8"),
+            "/product.js": ("product.js", "text/javascript; charset=utf-8"),
+            "/timeline.js": ("timeline.js", "text/javascript; charset=utf-8"),
+            "/methodology.js": ("methodology.js", "text/javascript; charset=utf-8"),
+            "/map_layers.js": ("map_layers.js", "text/javascript; charset=utf-8"),
+            "/map_layers.css": ("map_layers.css", "text/css; charset=utf-8"),
+            "/metodologia": ("methodology.html", "text/html; charset=utf-8"),
+            "/metodologia/": ("methodology.html", "text/html; charset=utf-8"),
             "/explorar": ("agro_map.html", "text/html; charset=utf-8"),
             "/explorar/": ("agro_map.html", "text/html; charset=utf-8"),
             "/explorar/agro_map.css": ("agro_map.css", "text/css; charset=utf-8"),
@@ -87,6 +95,37 @@ class Handler(BaseHTTPRequestHandler):
             if p == "/api/agro/meta":
                 self._json(200, agro_db.get_meta())
                 return True
+            if p == "/api/agro/methodology":
+                from src.methodology import get_methodology
+
+                self._json(200, get_methodology())
+                return True
+            if p == "/api/agro/deter-grid":
+                from src.temporal import get_temporal
+
+                year = int(g("year", "2026"))
+                metric = "deter_area" if g("weight") == "area" else "deter_count"
+                self._json(200, get_temporal({"metric": metric, "start_year": year, "end_year": year,
+                                             "uf": g("uf"), "bioma": g("bioma")}))
+                return True
+            if p == "/api/agro/states":
+                self._json(200, agro_db.get_states_geojson())
+                return True
+            if p == "/api/agro/mapbiomas-tiles":
+                from src.satellite import mapbiomas_tiles
+
+                ids = [int(value) for value in g("classes").split(",") if value.isdecimal()]
+                self._json(200, mapbiomas_tiles(int(g("year", "2025")), ids))
+                return True
+            if p in ("/api/agro/satellite", "/api/agro/satellite-image"):
+                from src.satellite import comparison_image, get_comparison
+
+                location = (float(g("lon")), float(g("lat")), g("date"))
+                if p.endswith("-image"):
+                    self._send(200, "image/png", comparison_image(*location, g("side"), g("scene")))
+                else:
+                    self._json(200, get_comparison(*location))
+                return True
             if p == "/api/agro/choropleth":
                 codes_raw = g("codes")
                 codes = [c.strip() for c in codes_raw.split(",") if c.strip()] if codes_raw else None
@@ -96,6 +135,8 @@ class Handler(BaseHTTPRequestHandler):
                     uf=g("uf") or None,
                     bioma=g("bioma") or None,
                     codes=codes,
+                    grain=g("grain", "municipality"),
+                    strict_year=g("strict_year") == "1",
                 ))
                 return True
             if p == "/api/agro/flows":
@@ -106,6 +147,9 @@ class Handler(BaseHTTPRequestHandler):
                     origin=g("origin") or None,
                     country=g("country") or None,
                     limit=min(500, int(g("limit", "180"))),
+                    grain=g("grain", "municipality"),
+                    bioma=g("bioma") or None,
+                    strict_year=g("strict_year") == "1",
                 ))
                 return True
             if p == "/api/agro/deter":
@@ -115,6 +159,7 @@ class Handler(BaseHTTPRequestHandler):
                     uf=g("uf") or None,
                     code=g("code") or None,
                     limit=min(15000, int(g("limit", "10000"))),
+                    strict_year=g("strict_year") == "1",
                 ))
                 return True
             if p == "/api/agro/facilities":
@@ -122,6 +167,8 @@ class Handler(BaseHTTPRequestHandler):
                     chain=g("chain", "bovinos"),
                     uf=g("uf") or None,
                     limit=min(15000, int(g("limit", "10000"))),
+                    grain=g("grain", "municipality"),
+                    bioma=g("bioma") or None,
                 ))
                 return True
             if p == "/api/agro/mapbiomas":
@@ -137,12 +184,17 @@ class Handler(BaseHTTPRequestHandler):
                 ))
                 return True
             if p == "/api/agro/search":
-                self._json(200, {"results": agro_db.search_municipalities(g("q"))})
+                self._json(200, {"results": agro_db.search_municipalities(
+                    g("q"),
+                    uf=g("uf") or None,
+                    bioma=g("bioma") or None,
+                )})
                 return True
             if p == "/api/agro/municipality":
                 self._json(200, agro_db.get_municipality_profile(
                     code=g("code"),
-                    year=int(g("year", "2022")),
+                    year=None if g("profile") == "territory" else int(g("year", "2022")),
+                    strict_year=g("strict_year") == "1",
                 ))
                 return True
             self._json(404, {"error": "Endpoint /api/agro não encontrado."})
@@ -152,6 +204,11 @@ class Handler(BaseHTTPRequestHandler):
             return True
         except ValueError as exc:
             self._json(400, {"error": str(exc)})
+            return True
+        except (BrokenPipeError, ConnectionResetError):
+            return True
+        except OSError as exc:
+            self._json(503, {"error": str(exc)})
             return True
         except Exception as exc:
             self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
@@ -173,6 +230,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(200, "text/html; charset=utf-8", INDEX_HTML.read_bytes())
 
     def do_POST(self):
+        if self.path == "/api/agro/temporal":
+            return self._temporal()
         if self.path != "/api/ask":
             return self._send(404, "text/plain", b"not found")
         try:
@@ -241,6 +300,22 @@ class Handler(BaseHTTPRequestHandler):
             })
         except Exception as e:  # mostra o erro na página em vez de derrubar o servidor
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def _temporal(self):
+        from src.temporal import get_temporal
+        from src.dashboard.studio import build_studio_dashboard
+
+        try:
+            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError("O recorte deve ser um objeto.")
+            result = get_temporal(body)
+            dashboard = build_studio_dashboard(result["label"], [], result, plan_with_llm=False)
+            return self._json(200, {"temporal": result, "dashboard": dashboard})
+        except (ValueError, TypeError) as exc:
+            return self._json(400, {"error": str(exc)})
+        except Exception as exc:
+            return self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
 
     def _agent(self, question, k, start, domain):
         from src.agent import ask as agent_ask, tool_call_summary

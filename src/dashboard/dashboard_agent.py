@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 
 from src.dashboard._llm import call_structured_llm
-from src.dashboard.renderer import render_dashboard_html
 from src.dashboard.schemas import (
     ALLOWED_KPI_AGGS,
     ALLOWED_WIDGET_KINDS,
@@ -54,6 +53,17 @@ dataset de origem (ex.: "Trase — Carne bovina v2.2.2 [D1]" ou "Trase — Soja 
 7. Não combine várias colunas em `y` com `color` ao mesmo tempo no mesmo gráfico.
 """
 
+STUDIO_SYSTEM_PROMPT = """Você é o agente de Dashboard do Ambiance. Use somente os conjuntos
+de dados fornecidos. Abra com a pergunta analítica e escolha a visualização principal.
+Siga os princípios de Storytelling with Data, de Cole Nussbaumer Knaflic: preserve contexto,
+reduza elementos supérfluos e destaque a mudança que os dados sustentam. Use linhas para
+tempo, barras para comparação e tabela para inspeção. Cada widget referencia o dataset
+e colunas existentes. Preserve lacunas temporais e mantenha as linhas em ordem cronológica.
+Evite agregar exposições de janelas sobrepostas, médias, razões e percentuais. Use KPI
+apenas se for um valor calculável diretamente a partir do dataset. Informe fonte e unidade.
+Não introduza explicações causais. Use o mínimo de componentes necessário para a pergunta.
+"""
+
 WIDGET_ITEM_SCHEMA = {
     "type": "object",
     "required": ["id", "kind", "title", "dataset_id", "unit", "source"],
@@ -64,7 +74,7 @@ WIDGET_ITEM_SCHEMA = {
         "subtitle": {"type": "string"},
         "dataset_id": {"type": "string", "description": "ID do dataset (ex.: D1, D2)."},
         "unit": {"type": "string", "description": "Unidade (ex.: ha, t, US$, tCO2e, %, ha/t, múltiplas)."},
-        "source": {"type": "string", "description": "Deve citar 'Trase' e o ID [Dn]."},
+        "source": {"type": "string", "description": "Fonte do conjunto e seu ID [Dn]."},
         "span": {"type": "integer", "enum": [1, 2], "description": "1 = meia largura, 2 = largura total."},
         "column": {"type": "string", "description": "Apenas para kpi: coluna numérica no dataset."},
         "agg": {"type": "string", "enum": list(ALLOWED_KPI_AGGS), "description": "Apenas para kpi."},
@@ -110,6 +120,8 @@ def propose_dashboard_spec(
     question: str,
     plan: OrchestratorPlan,
     datasets: list[DatasetResult],
+    *,
+    studio: bool = False,
 ) -> tuple[DashboardSpec, int, int]:
     """Gera a especificação JSON inicial do dashboard a partir dos DataFrames."""
     reqs = "\n".join(
@@ -124,7 +136,7 @@ def propose_dashboard_spec(
         f"{_datasets_context(datasets)}"
     )
     payload, in_tok, out_tok = call_structured_llm(
-        system=DASHBOARD_SYSTEM_PROMPT,
+        system=STUDIO_SYSTEM_PROMPT if studio else DASHBOARD_SYSTEM_PROMPT,
         user_content=user_msg,
         tool_name="emit_dashboard_spec",
         tool_description="Devolve a especificação JSON completa do dashboard.",
@@ -174,4 +186,6 @@ def build_dashboard_html(
     question: str = "",
 ) -> str:
     """Renderiza a especificação JSON em HTML interativo com Plotly."""
+    from src.dashboard.renderer import render_dashboard_html
+
     return render_dashboard_html(spec, datasets, question=question)

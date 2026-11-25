@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Metodologia e fontes · Ambiance</title>
+  <link rel="stylesheet" href="/studio.css">
+  <link rel="stylesheet" href="/product.css">
+  <script src="/product.js" defer></script>
+  <script src="/methodology.js" defer></script>
+  <style>
+    .methods { max-width: 48rem; margin: 0 auto; padding: 2rem 1.25rem 4rem; line-height: 1.6; }
+    .methods nav { display: flex; flex-wrap: wrap; gap: .5rem 1rem; }
+    .methods section { margin-top: 2rem; }
+    .methods a { color: var(--accent-hover); }
+    .methods p, .methods ul { margin: .65rem 0; }
+    .methods ul { padding-left: 1.25rem; }
+  </style>
+</head>
+<body data-product-page="method">
+  <main class="methods">
+    <h1>Metodologia e fontes</h1>
+    <p>Consulte a origem de cada indicador, os cálculos, a cobertura e os limites de interpretação.</p>
+    <section id="catalogo">
+      <h2>Fichas dos indicadores</h2>
+      <p id="methodology-status" role="status">Carregando catálogo de fontes…</p>
+      <div class="methodology-catalog">
+        <ul id="methodology-index" aria-label="Indicadores"></ul>
+        <div id="methodology-cards"></div>
+      </div>
+    </section>
+    <h2>Como usamos as bases</h2>
+    <nav aria-label="Nesta página">
+      <a href="#alertas">Alertas por satélite</a>
+      <a href="#mapbiomas">Uso e cobertura da terra</a>
+      <a href="#indicadores">Indicadores territoriais</a>
+      <a href="#copernicus">Imagens do Copernicus</a>
+    </nav>
+
+    <section id="alertas">
+      <h2>Alertas de desmatamento por satélite</h2>
+      <p>O INPE usa imagens de satélite para localizar indícios de mudanças na vegetação e orientar a fiscalização. O sistema se chama DETER, sigla de Detecção de Desmatamento em Tempo Real. Conforme o bioma e a classe do alerta, a série também pode incluir degradação ou cicatrizes de queimadas.</p>
+      <p>O Ambiance usa os dados públicos da Amazônia, do Cerrado e do Pantanal, distribuídos pelo TerraBrasilis. A <a href="#deter_count">ficha de alertas</a> mostra a primeira e a última observação carregada por bioma.</p>
+      <p>Cada ponto fica no centro do retângulo que contém a geometria original. Quando falta o código IBGE, o Ambiance tenta associar o ponto ao município que o contém. A camada interativa prioriza os maiores registros e exibe até 10 mil pontos por recorte. Os hexágonos agrupam apenas os pontos retornados e dão mais peso aos alertas de maior área.</p>
+      <p>Leia o resultado como um aviso para investigação. A taxa oficial anual de desmatamento vem do PRODES. Para avaliar a situação legal de uma área são necessárias informações adicionais, como autorizações e limites do imóvel.</p>
+      <p><a href="https://www.gov.br/inpe/pt-br/acesso-a-informacao/perguntas-frequentes/principais-produtos-e-servicos-do-inpe/monitoramento-do-territorio-florestas/como-se-monitora-o-desmatamento">INPE · DETER e PRODES</a> · <a href="https://terrabrasilis.dpi.inpe.br/">TerraBrasilis · Dados e downloads</a> · <a href="https://terrabrasilis.dpi.inpe.br/app/report/pantanal/">TerraBrasilis · Método do Pantanal</a></p>
+    </section>
+
+    <section id="mapbiomas">
+      <h2>Uso e cobertura da terra</h2>
+      <p>A <strong>Coleção 11 do MapBiomas Brasil</strong> mapeia anualmente o uso e a cobertura da terra de 1985 a 2025. O projeto cria mosaicos Landsat de 30 m, classifica os pixels e integra os resultados produzidos por biomas e temas. Dela vêm as estatísticas em hectares por classe, bioma, estado e município.</p>
+      <p>O Ambiance usa as estatísticas municipais da Coleção 11. A cor no modo Principal representa a classe de maior área entre as classes selecionadas. O modo percentual divide a área das classes selecionadas pela área do município. A tabela e o CSV mostram hectares por classe e seu percentual da área mapeada no território escolhido. O gráfico mostra a evolução dos grupos de cobertura ou, quando há uma seleção, a soma das classes escolhidas ao longo do tempo. O filtro de bioma em recortes recebidos pelo Studio usa o bioma predominante do município.</p>
+      <p>Em <strong>Mostrar pixels de 30 m</strong>, o Ambiance exibe os blocos da camada oficial da Coleção 11 no ano selecionado. O resumo municipal e o CSV continuam usando a base estatística. Alguns códigos de classe são próprios da base estatística. Os GeoTIFFs anuais e os arquivos para Google Earth Engine estão disponíveis na fonte. A coleção de 10 m é um produto separado, de 2017 a 2025, que usa Sentinel-2 e atributos de imagens AlphaEarth.</p>
+      <p>A métrica <strong>Desmatamento anual</strong> vem de outro produto do MapBiomas. Ele analisa transições e persistência entre classes para mapear supressão de vegetação primária e secundária de 1987 a 2025. O MapBiomas Alerta, por sua vez, valida e refina alertas de diferentes sistemas com imagens de alta resolução.</p>
+      <p><a href="https://plataforma.mapbiomas.org/projects/mapbiomas/brazil">Abrir na plataforma MapBiomas</a> · <a href="https://brasil.mapbiomas.org/iniciativas-e-produtos/cobertura-e-uso-da-terra/cobertura-30m/cobertura/">Coleção 11 · Método, classes e GeoTIFFs</a> · <a href="https://brasil.mapbiomas.org/downloads/estatisticas/">MapBiomas · Estatísticas</a> · <a href="https://brasil.mapbiomas.org/iniciativas-e-produtos/cobertura-e-uso-da-terra/desmatamento/anual/">MapBiomas · Desmatamento anual</a> · <a href="https://brasil.mapbiomas.org/iniciativas-e-produtos/cobertura-e-uso-da-terra/cobertura-10m/cobertura/">MapBiomas · Cobertura a 10 m</a></p>
+    </section>
+
+    <section id="indicadores">
+      <h2>Indicadores territoriais e comerciais</h2>
+      <ul>
+        <li><strong>IBGE</strong> · Produção de soja em toneladas (PAM), efetivo bovino em cabeças (PPM) e limites municipais para visualização.</li>
+        <li><strong>SEEG</strong> · Estimativas municipais de emissões da agropecuária e da mudança de uso da terra, em toneladas de CO₂ equivalente.</li>
+        <li><strong>Trase</strong> · Fluxos das cadeias de soja e bovinos e exposição estimada ao desmatamento em uma janela de cinco anos. Na visão do Brasil, os arcos somam os registros com município produtor identificado por UF e país e destacam até 90 ligações por volume. Ao escolher a UF, aparecem os principais fluxos municipais. O arco indica uma relação comercial.</li>
+        <li><strong>Comex Stat</strong> · Estatísticas oficiais de comércio exterior associadas ao domicílio fiscal do exportador, que pode ficar em outro município que o produtor.</li>
+      </ul>
+      <p id="facilities"><strong>Instalações</strong> · Os cadastros Trase Beef v6 e Soy v2.2 identificam estabelecimentos georreferenciados, incluindo frigoríficos e armazéns. O mapa agrupa por cadeia e UF na visão nacional. Dentro de uma UF, os ícones representam unidades cadastradas. A posição e a capacidade vêm do cadastro. A camada funciona como inventário sem série histórica.</p>
+    </section>
+
+    <section id="copernicus">
+      <h2>Imagens do Copernicus</h2>
+      <p>Desative os hexágonos e clique em um ponto de alerta para comparar imagens Sentinel-2 em cores naturais no mesmo recorte. A busca considera até 60 dias antes e depois da data de observação do INPE, combinando proximidade da data e percentual de nuvens na cena. A cruz marca o ponto aproximado do alerta. Nuvens locais, diferenças sazonais e falhas de cobertura podem afetar a comparação.</p>
+      <p>As imagens ópticas de 10 m são do programa Copernicus Sentinel-2, distribuídas em GeoTIFFs públicos indexados pelo Earth Search. O painel também abre a busca de radar Sentinel-1 no catálogo oficial do Copernicus para o mesmo recorte e período. O radar pode complementar a inspeção em áreas com cobertura de nuvens.</p>
+      <p><a href="https://github.com/Element84/earth-search/blob/main/docs/collections/sentinel-2-l2a.md">Earth Search · Sentinel-2</a> · <a href="https://dataspace.copernicus.eu/data-collections/copernicus-sentinel-missions/sentinel-1">Copernicus · Sentinel-1</a> · <a href="https://documentation.dataspace.copernicus.eu/APIs/STAC.html">Catálogo STAC</a></p>
+    </section>
+  </main>
+</body>
+</html>

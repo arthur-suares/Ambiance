@@ -585,7 +585,7 @@ def update_catalog(con: psycopg.Connection) -> None:
          "Cadastro administrativo de estabelecimentos com Serviço de Inspeção Federal; ligação municipal feita por UF + nome normalizado.",
          "SELECT COUNT(*), NULL, NULL FROM agro.dim_instalacoes_sif"),
         ("inpe_deter", "INPE TerraBrasilis — Alertas DETER", "INPE", "desmatamento",
-         "https://terrabrasilis.dpi.inpe.br/", "WFS Amazônia + Cerrado", "alerta_data",
+         "https://terrabrasilis.dpi.inpe.br/", "TerraBrasilis · Amazônia, Cerrado e Pantanal", "alerta_data",
          "Sistema de alertas rápidos para fiscalização; não substitui a taxa oficial consolidada do PRODES.",
          "SELECT COUNT(*), MIN(ano), MAX(ano) FROM agro.fato_inpe_deter"),
     ]

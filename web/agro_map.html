@@ -3,83 +3,116 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>Agro · Mapa 3D Interativo &amp; IA Socioambiental</title>
+  <title>Explorar o território · Ambiance</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="/product.css">
   <link rel="stylesheet" href="/explorar/agro_map.css">
+  <link rel="stylesheet" href="/map_layers.css">
+  <script defer src="/product.js"></script>
   <script defer src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script defer src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
+  <script defer src="/map_layers.js"></script>
   <script defer src="/explorar/agro_map.js"></script>
 </head>
-<body>
-  <!-- ZONA 1: BARRA SUPERIOR ÚNICA (4 Visões Temáticas + Filtros Globais + Busca) -->
-  <header class="topbar" aria-label="Visões e filtros globais">
-    <div class="brand">
-      <span class="badge">AGRO 3D</span>
-      <strong>Mapa Socioambiental</strong>
+<body data-product-page="explore">
+  <header class="topbar">
+    <div class="explore-heading">
+      <div>
+        <h1>Explorar o território</h1>
+        <p id="explore-scope">Brasil</p>
+      </div>
+      <div class="heading-actions">
+        <a id="explore-timeline" data-view="timeline" href="/?view=timeline" hidden>Ver Linha do Tempo</a>
+        <button id="clear-filters" class="secondary" type="button" hidden>Limpar filtros</button>
+        <button id="btn-presentation" type="button" class="secondary">Ampliar mapa</button>
+      </div>
     </div>
 
-    <nav class="presets" aria-label="Visões temáticas">
-      <button type="button" class="preset-btn is-active" data-preset="risco">Risco &amp; Desmatamento</button>
-      <button type="button" class="preset-btn" data-preset="emissoes">Emissões (SEEG)</button>
-      <button type="button" class="preset-btn" data-preset="cadeias">Cadeias &amp; Exportação</button>
-      <button type="button" class="preset-btn" data-preset="producao">Produção (IBGE)</button>
+    <nav class="presets" aria-label="Temas do mapa">
+      <button type="button" class="preset-btn" data-preset="producao">Produção</button>
+      <button type="button" class="preset-btn" data-preset="cadeias">Cadeias e exportação</button>
+      <button type="button" class="preset-btn" data-preset="risco">Desmatamento</button>
+      <button type="button" class="preset-btn" data-preset="emissoes">Emissões</button>
     </nav>
 
-    <div class="global-filters">
-      <label title="Cadeia produtiva">
-        <span class="sr-only">Cadeia</span>
-        <select id="chain-select" aria-label="Cadeia produtiva">
-          <option value="all">Todas cadeias</option>
-          <option value="bovinos" selected>Bovinos</option>
-          <option value="soja">Soja</option>
-        </select>
+    <div class="global-filters" role="group" aria-label="Filtros do mapa">
+      <label class="filter-territory">Território
+        <select id="uf-select"><option value="">Brasil</option></select>
       </label>
-
-      <label title="Filtrar por Bioma">
-        <span class="sr-only">Bioma</span>
-        <select id="bioma-select" aria-label="Bioma">
-          <option value="">Todos biomas</option>
-        </select>
+      <label class="filter-metric">Indicador
+        <select id="metric-select"><option value="">Nenhum indicador</option></select>
       </label>
-
-      <label title="Filtrar por Estado (UF)">
-        <span class="sr-only">UF</span>
-        <select id="uf-select" aria-label="Estado">
-          <option value="">Brasil (UFs)</option>
-        </select>
+      <label>Ano
+        <select id="year-select" disabled><option value="">Sem recorte</option></select>
       </label>
-
+      <label>Bioma
+        <select id="bioma-select" disabled><option value="">Todos</option></select>
+      </label>
       <div class="search-wrap">
-        <input id="mun-search" type="search" placeholder="Buscar município ou IBGE…" autocomplete="off" aria-label="Buscar município">
+        <label for="mun-search">Município</label>
+        <input id="mun-search" type="search" placeholder="Nome ou código IBGE" autocomplete="off" aria-label="Buscar município">
         <div id="mun-search-results" class="search-results" hidden></div>
       </div>
 
-      <button id="btn-presentation" type="button" class="secondary small" title="Alternar modo apresentação">Tela cheia</button>
     </div>
+    <p id="filter-note" class="meta" hidden></p>
   </header>
 
-  <!-- ZONA 3 BASE: CANVAS FULL-SCREEN + OVERLAYS -->
   <main class="stage">
-    <div id="map-canvas"></div>
-    <div id="map-tooltip" class="tooltip" hidden></div>
+    <section class="map-board" aria-label="Mapa interativo">
+      <div id="map-canvas"></div>
+      <div id="map-tooltip" class="tooltip" hidden></div>
+      <div class="map-tools" aria-label="Controles do mapa">
+        <button id="zoom-in" class="secondary" type="button" aria-label="Aproximar">+</button>
+        <button id="zoom-out" class="secondary" type="button" aria-label="Afastar">−</button>
+      </div>
+      <button id="exit-presentation" type="button" class="exit-pres-btn" hidden>Voltar à exploração</button>
+      <button id="reopen-left" type="button" class="reopen-left-btn" hidden>Painel do mapa</button>
+      <!-- CARTÃO UNIFICADO: LEGENDA + TRANSPARÊNCIA / INCERTEZA -->
+      <div id="legend-card" class="legend-card" hidden>
+        <div class="legend-top">
+          <span id="legend-title" class="legend-title">Métrica</span>
+          <button id="toggle-caveat" type="button" class="info-btn" title="Nota metodológica e limitações" aria-expanded="false">i</button>
+        </div>
+        <div id="legend-bar" class="legend-bar"></div>
+        <div class="legend-ticks">
+          <span>0</span>
+          <span id="legend-mid">—</span>
+          <span id="legend-max">—</span>
+        </div>
+        <div id="ub-source" class="ub-line">Fonte: —</div>
+        <div id="ub-coverage" class="ub-sub"></div>
+        <div id="ub-caveat" class="ub-caveat" hidden></div>
+        <a id="ub-method" href="/metodologia#catalogo">Metodologia do indicador</a>
+      </div>
 
-    <!-- Botão discreto para sair do Modo Apresentação -->
-    <button id="exit-presentation" type="button" class="exit-pres-btn" hidden>Sair da tela cheia</button>
+      <!-- RODAPÉ ÚNICO: TIME SLIDER GLOBAL + CÂMERA + STATUS -->
+      <footer class="bottom-bar">
+        <div class="timeline-group" hidden>
+          <span class="timeline-label">Ano <strong id="year-label"></strong></span>
+          <input id="year-slider" type="range" min="1985" max="2026" step="1" value="2025" aria-label="Ano do mapa">
+        </div>
 
-    <!-- Botão para reabrir Gaveta Esquerda quando recolhida -->
-    <button id="reopen-left" type="button" class="reopen-left-btn" hidden>Painel IA &amp; Camadas</button>
+        <div class="camera-group">
+          <button id="cam-2d" type="button" class="small" aria-pressed="true">2D</button>
+          <button id="cam-3d" type="button" class="small" aria-pressed="false">3D</button>
+          <button id="reset-view" type="button" class="secondary small">Brasil</button>
+        </div>
 
+        <span id="map-status" class="meta status-text">Inicializando mapa…</span>
+      </footer>
+    </section>
     <!-- ZONA 2: GAVETA ESQUERDA COLAPSÁVEL (3 Abas Limpas) -->
     <aside id="left-drawer" class="left-drawer" aria-label="Painel de análise e camadas">
       <div class="drawer-tabs">
-        <button type="button" class="tab-btn is-active" data-tab="ai">Assistente IA</button>
-        <button type="button" class="tab-btn" data-tab="layers">Camadas &amp; 3D</button>
-        <button type="button" class="tab-btn" data-tab="ranking">Ranking</button>
-        <button id="toggle-left" type="button" class="icon-btn" title="Recolher painel" aria-label="Recolher painel">‹</button>
+        <button type="button" class="tab-btn is-active" data-tab="ranking">Ranking</button>
+        <button type="button" class="tab-btn" data-tab="layers">Camadas</button>
+        <button type="button" class="tab-btn" data-tab="ai">Assistente</button>
+        <button id="toggle-left" type="button" class="icon-btn" title="Recolher painel" aria-label="Recolher painel">×</button>
       </div>
 
       <!-- ABA 1: ASSISTENTE IA -->
-      <section id="tab-ai" class="tab-panel is-active">
+      <section id="tab-ai" class="tab-panel" hidden>
         <form id="ask-form" class="ask-form">
           <div class="ctx-row">
             <span id="context-pill" class="context-pill">Contexto: Brasil · 2022</span>
@@ -98,7 +131,7 @@
 
         <div class="chips" aria-label="Exemplos de consultas">
           <button type="button" class="chip" data-q="Quais os 5 municípios com maior exposição ao desmatamento neste recorte e o que o Código Florestal exige para Reserva Legal?">Top risco + Código Florestal</button>
-          <button type="button" class="chip" data-q="Quais municípios do Pantanal concentraram mais alertas do INPE DETER em 2025 e 2026?">DETER Pantanal (2025–2026)</button>
+          <button type="button" class="chip" data-q="Quais municípios do Pantanal concentraram mais alertas do INPE DETER em 2025 e 2026?">Alertas no Pantanal (2025–2026)</button>
           <button type="button" class="chip" data-q="Quais municípios do Pará tiveram maiores emissões de Mudança de Uso da Terra no SEEG em 2024 e quantos frigoríficos eles possuem?">SEEG + Frigoríficos (PA)</button>
           <button type="button" class="chip" data-q="Compare a exportação oficial do Comex Stat com os fluxos rastreados da Trase para soja em 2022.">Comex Stat × Trase (Soja)</button>
         </div>
@@ -132,55 +165,71 @@
       <section id="tab-layers" class="tab-panel" hidden>
         <div class="layer-card">
           <div class="layer-head">
-            <label><input type="checkbox" id="toggle-choro" checked> <strong>Coroplético Municipal</strong></label>
+            <label><input type="checkbox" id="toggle-choro" disabled> <strong>Indicador por território</strong></label>
           </div>
-          <select id="metric-select" aria-label="Métrica do coroplético"></select>
         </div>
 
         <div class="layer-card">
           <div class="layer-head">
-            <label><input type="checkbox" id="toggle-deter" checked> <strong>Alertas INPE DETER</strong></label>
-            <span class="pill-tag">até 2026</span>
+            <label><input type="checkbox" id="toggle-deter"> <strong>Alertas de desmatamento por satélite</strong></label>
           </div>
-          <p class="meta">Alertas de desmatamento e queimada (Amazônia, Cerrado e Pantanal).</p>
+          <p class="meta">Avisos do INPE (DETER). Clique em um ponto para comparar imagens de satélite. <a href="/metodologia#alertas">Como esses alertas são feitos</a></p>
+          <p id="deter-scope" class="meta" hidden></p>
+          <label class="field-label">Mapa de calor dos alertas
+            <select id="deter-heatmap">
+              <option value="">Desativado</option>
+              <option value="count">Quantidade de registros</option>
+              <option value="area">Área somada dos alertas</option>
+            </select>
+          </label>
         </div>
 
         <div class="layer-card">
           <div class="layer-head">
             <label><input type="checkbox" id="toggle-flows"> <strong>Fluxos Comerciais (Trase)</strong></label>
           </div>
-          <select id="flow-country" aria-label="País de destino">
-            <option value="">Todos países de destino</option>
-            <option value="CN">China</option>
-            <option value="NL">Países Baixos</option>
-            <option value="ES">Espanha</option>
-            <option value="US">Estados Unidos</option>
-            <option value="CL">Chile</option>
-            <option value="HK">Hong Kong</option>
-          </select>
+          <label class="field-label">Cadeia dos fluxos
+            <select id="chain-select" disabled>
+              <option value="soja">Soja</option>
+              <option value="bovinos">Bovinos</option>
+            </select>
+          </label>
+          <label class="field-label">País de destino
+            <select id="flow-country" disabled><option value="">Todos os destinos</option></select>
+          </label>
+          <p class="meta">Cadeia e destino afetam somente os arcos da Trase. O bioma é o predominante no município produtor.</p>
+          <p id="flow-scope" class="meta" hidden></p>
         </div>
 
         <div class="layer-card">
           <div class="layer-head">
             <label><input type="checkbox" id="toggle-facilities"> <strong>Frigoríficos &amp; Silos</strong></label>
-            <span class="pill-tag">31,5k pontos</span>
           </div>
-          <p class="meta">Segue automaticamente o filtro global de cadeia (Bovinos / Soja / Todas).</p>
+          <p class="meta">O ícone de vagem indica instalações de soja. O ícone de gado indica instalações de bovinos. No Brasil, os ícones mostram totais por estado.</p>
+          <label class="field-label">Cadeia das instalações
+            <select id="facility-chain" disabled>
+              <option value="all">Todas</option>
+              <option value="soja">Soja</option>
+              <option value="bovinos">Bovinos</option>
+            </select>
+          </label>
+          <p class="meta">Cadastro sem série histórica. O bioma é o predominante no município cadastrado.</p>
+          <p id="facility-scope" class="meta" hidden></p>
         </div>
 
         <div class="layer-card">
           <div class="layer-head"><strong>Visualização &amp; Relevo 3D</strong></div>
           <label class="field-label">Base / Terreno
             <select id="basemap-mode">
-              <option value="dark">Escuro 3D (Alto contraste)</option>
-              <option value="terrain">Relevo 3D + Satélite (TerrainExtension)</option>
-              <option value="light">Claro (Cartográfico)</option>
+              <option value="dark">Escuro</option>
+              <option value="terrain">Satélite e relevo</option>
+              <option value="light">Claro</option>
             </select>
           </label>
 
           <div class="checks-2col">
             <label><input type="checkbox" id="toggle-extrude-mun"> Municípios 3D</label>
-            <label><input type="checkbox" id="toggle-hex-mode" checked> Hexágonos 3D</label>
+            <label><input type="checkbox" id="toggle-hex-mode" checked> Hexágonos de alertas</label>
           </div>
 
           <div id="hex-controls" class="hex-controls">
@@ -197,9 +246,9 @@
       </section>
 
       <!-- ABA 3: RANKING TERRITORIAL -->
-      <section id="tab-ranking" class="tab-panel" hidden>
+      <section id="tab-ranking" class="tab-panel is-active">
         <div class="rank-head">
-          <h2 id="top-title">Top municípios</h2>
+          <h2 id="top-title">Ranking territorial</h2>
           <span id="top-count" class="meta"></span>
         </div>
         <ol id="top-list" class="rank-list"></ol>
@@ -216,7 +265,17 @@
         <button id="mun-close" type="button" class="icon-btn" aria-label="Fechar painel municipal">×</button>
       </div>
 
-      <div id="mun-grid" class="kpi-grid"></div>
+      <div class="mun-feature">
+        <span id="mun-feature-label"></span>
+        <strong id="mun-feature-value">—</strong>
+        <small id="mun-feature-source"></small>
+      </div>
+
+      <details class="mun-details" hidden>
+        <summary>Outros indicadores do município</summary>
+        <div id="mun-grid" class="kpi-grid"></div>
+        <p id="mun-deter" class="meta deter-note"></p>
+      </details>
 
       <div class="spark-card">
         <div class="spark-head">
@@ -226,43 +285,11 @@
         <div id="mun-sparkline" class="sparkline-wrap"></div>
       </div>
 
-      <p id="mun-deter" class="meta deter-note"></p>
-      <button id="mun-ask-ai" type="button" class="full">Analisar este município com IA + Leis</button>
+      <a id="mun-dashboard" class="explore-method" data-view="dashboard" href="/?view=dashboard">Ver no Dashboard</a>
+      <a id="mun-method" class="explore-method" href="/metodologia">Metodologia do indicador</a>
+      <button id="mun-ask-ai" type="button" class="full">Analisar município</button>
     </aside>
 
-    <!-- CARTÃO UNIFICADO: LEGENDA + TRANSPARÊNCIA / INCERTEZA -->
-    <div id="legend-card" class="legend-card">
-      <div class="legend-top">
-        <span id="legend-title" class="legend-title">Métrica</span>
-        <button id="toggle-caveat" type="button" class="info-btn" title="Nota metodológica e limitações" aria-expanded="false">i</button>
-      </div>
-      <div id="legend-bar" class="legend-bar"></div>
-      <div class="legend-ticks">
-        <span>0</span>
-        <span id="legend-mid">—</span>
-        <span id="legend-max">—</span>
-      </div>
-      <div id="ub-source" class="ub-line">Fonte: —</div>
-      <div id="ub-coverage" class="ub-sub"></div>
-      <div id="ub-caveat" class="ub-caveat" hidden></div>
-    </div>
-
-    <!-- RODAPÉ ÚNICO: TIME SLIDER GLOBAL + CÂMERA + STATUS -->
-    <footer class="bottom-bar">
-      <div class="timeline-group">
-        <span class="timeline-label">Ano: <strong id="year-label">2022</strong></span>
-        <input id="year-slider" type="range" min="2004" max="2026" step="1" value="2022">
-        <span id="year-fallback-badge" class="fallback-badge" hidden></span>
-      </div>
-
-      <div class="camera-group">
-        <button id="cam-2d" type="button" class="secondary small">2D</button>
-        <button id="cam-3d" type="button" class="small">3D</button>
-        <button id="reset-view" type="button" class="secondary small">Brasil</button>
-      </div>
-
-      <span id="map-status" class="meta status-text">Inicializando mapa…</span>
-    </footer>
   </main>
 </body>
 </html>

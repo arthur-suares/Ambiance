@@ -9,19 +9,18 @@
   <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
   <link rel="stylesheet" href="/studio.css" />
+  <link rel="stylesheet" href="/map_layers.css" />
+  <link rel="stylesheet" href="/product.css" />
 </head>
-<body>
+<body data-product-page="studio" data-product-view="studio">
   <div class="studio-shell">
     <header class="studio-header">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <div>
-          <strong>Ambiance</strong>
-          <small>Dados Socioambientais e Legislação do Brasil</small>
-        </div>
+      <div class="product-heading">
+        <strong id="product-title">Studio</strong>
+        <small id="product-scope">Brasil · Dados socioambientais</small>
       </div>
       <div class="header-actions">
-        <button id="open-mapbiomas-btn" type="button" class="hdr-btn">Mapa de Uso da Terra (1985–2025)</button>
+        <button id="open-mapbiomas-btn" type="button" class="hdr-btn">Uso da terra</button>
         <button id="new-chat-btn" type="button" class="hdr-btn hdr-btn-primary" hidden>Nova conversa</button>
       </div>
     </header>
@@ -30,10 +29,9 @@
       <section class="chat-pane" aria-label="Conversa">
         <div class="chat-scroll" id="chat-scroll">
           <div id="chat-welcome" class="chat-welcome">
-            <div class="welcome-eyebrow">Monitoramento territorial e legislação ambiental</div>
-            <h1>Entenda o território, a produção rural e as leis ambientais do Brasil</h1>
+            <h1>Investigue o território brasileiro</h1>
             <p class="welcome-sub">
-              Pergunte em linguagem natural sobre desmatamento, produção agropecuária, exportações, emissões de carbono ou regras ambientais. Quando fizer sentido, liberamos mapas e gráficos interativos para você explorar.
+              Consulte dados sobre produção, exportações, desmatamento e emissões. Explore os resultados em mapas, gráficos e séries históricas.
             </p>
           </div>
 
@@ -70,6 +68,10 @@
               <strong>Para onde vai a soja produzida no Mato Grosso?</strong>
               <span>Destinos internacionais e parcela sem origem rastreada</span>
             </button>
+            <button type="button" class="starter-card" data-q="Como evoluíram as exportações de soja e de carne bovina de Mato Grosso entre 2022 e 2025? Resuma em texto e mostre o dashboard com as séries do Comex Stat.">
+              <strong>Como evoluíram as exportações de Mato Grosso?</strong>
+              <span>Soja e carne bovina, de 2022 a 2025</span>
+            </button>
             <button type="button" class="starter-card" data-q="Como evoluíram as emissões de carbono da agropecuária comparadas às emissões por perda de vegetação no Pará de 2015 a 2025? Gere um gráfico de evolução e o mapa.">
               <strong>Como mudaram as emissões de carbono no Pará?</strong>
               <span>Evolução da pecuária e da perda de floresta em 10 anos</span>
@@ -90,8 +92,9 @@
           </div>
           <div class="canvas-tabs" role="tablist">
             <button type="button" class="canvas-tab is-active" data-tab="map" id="tab-btn-map">Mapa</button>
-            <button type="button" class="canvas-tab" data-tab="charts" id="tab-btn-charts">Gráficos</button>
-            <button type="button" class="canvas-tab" data-tab="data" id="tab-btn-data">Tabela</button>
+            <button type="button" class="canvas-tab" data-tab="timeline" id="tab-btn-timeline" hidden>Linha do Tempo</button>
+            <button type="button" class="canvas-tab" data-tab="charts" id="tab-btn-charts">Dashboard</button>
+            <button type="button" class="canvas-tab" data-tab="data" id="tab-btn-data">Dados</button>
             <button type="button" class="canvas-tab" data-tab="laws" id="tab-btn-laws">Trechos da Lei</button>
           </div>
           <button id="canvas-close" type="button" class="icon-btn" title="Fechar painel">×</button>
@@ -119,6 +122,7 @@
               <button type="button" class="map-ctrl-btn" id="btn-cam-3d">3D</button>
               <button type="button" class="map-ctrl-btn" id="btn-terrain">Satélite</button>
               <button type="button" class="map-ctrl-btn" id="btn-fit">Centralizar</button>
+              <button type="button" class="map-ctrl-btn" id="map-brazil" hidden>Brasil</button>
             </div>
 
             <div id="map-legend-card" class="legend-card" hidden>
@@ -134,6 +138,7 @@
               <div id="ub-coverage" class="ub-line"></div>
               <button type="button" id="toggle-caveat" class="caveat-btn" aria-expanded="false">Entenda os limites deste dado ▾</button>
               <p id="ub-caveat" class="ub-caveat" hidden></p>
+              <a id="studio-method" href="/metodologia#catalogo">Metodologia do indicador</a>
             </div>
 
             <div id="mb-legend-card" class="mb-legend-card" hidden>
@@ -149,7 +154,13 @@
                 <button type="button" class="mb-preset-btn" data-mb-preset="forest">Florestas</button>
                 <button type="button" class="mb-preset-btn" data-mb-preset="agro">Agropecuária</button>
               </div>
+              <label class="mb-territory">Território
+                <select id="mb-uf"><option value="">Brasil</option></select>
+              </label>
+              <label class="mb-territory"><input type="checkbox" id="mb-pixels"> Mostrar pixels de 30 m</label>
+              <small id="mb-pixels-status" role="status" hidden></small>
               <div id="mb-class-list" class="mb-class-list"></div>
+              <a href="/metodologia#mapbiomas">Fonte e método do MapBiomas</a>
             </div>
 
             <div id="mb-timebar" class="mb-timebar" hidden>
@@ -173,12 +184,88 @@
             <div id="map-tooltip" class="map-tooltip" hidden></div>
           </div>
 
+          <div id="panel-timeline" class="canvas-panel scrollable" hidden>
+            <section class="timeline-workspace">
+              <details id="timeline-filters">
+                <summary>Editar recorte</summary>
+                <form id="timeline-scope">
+                  <label>Indicador <select name="metric" id="timeline-metric" required></select></label>
+                  <label>UF <input name="uf" maxlength="2" placeholder="Brasil"></label>
+                  <label>Município (código IBGE) <input name="code" inputmode="numeric" pattern="[0-9]{7}"></label>
+                  <label>Bioma <input name="bioma"></label>
+                  <label>De <input name="start_year" type="number" min="1985" max="2100" required></label>
+                  <label>Até <input name="end_year" type="number" min="1985" max="2100" required></label>
+                  <label>Frequência <select name="frequency"><option value="annual">Anual</option><option value="monthly">Mensal (alertas)</option></select></label>
+                  <label>Mês inicial <input name="start_month" type="number" min="1" max="12"></label>
+                  <label>Mês final <input name="end_month" type="number" min="1" max="12"></label>
+                  <label>Classes MapBiomas (códigos) <input name="classes" placeholder="Ex. 39,15"></label>
+                  <button type="submit">Aplicar recorte</button>
+                </form>
+              </details>
+              <p id="timeline-status" role="status"></p>
+              <div id="timeline-player" hidden>
+                <div class="timeline-stage">
+                  <div id="timeline-map" aria-label="Mapa da linha do tempo"></div>
+                  <aside class="timeline-story" aria-label="História deste período">
+                    <h3 id="timeline-story-title">Período selecionado</h3>
+                    <p id="timeline-value" aria-live="polite"></p>
+                    <p id="timeline-caption"></p>
+                    <p id="timeline-legend"></p>
+                    <div class="product-actions">
+                      <button type="button" id="timeline-evidence">Conferir dados deste quadro</button>
+                      <button type="button" id="timeline-explore" data-product-jump="explore">Explorar este período</button>
+                      <a id="timeline-method" href="/metodologia">Metodologia do indicador</a>
+                    </div>
+                  </aside>
+                </div>
+                <div class="timeline-options">
+                  <button type="button" id="timeline-prev" aria-label="Quadro anterior">‹</button>
+                  <button type="button" id="timeline-play">Reproduzir</button>
+                  <button type="button" id="timeline-next" aria-label="Próximo quadro">›</button>
+                  <input type="range" id="timeline-position" min="0" value="0" aria-label="Período da linha do tempo">
+                  <label>Reproduzir <select id="timeline-order"><option value="periods">Todos os períodos</option><option value="scenes">Só os marcos</option></select></label>
+                  <label>Mapa <select id="timeline-mode"></select></label>
+                  <label><input type="checkbox" id="timeline-camera" checked> Movimento de câmera</label>
+                </div>
+                <h3>Marcos</h3>
+                <div id="timeline-milestones"></div>
+                <details id="timeline-editor">
+                  <summary>Personalizar marcos</summary>
+                  <button type="button" id="timeline-add">Adicionar marco no quadro atual</button>
+                  <div id="timeline-edits"></div>
+                </details>
+              </div>
+            </section>
+          </div>
           <div id="panel-charts" class="canvas-panel scrollable" hidden>
-            <div id="charts-container" class="charts-grid"></div>
+            <div id="dashboard-summary" class="data-stack"></div>
+            <div class="dashboard-visuals">
+              <div id="charts-container" class="charts-grid"></div>
+              <aside id="dashboard-territory" class="product-card" hidden>
+                <h3 id="dashboard-territory-title">Território</h3>
+                <canvas id="dashboard-overview" width="440" height="310" role="img" aria-label="Mapa do território e da distribuição do indicador"></canvas>
+                <p id="dashboard-overview-note"></p>
+                <div class="product-actions">
+                  <button type="button" data-product-jump="explore">Explorar no mapa</button>
+                  <button type="button" data-product-jump="timeline">Reproduzir evolução</button>
+                </div>
+              </aside>
+            </div>
+            <div id="dashboard-data" class="data-stack"></div>
           </div>
 
           <div id="panel-data" class="canvas-panel scrollable" hidden>
-            <div id="data-container" class="data-stack"></div>
+            <div class="product-data-layout">
+              <div id="data-container" class="data-stack"></div>
+              <aside id="data-detail" class="product-card" hidden>
+                <h3 id="data-detail-title">Registro selecionado</h3>
+                <dl id="data-detail-fields"></dl>
+                <div class="product-actions">
+                  <button type="button" id="data-to-timeline" hidden>Ver período na Linha do Tempo</button>
+                  <a id="data-detail-method" href="/metodologia">Consultar metodologia</a>
+                </div>
+              </aside>
+            </div>
           </div>
 
           <div id="panel-laws" class="canvas-panel scrollable" hidden>
@@ -187,11 +274,18 @@
         </div>
       </section>
     </main>
+    <section id="product-external" hidden aria-label="Conteúdo da área de trabalho">
+      <iframe id="product-explore" title="Explorar o território" hidden></iframe>
+      <iframe id="product-method" title="Metodologia e fontes" hidden></iframe>
+    </section>
   </div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="https://unpkg.com/deck.gl@9.2.6/dist.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script src="/map_layers.js" defer></script>
+  <script src="/timeline.js" defer></script>
+  <script src="/product.js" defer></script>
   <script src="/studio.js" defer></script>
 </body>
 </html>
