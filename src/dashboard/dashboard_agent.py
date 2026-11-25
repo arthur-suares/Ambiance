@@ -36,9 +36,19 @@ Tipos de componentes permitidos (`kind`), e só estes (sem mapas):
 Se a mensagem trouxer "Tipo de gráfico pedido pelo usuário", o componente principal DEVE usar esse `kind`; os demais componentes complementam. Nunca recuse um pedido por causa do tipo de gráfico.
 Nos textos da tela (títulos, subtítulos, rótulos), use palavras do dia a dia ("pizza", "rosca", "barras", "linha", "lista", "medidor"), nunca os nomes técnicos (donut, gauge, waterfall, combo).
 
+Estrutura mínima obrigatória de um painel executivo (siga sempre que os datasets permitirem):
+- FAIXA DE KPIs NO TOPO: crie de 3 a 6 componentes `kpi` (nunca 0 KPIs). Derive KPIs úteis dos datasets disponíveis (ex.: total de exposição ou volume no ano, líder do ranking com `agg="max"`, contagem de municípios/destinos com `agg="count"`, participação do principal destino ou valor médio, respeitando sempre a regra de não somar exposição de 5 anos entre anos nem somar `%`). Sempre que houver dataset com vários anos para a métrica, informe `trend_x` (ex.: `"year"`) e `trend_y` para mostrar variação contra o período anterior e mini-linha.
+- VARIEDADE DE GRÁFICOS: inclua pelo menos 3 gráficos de tipos diferentes quando os datasets permitirem, combinando:
+  * ranking em barras horizontais (`kind="bar"`, `orientation="h"`);
+  * participação em rosca (`kind="donut"`, até 8 fatias);
+  * lista de top destinos/itens com barras de progresso (`kind="progress"`, até 10 linhas);
+  * evolução no tempo (`kind="line"` ou `kind="area"`, `span=2`) ou segunda comparação (`kind="bar"`).
+- TABELAS: NÃO coloque widgets `table` no corpo principal — cada gráfico já inclui automaticamente uma tabela recolhida "Ver dados". Só inclua `table` se o usuário pedir explicitamente uma tabela (e nunca coloque mais tabelas do que gráficos).
+- DISPOSIÇÃO (`span`): use `span=2` para séries temporais; use `span=1` em rankings horizontais, roscas e listas de progresso para formar pares lado a lado na grade de 2 colunas.
+
 Quando usar cada tipo:
 - `kpi`: indicadores-chave de destaque no topo (informe `dataset_id`, `column`, `agg` entre \
-first/sum/mean/max/min/count e `value` numérico exato calculado a partir do dataset).
+first/last/sum/mean/max/min/count e `value` numérico exato calculado a partir do dataset; use `agg="last"` para pegar o último ano de uma série ordenada por ano crescente).
 - `line`: evolução temporal por ano (`x="year"`, `y=["coluna_numerica"]`, opcional `color`).
 - `bar`: rankings e comparações entre categorias (`x="coluna_categoria"`, `y=["coluna_numerica"]`, \
 use `orientation="h"` quando os nomes de municípios/empresas forem longos).
@@ -147,21 +157,33 @@ def _datasets_context(datasets: list[DatasetResult]) -> str:
     return "\n".join(format_dataset_for_llm(d, max_rows=MAX_ROWS_TO_LLM) for d in datasets)
 
 
+def _chat_context_block(chat_context: dict | None) -> str:
+    if not chat_context:
+        return ""
+    from src.dashboard.chat_context import format_chat_context_prompt
+    block = format_chat_context_prompt(chat_context)
+    return f"\n{block}\n" if block else ""
+
+
 def propose_dashboard_spec(
     question: str,
     plan: OrchestratorPlan,
     datasets: list[DatasetResult],
+    *,
+    chat_context: dict | None = None,
 ) -> tuple[DashboardSpec, int, int]:
     """Gera a especificação JSON inicial do dashboard a partir dos DataFrames."""
     reqs = "\n".join(
         f"- [{r.request_id}] visual sugerido={r.suggested_visual}: {r.description}"
         for r in plan.data_requests
     )
+    ctx_part = _chat_context_block(chat_context)
     user_msg = (
         f"Pergunta do usuário: {question}\n"
         f"Objetivo do painel: {plan.dashboard_goal}\n"
         f"{_chart_line(plan)}"
-        f"Sugestões do Orquestrador:\n{reqs}\n\n"
+        f"Sugestões do Orquestrador:\n{reqs}\n"
+        f"{ctx_part}\n"
         f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
         f"{_datasets_context(datasets)}"
     )
@@ -182,6 +204,8 @@ def revise_dashboard_spec(
     datasets: list[DatasetResult],
     previous_spec: DashboardSpec,
     review: ReviewResult,
+    *,
+    chat_context: dict | None = None,
 ) -> tuple[DashboardSpec, int, int]:
     """Corrige a especificação JSON do dashboard com base nos apontamentos do Agente Revisor."""
     issues_txt = "\n".join(
@@ -189,10 +213,12 @@ def revise_dashboard_spec(
         for i in review.issues
     )
     prev_json = json.dumps(previous_spec.to_dict(), ensure_ascii=False, indent=2)
+    ctx_part = _chat_context_block(chat_context)
     user_msg = (
         f"Pergunta do usuário: {question}\n"
         f"Objetivo do painel: {plan.dashboard_goal}\n"
-        f"{_chart_line(plan)}\n"
+        f"{_chart_line(plan)}"
+        f"{ctx_part}\n"
         f"Datasets disponíveis (truncados em {MAX_ROWS_TO_LLM} linhas):\n"
         f"{_datasets_context(datasets)}\n"
         f"Especificação JSON anterior:\n{prev_json}\n\n"

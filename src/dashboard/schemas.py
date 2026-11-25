@@ -26,7 +26,7 @@ LAW_WIDGET_KINDS = ("range", "quote")
 WIDGET_KINDS = (*ALLOWED_WIDGET_KINDS, *LAW_WIDGET_KINDS)
 LAWS_DATABASE = "laws"
 LAWS_SOURCE = "Legislação — Planalto"
-ALLOWED_KPI_AGGS = ("first", "sum", "mean", "max", "min", "count")
+ALLOWED_KPI_AGGS = ("first", "last", "sum", "mean", "max", "min", "count")
 MAX_REVISIONS = 2
 MAX_ROWS_TO_LLM = 60
 
@@ -256,6 +256,8 @@ def compute_kpi_value(df: pd.DataFrame, column: str, agg: str = "first") -> floa
         return None
     if agg == "first":
         val = float(series.iloc[0])
+    elif agg == "last":
+        val = float(series.iloc[-1])
     elif agg == "sum":
         val = float(series.sum())
     elif agg == "mean":

@@ -498,24 +498,136 @@ def check_requested_dimension(spec: DashboardSpec, dimension: str | None, datase
     )]
 
 
+_CHART_KINDS = frozenset({"bar", "line", "area", "pie", "donut", "progress", "waterfall"})
+_TIME_COLS = frozenset({"year", "ano"})
+
+
+def _structural_capacity(datasets: list[DatasetResult]) -> tuple[int, bool, bool]:
+    """Calcula a capacidade estrutural dos datasets: (max_kpis_uteis, pode_ter_3_graficos, pode_ter_grafico)."""
+    data_ds = [d for d in datasets if getattr(d, "database", "") != LAWS_DATABASE and not d.df.empty]
+    if not data_ds:
+        return 0, False, False
+
+    numeric_cols_total = 0
+    chartable_ds = 0
+    metric_views = 0
+    for ds in data_ds:
+        df = ds.df
+        num_cols = [c for c in df.columns if c.lower() not in _TIME_COLS and _has_numeric_values(df, c)]
+        cat_or_time = [c for c in df.columns if c.lower() in _TIME_COLS or not pd.api.types.is_numeric_dtype(df[c])]
+        numeric_cols_total += len(num_cols)
+        if len(df) >= 2 and num_cols and cat_or_time:
+            chartable_ds += 1
+            # Cada dataset com >=2 linhas e dimensão + métrica suporta ao menos 1 gráfico;
+            # com >=2 métricas ou >=4 categorias suporta visões complementares (ex.: barras + rosca/progresso).
+            metric_views += max(len(num_cols), 2 if len(df) >= 4 else 1)
+
+    can_have_chart = chartable_ds >= 1
+    can_have_3_charts = chartable_ds >= 2 or metric_views >= 3
+    # Cada coluna numérica + contagens de linhas de rankings podem gerar KPIs reais do SQL.
+    max_kpis = numeric_cols_total + chartable_ds
+    return max_kpis, can_have_3_charts, can_have_chart
+
+
+def check_dashboard_structure(
+    spec: DashboardSpec,
+    datasets: list[DatasetResult] | dict[str, DatasetResult],
+) -> list[WidgetIssue]:
+    """Checagem determinística de composição executiva: KPIs no topo, >=3 gráficos variados e sem domínio de tabelas.
+
+    Usa `blocking=False` para pedir revisão ao Agente de Dashboard sem ocultar gráficos válidos caso
+    as tentativas de revisão se esgotem.
+    """
+    ds_list = list(datasets.values()) if isinstance(datasets, dict) else list(datasets)
+    by_id = {d.dataset_id: d for d in ds_list}
+    data_ds = [d for d in ds_list if getattr(d, "database", "") != LAWS_DATABASE and not d.df.empty]
+    max_kpis, can_have_3_charts, can_have_chart = _structural_capacity(ds_list)
+    if max_kpis == 0 and not can_have_chart:
+        return []
+
+    data_widgets = [
+        w for w in spec.widgets
+        if w.valid and not (w.dataset_id in by_id and getattr(by_id[w.dataset_id], "database", "") == LAWS_DATABASE)
+        and LAWS_SOURCE not in (w.source or "")
+    ]
+    # Painéis mínimos de 1 único dataset com 1 métrica e 1 componente (ex.: tabela única ou gráfico isolado)
+    # não são forçados a gerar composição executiva completa.
+    num_cols_total = sum(
+        len([c for c in d.df.columns if c.lower() not in _TIME_COLS and _has_numeric_values(d.df, c)])
+        for d in data_ds
+    )
+    if len(data_ds) < 2 and num_cols_total < 2 and len(data_widgets) <= 1:
+        return []
+    kpis = [w for w in data_widgets if w.kind in ("kpi", "gauge")]
+    charts = [w for w in data_widgets if w.kind in _CHART_KINDS]
+    tables = [w for w in data_widgets if w.kind == "table"]
+    chart_kinds = {w.kind for w in charts}
+
+    issues: list[WidgetIssue] = []
+    if max_kpis > 0 and len(kpis) == 0:
+        issues.append(WidgetIssue(
+            None, "deterministic",
+            "O painel tem 0 KPIs. Inclua de 3 a 6 componentes `kpi` no topo (use os datasets disponíveis com "
+            "agg sum/max/count/first respeitando as regras metodológicas, e informe trend_x/trend_y se houver série anual).",
+            code="estrutura", blocking=False,
+        ))
+    elif max_kpis >= 3 and len(kpis) < 3:
+        issues.append(WidgetIssue(
+            None, "deterministic",
+            f"O painel tem apenas {len(kpis)} KPI(s), mas os dados permitem de 3 a 6 KPIs executivos no topo.",
+            code="estrutura", blocking=False,
+        ))
+
+    if can_have_3_charts and len(charts) < 3:
+        issues.append(WidgetIssue(
+            None, "deterministic",
+            f"O painel tem apenas {len(charts)} gráfico(s), mas os datasets permitem pelo menos 3 gráficos de tipos "
+            "diferentes (ex.: ranking em barras horizontais `bar`, participação em rosca `donut`, lista `progress` "
+            "e/ou evolução temporal `line`/`area`).",
+            code="estrutura", blocking=False,
+        ))
+    elif can_have_3_charts and len(charts) >= 3 and len(chart_kinds) < 2:
+        issues.append(WidgetIssue(
+            None, "deterministic",
+            f"Todos os {len(charts)} gráficos usam o mesmo tipo ({', '.join(sorted(chart_kinds))}). "
+            "Varie os tipos entre barras horizontais (`bar`), rosca (`donut`), lista de progresso (`progress`) "
+            "e/ou linha temporal (`line`).",
+            code="estrutura", blocking=False,
+        ))
+
+    if can_have_chart and len(tables) > len(charts):
+        issues.append(WidgetIssue(
+            None, "deterministic",
+            f"Há mais tabelas ({len(tables)}) do que gráficos ({len(charts)}). Remova as tabelas redundantes do "
+            "corpo principal e use gráficos (`bar`, `donut`, `progress`, `line`); cada gráfico já inclui 'Ver dados' recolhido.",
+            code="estrutura", blocking=False,
+        ))
+    return issues
+
+
 def review_dashboard(
     question: str,
     spec: DashboardSpec,
     datasets: list[DatasetResult],
     requested=None,
     dimension: str | None = None,
+    *,
+    enforce_structure: bool = False,
 ) -> ReviewResult:
     """Revisa o dashboard: primeiro determinístico em código; depois LLM só para metodologia.
 
     `requested` é o `ChartChoice` guardado no plano: o revisor confere se o tipo pedido foi atendido.
     `dimension` é a dimensão pedida (município, empresa...): o revisor confere o agrupamento.
+    `enforce_structure`: quando True (fluxo de geração completa), reprova painéis sem KPIs,
+    com menos de 3 gráficos podendo ter mais, ou com mais tabelas do que gráficos.
     """
     # A4: bases diferentes entre widgets não se corrigem reescrevendo o JSON (os dados são os mesmos):
     # o aviso vai no resultado, sem reprovar, e o orquestrador escreve a base em cada widget.
     base_issues = check_common_base(spec, datasets)
     log_issues("revisor_base", base_issues)
+    struct_issues = check_dashboard_structure(spec, datasets) if enforce_structure else []
     det_issues = (check_requested_chart(spec, requested) + check_requested_dimension(spec, dimension, datasets)
-                  + check_deterministic(spec, datasets))
+                  + struct_issues + check_deterministic(spec, datasets))
     log_issues("revisor", det_issues)
     if det_issues:
         return ReviewResult(

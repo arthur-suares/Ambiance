@@ -65,9 +65,12 @@ brasileiras). Seu papel é decompor a pergunta do usuário num plano enxuto de c
 componentes visuais complementares.
 
 Diretrizes de planejamento:
-- Planeje de 2 a 4 recortes de dados (`data_requests`) que juntos formem um bom painel executivo \
-(ex.: indicadores de destaque para KPIs, ranking para gráfico de barras, série histórica para linha, \
-ou detalhamento para tabela).
+- Planeje de 3 a 5 recortes de dados (`data_requests`) que juntos formem um painel executivo completo:
+  1) Um recorte de indicadores-síntese para 3 a 6 KPIs no topo (totais, médias, contagens; quando possível inclua também uma série anual ou o ano anterior para permitir variação percentual e mini-linha nos KPIs);
+  2) Ranking principal em barras horizontais (`bar`), ordenado pela métrica principal;
+  3) Participação/composição em rosca (`donut`) ou lista de barras de progresso (`progress`), ex.: principais países de destino (com "Outros" no SQL quando aplicável);
+  4) Evolução temporal (`line`/`area`) ou segunda comparação complementar (`bar`/`progress`) cobrindo outras métricas da pergunta (ex.: produção/volume além de exposição).
+- NÃO planeje recortes cujo visual sugerido seja `table` (a menos que o usuário peça explicitamente uma tabela): cada gráfico já traz uma tabela recolhida "Ver dados" e uma seção final recolhida "Dados completos".
 - Tipos de visual suportados nesta versão (use só estes; sem mapas):
 {kinds}
 - {choice_by_intent}
@@ -140,7 +143,13 @@ def default_output_path(question: str, output_dir: Path | None = None) -> Path:
     return base / f"{stamp}_{slugify_question(question)}.html"
 
 
-def create_plan(question: str, domain: str, chart: ChartChoice | None = None) -> OrchestratorPlan:
+def create_plan(
+    question: str,
+    domain: str,
+    chart: ChartChoice | None = None,
+    *,
+    chat_context: dict | None = None,
+) -> OrchestratorPlan:
     """Usa o LLM para definir quais recortes de dados e tipos de gráficos comporão o painel."""
     beef_ok = DUCKDB_PATH.exists()
     soy_ok = soy_queries.is_available()
@@ -155,6 +164,11 @@ def create_plan(question: str, domain: str, chart: ChartChoice | None = None) ->
     dim = detect_dimension(question)
     if dim is not None:
         user_msg += "\n" + dimension_line(dim)
+    if chat_context:
+        from src.dashboard.chat_context import format_chat_context_prompt
+        ctx_block = format_chat_context_prompt(chat_context)
+        if ctx_block:
+            user_msg += "\n\n" + ctx_block
     payload, in_tok, out_tok = call_structured_llm(
         system=ORCHESTRATOR_SYSTEM_PROMPT,
         user_content=user_msg,
@@ -377,6 +391,7 @@ def generate_dashboard(
     domain: str | None = None,
     output_path: Path | str | None = None,
     save: bool = True,
+    chat_context: dict | None = None,
 ) -> DashboardRunResult:
     """Executa o fluxo completo entre Orquestrador, Dados, Dashboard e Revisor."""
     start = time.perf_counter()
@@ -391,7 +406,7 @@ def generate_dashboard(
         datasets = []
         data_res = None
     else:
-        plan = create_plan(question, resolved_domain, chart)
+        plan = create_plan(question, resolved_domain, chart, chat_context=chat_context)
         total_in = plan.input_tokens + c_in
         total_out = plan.output_tokens + c_out
         data_res = run_data_agent(question, plan)
@@ -413,13 +428,13 @@ def generate_dashboard(
             warnings=[reason],
         )
     else:
-        spec, d_in, d_out = propose_dashboard_spec(question, plan, datasets)
+        spec, d_in, d_out = propose_dashboard_spec(question, plan, datasets, chat_context=chat_context)
         total_in += d_in
         total_out += d_out
 
         for attempt in range(MAX_REVISIONS + 1):
             review = review_dashboard(question, spec, datasets, requested=plan.requested_chart,
-                                      dimension=plan.requested_dimension)
+                                      dimension=plan.requested_dimension, enforce_structure=True)
             reviews.append(review)
             total_in += review.input_tokens
             total_out += review.output_tokens
@@ -429,11 +444,17 @@ def generate_dashboard(
 
             if attempt < MAX_REVISIONS:
                 revisions_used += 1
-                spec, r_in, r_out = revise_dashboard_spec(question, plan, datasets, spec, review)
+                spec, r_in, r_out = revise_dashboard_spec(
+                    question, plan, datasets, spec, review, chat_context=chat_context
+                )
                 total_in += r_in
                 total_out += r_out
             else:
                 _apply_final_review_isolation(spec, review, question)
+
+    if not law_only and chat_context:
+        from src.dashboard.chat_context import ensure_dados_charts_included
+        ensure_dados_charts_included(spec, datasets, chat_context, domain=resolved_domain)
 
     if law_only or resolved_domain == "mixed":  # G3: leis -> agente de leis; misto -> os dois
         l_in, l_out = _attach_law_part(spec, question, datasets, 1)
@@ -593,7 +614,7 @@ def build_dashboard_from_store(
         for attempt in range(MAX_REVISIONS + 1):
             t_val = time.perf_counter()
             review = review_dashboard(question, spec, datasets, requested=plan.requested_chart,
-                                      dimension=plan.requested_dimension)
+                                      dimension=plan.requested_dimension, enforce_structure=True)
             reviews.append(review)
             total_in += review.input_tokens
             total_out += review.output_tokens
