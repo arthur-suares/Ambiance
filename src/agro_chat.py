@@ -380,6 +380,15 @@ def _evaluate_views(
     return map_spec, charts, views
 
 
+def _cached_system_prompt() -> list[dict[str, Any]]:
+    """SYSTEM_PROMPT como bloco com cache_control efêmero (mesmo padrão de src/dashboard/data_agent.py)."""
+    return [{
+        "type": "text",
+        "text": SYSTEM_PROMPT,
+        "cache_control": {"type": "ephemeral"},
+    }]
+
+
 def ask_agro(
     question: str,
     k_laws: int = 6,
@@ -389,6 +398,7 @@ def ask_agro(
     from src.rag import get_client
 
     client = get_client()
+    system_blocks = _cached_system_prompt()
     user_content = _format_view_context(view_context) + question
     messages: list[dict[str, Any]] = [*_sanitize_history(history), {"role": "user", "content": user_content}]
     tool_calls_log: list[dict[str, Any]] = []
@@ -400,6 +410,9 @@ def ask_agro(
 
     in_tokens = 0
     out_tokens = 0
+    cache_read_tokens = 0
+    cache_creation_tokens = 0
+    turns_used = 0
     d_idx = 0
     final_text = ""
     stop_reason = ""
@@ -408,13 +421,16 @@ def ask_agro(
         resp = client.messages.create(
             model=LLM_MODEL,
             max_tokens=min(LLM_MAX_TOKENS, 4096),
-            system=SYSTEM_PROMPT,
+            system=system_blocks,
             messages=messages,
             tools=TOOLS,
             **LLM_EXTRA_PARAMS,
         )
-        in_tokens += resp.usage.input_tokens
-        out_tokens += resp.usage.output_tokens
+        turns_used += 1
+        in_tokens += getattr(resp.usage, "input_tokens", 0) or 0
+        out_tokens += getattr(resp.usage, "output_tokens", 0) or 0
+        cache_read_tokens += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+        cache_creation_tokens += getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
         stop_reason = resp.stop_reason or ""
 
         assistant_blocks = resp.content
@@ -548,14 +564,17 @@ def ask_agro(
         resp = client.messages.create(
             model=LLM_MODEL,
             max_tokens=LLM_MAX_TOKENS,  # resposta longa + raciocínio do modelo: 4096 cortava o texto
-            system=SYSTEM_PROMPT,
+            system=system_blocks,
             messages=messages,
             tools=TOOLS,
             tool_choice={"type": "none"},
             **LLM_EXTRA_PARAMS,
         )
-        in_tokens += resp.usage.input_tokens
-        out_tokens += resp.usage.output_tokens
+        turns_used += 1
+        in_tokens += getattr(resp.usage, "input_tokens", 0) or 0
+        out_tokens += getattr(resp.usage, "output_tokens", 0) or 0
+        cache_read_tokens += getattr(resp.usage, "cache_read_input_tokens", 0) or 0
+        cache_creation_tokens += getattr(resp.usage, "cache_creation_input_tokens", 0) or 0
         stop_reason = resp.stop_reason or stop_reason
         final_text = "\n".join(b.text for b in resp.content if b.type == "text").strip()
 
@@ -592,6 +611,9 @@ def ask_agro(
         "stop_reason": stop_reason,
         "input_tokens": in_tokens,
         "output_tokens": out_tokens,
+        "turns": turns_used,
+        "cache_read_input_tokens": cache_read_tokens,
+        "cache_creation_input_tokens": cache_creation_tokens,
         "tool_calls": tool_calls_log,
         "tables": tables,
         "charts": final_charts,
