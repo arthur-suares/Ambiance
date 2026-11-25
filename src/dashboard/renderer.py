@@ -10,13 +10,10 @@ Segurança e resiliência:
 from __future__ import annotations
 
 import html
-import json
 import logging
 import math
 import re
 from dataclasses import replace
-from functools import lru_cache
-from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -34,6 +31,12 @@ from src.dashboard.messages import (
     plain_labels,
     short_subtitle,
     user_message,
+)
+from src.dashboard.embed_theme import (
+    build_embed_studio_css as _embed_studio_css,
+    build_embed_studio_js as _build_embed_studio_js,
+    load_studio_chart_colors,
+    load_studio_tokens,
 )
 from src.dashboard.interaction import MOTION_CSS, MOTION_JS, card_actions, csv_template, period_filter, view_switch
 from src.dashboard.law_agent import LAW_FOOTER
@@ -326,6 +329,15 @@ h1 { font-family: var(--serif); font-size: 34px; line-height: 1.12; margin: var(
 .kpi-delta .delta { color: var(--fg); font-weight: 650; }
 .delta-ref { font-weight: 400; color: var(--muted); }
 .spark { width: 72px; height: 20px; color: var(--icon); flex-shrink: 0; }
+.spark-area { display: none; }
+.hero-stats { display: none; }
+.delta-prev { display: none; }
+.full-data-collapse > summary {
+  cursor: pointer; font-weight: 600; font-size: var(--t-sm); color: var(--fg);
+  padding: var(--s2) var(--s3); background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-sm); display: inline-flex; align-items: center; gap: var(--s2);
+}
+.full-data-collapse[open] > summary { margin-bottom: var(--s3); }
 .kpi-note { margin: var(--s1) 0 0; font-size: var(--t-xs); color: var(--muted); }
 .kpi-source { margin: var(--s1) 0 0; font-size: 11px; color: var(--muted); }
 .kpi-gauge { width: 56px; height: 56px; }
@@ -526,357 +538,9 @@ FONT_STACK = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helv
 GRID_COLOR = "rgba(128, 124, 112, 0.16)"
 HOVER_BG = "#1e231f"
 
-# Modo embed (?embed=1 / .is-embed): lê os tokens de web/studio.css e CHART_COLORS de web/studio.js
-# como fonte única de design para que o Painel completo dentro do studio tenha o mesmo visual.
-_WEB_DIR = Path(__file__).resolve().parents[2] / "web"
-_STUDIO_TOKENS_FALLBACK: dict[str, str] = {
-    "bg": "#f6f7f4",
-    "surface": "#ffffff",
-    "surface-soft": "#eef2ee",
-    "border": "#dfe5df",
-    "border-strong": "#c8d3c9",
-    "text": "#16211b",
-    "muted": "#5a6a61",
-    "accent": "#15803d",
-    "accent-hover": "#166534",
-    "accent-soft": "#eaf5ee",
-    "accent-border": "#b8dfc4",
-    "amber-bg": "#fef3c7",
-    "amber-text": "#92400e",
-    "amber-border": "#fcd34d",
-    "shadow-sm": "0 1px 3px rgba(16, 28, 21, 0.05)",
-    "shadow-md": "0 8px 28px rgba(16, 28, 21, 0.07)",
-    "font": '"Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    "serif": '"Newsreader", Georgia, serif',
-    "mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-}
-_STUDIO_CHART_COLORS_FALLBACK: tuple[str, ...] = (
-    "#10b981", "#38bdf8", "#f59e0b", "#f43f5e", "#a855f7", "#eab308", "#14b8a6", "#fb7185",
-)
-
-
-@lru_cache(maxsize=1)
-def load_studio_tokens() -> dict[str, str]:
-    """Lê as variáveis CSS do :root em web/studio.css (fonte única de design no modo embed)."""
-    tokens = dict(_STUDIO_TOKENS_FALLBACK)
-    css_path = _WEB_DIR / "studio.css"
-    try:
-        text = css_path.read_text(encoding="utf-8")
-        m = re.search(r":root\s*\{([^}]*)\}", text, flags=re.S)
-        if m:
-            for name, val in re.findall(r"--([a-z0-9-]+)\s*:\s*([^;]+);", m.group(1)):
-                tokens[name.strip()] = val.strip()
-    except OSError:
-        pass
-    return tokens
-
-
-@lru_cache(maxsize=1)
-def load_studio_chart_colors() -> tuple[str, ...]:
-    """Lê CHART_COLORS de web/studio.js para alinhar as séries Plotly no modo embed."""
-    js_path = _WEB_DIR / "studio.js"
-    try:
-        text = js_path.read_text(encoding="utf-8")
-        m = re.search(r"CHART_COLORS\s*=\s*\[([^\]]+)\]", text)
-        if m:
-            colors = tuple(re.findall(r"#[0-9a-fA-F]{6}", m.group(1)))
-            if colors:
-                return colors
-    except OSError:
-        pass
-    return _STUDIO_CHART_COLORS_FALLBACK
-
-
-def _embed_studio_css() -> str:
-    """CSS aplicado SOMENTE em .is-embed (?embed=1 / iframe), reutilizando os tokens de web/studio.css."""
-    t = load_studio_tokens()
-    return f"""
-/* Tema do studio para o painel embutido (.is-embed); não altera o painel aberto fora do embed. */
-:root.is-embed {{
-  --studio-bg: {t["bg"]};
-  --studio-surface: {t["surface"]};
-  --studio-surface-soft: {t["surface-soft"]};
-  --studio-border: {t["border"]};
-  --studio-border-strong: {t["border-strong"]};
-  --studio-text: {t["text"]};
-  --studio-muted: {t["muted"]};
-  --studio-accent: {t["accent"]};
-  --studio-accent-hover: {t["accent-hover"]};
-  --studio-accent-soft: {t["accent-soft"]};
-  --studio-accent-border: {t["accent-border"]};
-  --studio-amber-bg: {t["amber-bg"]};
-  --studio-amber-text: {t["amber-text"]};
-  --studio-amber-border: {t["amber-border"]};
-  --studio-shadow-sm: {t["shadow-sm"]};
-  --studio-shadow-md: {t["shadow-md"]};
-  --studio-font: {t["font"]};
-  --studio-serif: {t["serif"]};
-  --studio-mono: {t["mono"]};
-  --r-sm: 8px;
-  --r-md: 14px;
-}}
-:root.is-embed:not([data-theme="dark"]) {{
-  --bg: var(--studio-bg);
-  --panel: var(--studio-surface);
-  --panel-2: var(--studio-surface-soft);
-  --fg: var(--studio-text);
-  --muted: var(--studio-muted);
-  --border: var(--studio-border);
-  --line: var(--studio-border-strong);
-  --accent: var(--studio-accent);
-  --accent-soft: var(--studio-accent-soft);
-  --brand: var(--studio-accent);
-  --icon: var(--studio-accent);
-  --focus: var(--studio-accent);
-  --chart-text: var(--studio-muted);
-  --track: var(--studio-surface-soft);
-  --code-bg: var(--studio-bg);
-  --warn-bg: var(--studio-amber-bg);
-  --warn-border: var(--studio-amber-border);
-  --warn-fg: var(--studio-amber-text);
-}}
-:root.is-embed[data-theme="dark"] {{
-  --accent: #10b981;
-  --brand: #10b981;
-  --icon: #10b981;
-  --focus: #10b981;
-}}
-.is-embed body {{
-  background: var(--bg);
-  color: var(--fg);
-  font-family: var(--studio-font);
-  font-size: 14.5px;
-  line-height: 1.55;
-}}
-.is-embed main {{ padding: 18px 20px 28px; max-width: none; }}
-.is-embed .hero {{ margin-bottom: 18px; }}
-.is-embed .hero-top {{ border-top: 0; padding-top: 0; }}
-.is-embed .eyebrow {{ color: var(--accent); font-weight: 600; letter-spacing: .04em; }}
-.is-embed h1 {{
-  font-family: var(--studio-font);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  line-height: 1.25;
-  margin: 4px 0 6px;
-}}
-.is-embed .hero-subtitle {{ font-size: 13px; margin: 0; color: var(--muted); }}
-.is-embed .dash-section {{ margin-bottom: 20px; }}
-.is-embed .section-title {{
-  font-family: var(--studio-font);
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0;
-  margin: 0 0 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-}}
-.is-embed .section-title::after {{ background: var(--accent); width: 36px; height: 2px; }}
-.is-embed .kpi-strip {{
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--studio-shadow-sm);
-  padding: 16px 0;
-  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
-}}
-.is-embed .kpi {{ padding: 0 16px; }}
-.is-embed .kpi-value {{ font-size: 22px; font-weight: 700; }}
-.is-embed .kpi.is-featured .kpi-value {{ font-size: 26px; }}
-.is-embed .chart-grid {{ gap: 16px; }}
-.is-embed .card {{
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 16px;
-  box-shadow: var(--studio-shadow-sm);
-}}
-.is-embed .card-header {{ margin-bottom: 10px; }}
-.is-embed .card-header h3 {{
-  font-family: var(--studio-font);
-  font-size: 14.5px;
-  font-weight: 700;
-  line-height: 1.35;
-}}
-.is-embed .card.is-compact .card-header {{ justify-content: space-between; text-align: left; padding: 0; }}
-.is-embed .card.is-compact .card-header h3 {{ font-size: 14px; font-weight: 700; letter-spacing: 0; text-transform: none; }}
-.is-embed .card.is-compact .card-header .card-tools {{ position: static; }}
-.is-embed .subtitle {{ font-size: 12px; color: var(--muted); margin-top: 2px; }}
-.is-embed .conclusion {{ font-size: 13px; color: var(--fg); margin-top: 4px; }}
-.is-embed .badge {{
-  border-radius: 999px;
-  background: var(--accent-soft);
-  border-color: var(--studio-accent-border);
-  color: var(--accent);
-  padding: 1px 8px;
-}}
-.is-embed .btn-ghost,
-.is-embed details.data-view summary {{
-  font-family: var(--studio-font);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--fg);
-  border-radius: 8px;
-  padding: 5px 10px;
-  font-size: 11.5px;
-  font-weight: 600;
-}}
-.is-embed .btn-ghost:hover,
-.is-embed details.data-view summary:hover {{
-  border-color: var(--accent);
-  color: var(--studio-accent-hover);
-  background: var(--panel);
-}}
-.is-embed .table-wrap {{ border: 1px solid var(--border); border-radius: 10px; }}
-.is-embed table {{ width: 100%; border-collapse: collapse; font-size: 12.5px; font-family: var(--studio-font); }}
-.is-embed thead th {{
-  background: var(--bg);
-  color: var(--muted);
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-}}
-.is-embed tbody td {{ padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--fg); }}
-.is-embed tbody tr:hover td {{ background: var(--panel-2); }}
-.is-embed .databar {{ background: var(--accent-soft); }}
-.is-embed details.provenance {{
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 14px 16px;
-  box-shadow: var(--studio-shadow-sm);
-}}
-.is-embed .query-item pre {{
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-family: var(--studio-mono);
-  font-size: 11.5px;
-}}
-.is-embed .query-item code {{ font-family: var(--studio-mono); font-size: 11.5px; }}
-.is-embed .js-plotly-plot .plotly .main-svg text {{ font-family: var(--studio-font) !important; }}
-@media (max-width: 900px) {{
-  .is-embed main {{ padding: 14px 14px 22px; }}
-  .is-embed h1 {{ font-size: 18px; }}
-}}
-"""
-
 
 def _embed_studio_js() -> str:
-    """No modo embed (.is-embed), aplica a paleta CHART_COLORS e a tipografia do studio nas séries Plotly."""
-    t = load_studio_tokens()
-    studio_colors = list(load_studio_chart_colors())
-    return f"""
-(function () {{
-  if (!document.documentElement.classList.contains("is-embed")) return;
-  var STUDIO_COLORS = {json.dumps(studio_colors)};
-  var STANDALONE = {json.dumps(PALETTE)};
-  var ACCENT_OLD = {json.dumps(ACCENT)};
-  var ACCENT_NEW = {json.dumps(t["accent"])};
-  var STUDIO_FONT = {json.dumps(t["font"])};
-  var STUDIO_TEXT = {json.dumps(t["text"])};
-  var STUDIO_MUTED = {json.dumps(t["muted"])};
-  var COLOR_MAP = {{}};
-  for (var i = 0; i < STANDALONE.length; i++) {{
-    COLOR_MAP[STANDALONE[i].toLowerCase()] = STUDIO_COLORS[i % STUDIO_COLORS.length];
-  }}
-  COLOR_MAP[ACCENT_OLD.toLowerCase()] = ACCENT_NEW;
-
-  function rgbToHex(r, g, b) {{
-    return "#" + [r, g, b].map(function (v) {{ return ("0" + parseInt(v, 10).toString(16)).slice(-2); }}).join("");
-  }}
-  function mapColor(c) {{
-    if (typeof c !== "string") return c;
-    var low = c.trim().toLowerCase();
-    if (COLOR_MAP[low]) return COLOR_MAP[low];
-    var rgba = low.match(/^rgba?\\(\\s*(\\d+)\\s*,\\s*(\\d+)\\s*,\\s*(\\d+)(?:\\s*,\\s*([0-9.]+))?\\s*\\)$/);
-    if (rgba) {{
-      var mapped = COLOR_MAP[rgbToHex(rgba[1], rgba[2], rgba[3])];
-      if (mapped) {{
-        if (rgba[4] == null) return mapped;
-        var r = parseInt(mapped.slice(1, 3), 16), g = parseInt(mapped.slice(3, 5), 16), b = parseInt(mapped.slice(5, 7), 16);
-        return "rgba(" + r + "," + g + "," + b + "," + rgba[4] + ")";
-      }}
-    }}
-    return c;
-  }}
-
-  document.querySelectorAll(".prog-fill").forEach(function (el) {{
-    var bg = el.style && el.style.background;
-    if (bg) {{
-      var mapped = mapColor(bg);
-      if (mapped && mapped !== bg) el.style.background = mapped;
-    }}
-  }});
-
-  function applyStudioPlots() {{
-    if (!window.Plotly) return;
-    document.querySelectorAll(".js-plotly-plot").forEach(function (gd) {{
-      if (!gd.data || !gd.data.length) return;
-      var newData = gd.data.map(function (tr) {{
-        var copy = Object.assign({{}}, tr);
-        if (copy.type === "pie") {{
-          if (copy.marker && Array.isArray(copy.marker.colors)) {{
-            copy.marker = Object.assign({{}}, copy.marker, {{
-              colors: copy.marker.colors.map(mapColor),
-              line: Object.assign({{}}, copy.marker.line || {{}}, {{ color: "#ffffff", width: 2 }}),
-            }});
-          }}
-        }} else {{
-          if (copy.marker) {{
-            var mk = Object.assign({{}}, copy.marker);
-            if (Array.isArray(mk.color)) {{
-              mk.color = mk.color.map(mapColor);
-            }} else if (typeof mk.color === "string") {{
-              mk.color = mapColor(mk.color);
-            }}
-            if (mk.line && typeof mk.line.color === "string") {{
-              mk.line = Object.assign({{}}, mk.line, {{ color: mapColor(mk.line.color) }});
-            }}
-            if (copy.type === "bar") mk.cornerradius = 5;
-            copy.marker = mk;
-          }}
-          if (copy.line && typeof copy.line.color === "string") {{
-            copy.line = Object.assign({{}}, copy.line, {{ color: mapColor(copy.line.color) }});
-          }}
-          if (typeof copy.fillcolor === "string") {{
-            copy.fillcolor = mapColor(copy.fillcolor);
-          }}
-        }}
-        return copy;
-      }});
-      var lay = Object.assign({{}}, gd.layout || {{}});
-      lay.font = Object.assign({{}}, lay.font || {{}}, {{ family: STUDIO_FONT, color: STUDIO_MUTED, size: 11 }});
-      lay.hoverlabel = Object.assign({{}}, lay.hoverlabel || {{}}, {{
-        bgcolor: STUDIO_TEXT,
-        bordercolor: STUDIO_TEXT,
-        font: Object.assign({{}}, (lay.hoverlabel && lay.hoverlabel.font) || {{}}, {{
-          family: STUDIO_FONT, color: "#ffffff", size: 12,
-        }}),
-      }});
-      ["xaxis", "yaxis"].forEach(function (ax) {{
-        if (lay[ax]) {{
-          lay[ax] = Object.assign({{}}, lay[ax], {{
-            gridcolor: "rgba(22, 33, 27, 0.08)",
-            zerolinecolor: "rgba(22, 33, 27, 0.14)",
-            tickfont: Object.assign({{}}, lay[ax].tickfont || {{}}, {{ family: STUDIO_FONT, color: STUDIO_MUTED, size: 11 }}),
-          }});
-        }}
-      }});
-      try {{ window.Plotly.react(gd, newData, lay); }} catch (e) {{}}
-    }});
-  }}
-
-  if (document.readyState === "loading") {{
-    document.addEventListener("DOMContentLoaded", applyStudioPlots);
-  }} else {{
-    applyStudioPlots();
-  }}
-}})();
-"""
+    return _build_embed_studio_js(PALETTE, ACCENT)
 TIME_COLUMNS = ("year", "ano")
 COUNT_UNITS = {
     "nº", "n°", "numero", "número", "contagem", "unidades", "municípios", "municipios", "países",
@@ -1019,10 +683,11 @@ def kpi_trend(df: pd.DataFrame, w: WidgetSpec) -> dict | None:
     t = t.sort_values(w.trend_x)
     xs = t[w.trend_x].tolist()
     ys = [float(v) for v in t[w.trend_y]]
-    out = {"xs": xs, "ys": ys, "delta_pct": None, "prev_x": None, "last_x": xs[-1]}
+    out = {"xs": xs, "ys": ys, "delta_pct": None, "prev_x": None, "prev_val": None, "last_x": xs[-1]}
     if len(ys) >= 2 and ys[-2] != 0:
         out["delta_pct"] = (ys[-1] - ys[-2]) / abs(ys[-2]) * 100
         out["prev_x"] = xs[-2]
+        out["prev_val"] = ys[-2]
     return out
 
 
@@ -1266,7 +931,7 @@ def _build_bar_figure(w: WidgetSpec, df: pd.DataFrame) -> go.Figure:
     height = max(320, 56 + 32 * n) if horiz else 360
     _br_ticks(fig, "x" if horiz else "y", [v for y_col in w.y for v in pd.to_numeric(work[y_col], errors="coerce")])
     fig.update_layout(
-        **_base_layout(height=height, margin={"l": 8, "r": 56 if horiz else 16, "t": 18, "b": 40}),
+        **_base_layout(height=height, margin={"l": 8, "r": 68 if horiz else 16, "t": 18, "b": 40}),
         barmode=w.barmode,
         showlegend=(len(w.y) > 1 or bool(w.color)),
     )
@@ -1978,10 +1643,12 @@ def _sparkline_svg(ys: list[float], uid: str, label: str) -> str:
     step = (w_ - 2 * pad) / (len(ys) - 1)
     pts = [(pad + i * step, h_ - pad - (y - lo) / span * (h_ - 2 * pad)) for i, y in enumerate(ys)]
     line = " ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = f"{pts[0][0]:.1f},{h_:.1f} {line} {pts[-1][0]:.1f},{h_:.1f}"
     lx, ly = pts[-1]
     return (
         f'<svg class="spark" viewBox="0 0 {w_} {h_}" preserveAspectRatio="none" role="img" '
         f'aria-label="{html.escape(label)}">'
+        f'<polygon class="spark-area" points="{area}" fill="currentColor"/>'
         f'<polyline points="{line}" pathLength="1" fill="none" stroke="currentColor" stroke-width="2" '
         f'stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>'
         f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="3.2" fill="currentColor"/></svg>'
@@ -2063,14 +1730,77 @@ def _with_views(w: WidgetSpec, df: pd.DataFrame, plot_html: str, aria: str) -> s
     return view_switch(views, w.kind) + "".join(blocos)
 
 
+def _layout_role(w: WidgetSpec) -> str:
+    """Papel visual do cartão na grade de 2 colunas do embed (largo/estreito/barras/progresso/tabela)."""
+    if w.kind in ("line", "area"):
+        return "time"
+    if w.kind in ("pie", "donut"):
+        return "donut"
+    if w.kind == "progress":
+        return "progress"
+    if w.kind == "bar":
+        return "bar-h" if w.orientation == "h" else "bar-v"
+    return w.kind
+
+
+def _embed_spans(widgets, group_section, by_id=None) -> dict[str, int]:
+    """Largura de cada cartão na grade de 12 colunas no modo embed:
+    - Série temporal (`line`/`area`) ocupa 12 colunas (largura total), ou 7 quando pareada com rosca (5);
+    - Par contendo rosca/pizza: gráfico largo (7) + rosca estreita (5);
+    - Ranking horizontal + lista de progresso (ou dois gráficos comuns): 6 + 6;
+    - Cartão isolado no fim da linha: 12 colunas (sem buraco na grade).
+    """
+    por_secao: dict[str, list] = {}
+    for w in widgets:
+        sec = _section_of(w, group_section, by_id)
+        if sec != "visao-geral":
+            por_secao.setdefault(sec, []).append(w)
+
+    out: dict[str, int] = {}
+    for sec, ws in por_secao.items():
+        if sec in ("detalhamento", "base-legal"):
+            for w in ws:
+                out[w.id] = 12
+            continue
+        i = 0
+        while i < len(ws):
+            cur = ws[i]
+            cur_role = _layout_role(cur)
+            if i + 1 >= len(ws):
+                out[cur.id] = 12
+                i += 1
+                continue
+            nxt = ws[i + 1]
+            nxt_role = _layout_role(nxt)
+            if cur_role == "time" and nxt_role != "donut":
+                out[cur.id] = 12
+                i += 1
+            elif cur_role == "donut" and nxt_role != "donut":
+                out[cur.id] = 5
+                out[nxt.id] = 7
+                i += 2
+            elif nxt_role == "donut" and cur_role != "donut":
+                out[cur.id] = 7
+                out[nxt.id] = 5
+                i += 2
+            else:
+                out[cur.id] = 6
+                out[nxt.id] = 6
+                i += 2
+    return out
+
+
 def _render_valid_card(w: WidgetSpec, inner_html: str, df: pd.DataFrame | None = None,
-                       conclusion: str | None = None, extra_html: str = "", orient: str | None = None) -> str:
+                       conclusion: str | None = None, extra_html: str = "", orient: str | None = None,
+                       embed_span: int | None = None) -> str:
     span_cls = " span-2" if w.span == 2 else ""
     span_cls += " is-compact" if _is_compact(w) else ""
     orient_attr = f' data-orient="{html.escape(orient)}"' if orient else ""
+    role_attr = f' data-layout-role="{html.escape(_layout_role(w))}"'
+    espan_attr = f' data-embed-span="{embed_span}"' if embed_span else ""
     return (
         f'<article class="card chart-card{span_cls}" data-widget-id="{html.escape(w.id)}" '
-        f'data-widget-kind="{html.escape(w.kind)}"{orient_attr}>\n'
+        f'data-widget-kind="{html.escape(w.kind)}"{orient_attr}{role_attr}{espan_attr}>\n'
         f'  {_card_header(w, df, conclusion)}\n'
         f'  <div class="card-body">{inner_html}</div>\n'
         f'  {extra_html}{_card_footer(w, df)}\n'
@@ -2090,19 +1820,27 @@ def _render_kpi_card(w: WidgetSpec, df: pd.DataFrame, featured: bool = False) ->
     value_txt = format_compact_br(actual, w.unit, with_unit=not count_unit)
     trend = kpi_trend(df, w)
     delta = ""
+    has_spark = ""
     if trend and trend["delta_pct"] is not None:
         d = trend["delta_pct"]
         sinal = "+" if d > 0 else ("−" if d < 0 else "")
+        direction = "up" if d > 0 else ("down" if d < 0 else "flat")
         pct = f"{abs(d):,.1f}".replace(",", "_").replace(".", ",").replace("_", ".")
         ref = html.escape(_fmt_axis_value(trend["prev_x"]))
+        prev_txt = (
+            format_compact_br(trend["prev_val"], w.unit, with_unit=not count_unit)
+            if trend.get("prev_val") is not None else ""
+        )
+        prev_span = f'<span class="delta-prev"> · {html.escape(prev_txt)}</span>' if prev_txt else ""
         label = (f"Série de {_label(w, w.trend_y)} de "
                  f"{_fmt_axis_value(trend['xs'][0])} a {_fmt_axis_value(trend['last_x'])}")
-        delta = (f'<p class="kpi-delta"><span class="delta" title="Variação em relação a {ref}">'
-                 f'{sinal}{pct}% <span class="delta-ref">vs {ref}</span></span>'
+        delta = (f'<p class="kpi-delta"><span class="delta" data-dir="{direction}" title="Variação em relação a {ref}">'
+                 f'{sinal}{pct}% <span class="delta-ref">vs {ref}</span>{prev_span}</span>'
                  f'{_sparkline_svg(trend["ys"], _uid(w), label)}</p>')
+        has_spark = " has-spark"
     rotulo = pt_text(w.title) + (f" ({w.unit})" if count_unit and w.unit and w.unit.lower() not in pt_text(w.title).lower() else "")
     note = f'<p class="kpi-note">{html.escape(pt_text(w.subtitle))}</p>' if w.subtitle else ""
-    cls = "kpi is-featured" if featured else "kpi"
+    cls = ("kpi is-featured" if featured else "kpi") + has_spark
     return (
         f'<article class="{cls}" data-widget-id="{html.escape(w.id)}" data-widget-kind="kpi">\n'
         f'  {_icon(_metric_icon(w), "kpi-icon")}\n'
@@ -2293,7 +2031,7 @@ def _plan_groups(widgets, by_id):
     ordered, seen = [], set()
     ranges, sections = {}, {}
     for w in widgets:
-        g = w.group if w.group in members else None
+        g = w.group if (w.group in members and w.kind in ("bar", "line", "area")) else None
         if g is None:
             ordered.append(w)
             continue
@@ -2441,10 +2179,14 @@ def render_dashboard_html(
 
     ordered, group_ranges, group_section = _plan_groups(spec.widgets, by_id)
     spans = _final_spans(ordered, group_section, _main_chart_ids(ordered, group_section, by_id), by_id)
+    espans = _embed_spans(ordered, group_section, by_id)
+    chart_count = 0
+    kpi_count = 0
     for w in ordered:
         if spans.get(w.id, w.span) != w.span:
             w = replace(w, span=spans[w.id])  # E5: principal na largura toda; nenhum cartão sozinho pela metade
         section = _section_of(w, group_section, by_id)
+        espan = espans.get(w.id)
         note = ""
         if w.kind in ("pie", "donut") and w.valid and w.dataset_id in by_id and w.x in by_id[w.dataset_id].df.columns:
             n_partes = len(_prepare_slice(by_id[w.dataset_id].df, w))
@@ -2465,21 +2207,25 @@ def render_dashboard_html(
             if w.kind == "kpi":
                 cards[section].append(_render_kpi_card(w, df, featured=first_kpi))
                 first_kpi = False
+                kpi_count += 1
             elif w.kind == "gauge":
                 cards[section].append(_render_gauge_card(w, df))
+                kpi_count += 1
             elif w.kind == "table":
                 acoes = card_actions(image=False, csv_html=csv_template(
                     _prepare_slice(df, w, default_top_n=50), list(w.columns or df.columns),
                     header=lambda c, w=w: _csv_header(w, c), label=csv_label))
-                cards[section].append(_render_valid_card(w, _render_table_html(w, df), df, extra_html=acoes))
+                cards[section].append(_render_valid_card(w, _render_table_html(w, df), df, extra_html=acoes, embed_span=espan))
             elif w.kind == "quote":
-                cards[section].append(_render_valid_card(w, _render_quote_html(w, df), df))
+                cards[section].append(_render_valid_card(w, _render_quote_html(w, df), df, embed_span=espan))
             elif w.kind == "progress":
                 acoes = card_actions(image=False, csv_html=csv_template(
                     _prepare_slice(df, w), [c for c in (w.x, *w.y) if c],
                     header=lambda c, w=w: _csv_header(w, c), label=csv_label))
                 cards[section].append(_render_valid_card(w, _render_progress_html(w, df), df,
-                                                         chart_conclusion(w, df, _base_of(w, by_id)), acoes))
+                                                         chart_conclusion(w, df, _base_of(w, by_id)), acoes,
+                                                         embed_span=espan))
+                chart_count += 1
             else:
                 fig = build_widget_figure(w, df)
                 if w.group in group_ranges:  # mesmo intervalo de tempo nos gráficos do par
@@ -2499,10 +2245,40 @@ def render_dashboard_html(
                                    header=lambda c, w=w: _csv_header(w, c), label=csv_label)
                 cards[section].append(_render_valid_card(
                     w, body, df, conclusao, card_actions(image=True, csv_html=csv) + _data_view(w, df),
-                    orient=w.orientation))
+                    orient=w.orientation, embed_span=espan))
+                chart_count += 1
         except Exception:
             logger.exception("Falha ao desenhar o componente %s", w.id)
             cards[section].append(_render_fallback(w, by_id, []))
+
+    # 2 a 3 números-síntese para a faixa do cabeçalho no modo embed (sem inventar valores).
+    all_years: list[int] = []
+    for d in datasets:
+        for col in d.df.columns:
+            if _is_time(col):
+                all_years.extend(int(y) for y in pd.to_numeric(d.df[col], errors="coerce").dropna().unique())
+    period_summary = (
+        (str(min(all_years)) if min(all_years) == max(all_years) else f"{min(all_years)}–{max(all_years)}")
+        if all_years else ""
+    )
+    hero_stat_pairs: list[tuple[str, str]] = []
+    if period_summary:
+        hero_stat_pairs.append(("Período", period_summary))
+    if kpi_count:
+        hero_stat_pairs.append(("Indicadores", str(kpi_count)))
+    if chart_count:
+        hero_stat_pairs.append(("Gráficos", str(chart_count)))
+    elif datasets:
+        hero_stat_pairs.append(("Bases", str(len(datasets))))
+    hero_stats_html = (
+        '<div class="hero-stats" aria-label="Resumo do painel">'
+        + "".join(
+            f'<div class="hero-stat"><span class="hero-stat-label">{html.escape(lbl)}</span>'
+            f'<strong class="hero-stat-val">{html.escape(val)}</strong></div>'
+            for lbl, val in hero_stat_pairs[:3]
+        )
+        + "</div>"
+    ) if hero_stat_pairs else ""
 
     page_title = html.escape(pt_text(spec.title) or (f"Dashboard — {question}" if question else "Dashboard Trase"))
     short_title = page_title if len(page_title) <= 48 else page_title[:46].rstrip() + "…"
@@ -2527,10 +2303,17 @@ def render_dashboard_html(
             continue
         nav_items.append(f'<a href="#{sid}" data-section="{sid}">{_icon(sid)}<span>{label}</span></a>')
         grid = "kpi-strip" if sid == "visao-geral" else "chart-grid"
+        inner = f'  <div class="{grid}">\n{chr(10).join(cards[sid])}\n  </div>'
+        if sid == "detalhamento":
+            # Tabelas nunca dominam o corpo principal: ficam recolhidas em "Dados completos" quando há gráficos.
+            n_tbl = len(cards[sid])
+            open_attr = "" if chart_count > 0 else " open"
+            sum_lbl = f"Dados completos ({n_tbl} tabela{'s' if n_tbl != 1 else ''})"
+            inner = f'  <details class="full-data-collapse"{open_attr}><summary>{sum_lbl}</summary>\n{inner}\n  </details>'
         sections_html.append(
             f'<section class="dash-section" id="{sid}" aria-labelledby="{sid}-h">\n'
             f'  <h2 class="section-title" id="{sid}-h">{label}</h2>\n'
-            f'  <div class="{grid}">\n{chr(10).join(cards[sid])}\n  </div>\n</section>'
+            f'{inner}\n</section>'
         )
     nav_items.append(f'<a href="#rastreabilidade" data-section="rastreabilidade">{_icon("rastreabilidade")}'
                      f'<span>Rastreabilidade</span></a>')
@@ -2567,22 +2350,22 @@ def render_dashboard_html(
   try {{ embed = embed || window.self !== window.top; }} catch (e) {{ embed = true; }}
   if (embed) d.classList.add("is-embed");
   function pick() {{
-    try {{ t = localStorage.getItem("trase-dash-theme"); }} catch (e) {{}}
     if (embed) {{
-      var parentDark = false;
-      try {{
-        var pd = window.parent && window.parent.document && window.parent.document.documentElement;
-        parentDark = !!(pd && (pd.getAttribute("data-theme") === "dark" || pd.classList.contains("dark")));
-      }} catch (e) {{}}
-      t = parentDark ? "dark" : "light";
-    }} else if (t !== "light" && t !== "dark") {{
+      // No modo embed (studio), o tema é sempre claro, sem depender do localStorage do painel avulso.
+      d.setAttribute("data-theme", "light");
+      return;
+    }}
+    try {{ t = localStorage.getItem("trase-dash-theme"); }} catch (e) {{}}
+    if (t !== "light" && t !== "dark") {{
       t = (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
     }}
     d.setAttribute("data-theme", t);
   }}
-  if (!fixed) {{
+  if (embed) {{
+    d.setAttribute("data-theme", "light");
+  }} else if (!fixed) {{
     pick();
-    // O chat e o painel guardam o tema na mesma chave: trocar num lado troca no outro.
+    // O chat e o painel avulso guardam o tema na mesma chave: trocar num lado troca no outro.
     window.addEventListener("storage", function (e) {{ if (e.key === "trase-dash-theme") pick(); }});
   }}
 }})();
@@ -2615,8 +2398,13 @@ def render_dashboard_html(
   <main id="conteudo">
     <header class="hero">
       <div class="hero-top"><span class="eyebrow">Painel analítico</span><span class="source-pill">Fonte: Trase</span></div>
-      <h1>{page_title}</h1>
-      {page_subtitle}
+      <div class="hero-main">
+        <div class="hero-copy">
+          <h1>{page_title}</h1>
+          {page_subtitle}
+        </div>
+        {hero_stats_html}
+      </div>
       {question_banner}
     </header>
     {top_warnings}
