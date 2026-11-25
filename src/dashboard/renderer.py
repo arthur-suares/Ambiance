@@ -1641,7 +1641,8 @@ def _data_view(w: WidgetSpec, df: pd.DataFrame) -> str:
 # --- Componentes em HTML -------------------------------------------------------------
 
 def _sparkline_svg(ys: list[float], uid: str, label: str) -> str:
-    if len(ys) < 2:
+    # Com 2 pontos a "mini-série" é só uma reta (um triângulo no fundo do cartão): não diz nada.
+    if len(ys) < 3:
         return ""
     w_, h_, pad = 132, 40, 4
     lo, hi = min(ys), max(ys)

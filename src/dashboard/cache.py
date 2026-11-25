@@ -43,8 +43,25 @@ def _canonicalize_context(chat_context: dict | None):
     return filtered or None
 
 
+def _render_version() -> str:
+    """Impressão digital do código que desenha o painel (o visual vai dentro do HTML guardado).
+    Mudou o renderer/tema/animações → chave nova → o painel é gerado de novo com o visual atual,
+    em vez de servir por 7 dias uma página com o visual antigo."""
+    here = Path(__file__).resolve().parent
+    h = hashlib.sha256()
+    for name in ("renderer.py", "embed_theme.py", "interaction.py"):
+        try:
+            h.update((here / name).read_bytes())
+        except OSError:
+            h.update(name.encode())
+    return h.hexdigest()[:12]
+
+
+RENDER_VERSION = _render_version()
+
+
 def dashboard_cache_key(question: str, chat_context: dict | None) -> str:
-    payload = json.dumps([normalize_question(question), _canonicalize_context(chat_context)],
+    payload = json.dumps([normalize_question(question), _canonicalize_context(chat_context), RENDER_VERSION],
                          sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 

@@ -102,3 +102,16 @@ def test_kpi_com_serie_impossivel_perde_a_serie_e_nao_bloqueia():
     auto_repair_spec(DashboardSpec(title="t", widgets=[w]), [d1])
     assert w.trend_x is None and w.trend_y is None
     assert not [i for i in validate_widget_deterministic(w, {"D1": d1}) if i.blocking]
+
+
+def test_mudar_o_visual_invalida_o_cache_do_painel(monkeypatch):
+    import src.dashboard.cache as cache
+    k1 = cache.dashboard_cache_key("Pergunta X", None)
+    monkeypatch.setattr(cache, "RENDER_VERSION", "outra-versao")
+    assert cache.dashboard_cache_key("Pergunta X", None) != k1
+
+
+def test_minisserie_com_dois_pontos_nao_e_desenhada():
+    from src.dashboard.renderer import _sparkline_svg
+    assert _sparkline_svg([1.0, 2.0], "u", "x") == ""
+    assert _sparkline_svg([1.0, 2.0, 3.0], "u", "x").startswith('<svg class="spark"')

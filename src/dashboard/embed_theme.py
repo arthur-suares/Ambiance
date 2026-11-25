@@ -201,8 +201,9 @@ html.is-embed body {{
 .is-embed .section-title::after {{ background: var(--accent); width: 32px; height: 2px; }}
 
 .is-embed .kpi-strip {{
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  /* flex + grow: a última linha estica e não deixa buraco à direita */
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   align-items: stretch;
   background: transparent;
@@ -211,6 +212,8 @@ html.is-embed body {{
   padding: 0;
 }}
 .is-embed .kpi {{
+  flex: 1 1 170px;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   display: flex;
@@ -245,36 +248,36 @@ html.is-embed body {{
   white-space: normal;
   word-break: break-word;
 }}
+/* Variação como texto corrido ("▲ +38,4% vs 2021 · 99,2 mil ha"), que quebra em linha naturalmente;
+   a "pílula" anterior se partia em pedaços em cartões estreitos. */
 .is-embed .kpi-delta {{
-  margin: 2px 0 0;
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
+  margin: 3px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  display: block;
 }}
 .is-embed .kpi-delta .delta {{
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: var(--panel-2);
+  display: inline;
+  padding: 0;
+  background: none;
   color: var(--fg);
-  font-weight: 600;
-  font-size: 11px;
+  font-weight: 700;
+  font-size: 11.5px;
 }}
+.is-embed .kpi-delta .delta-ref {{ color: var(--muted); font-weight: 400; white-space: nowrap; }}
 .is-embed .kpi-delta .delta[data-dir="up"] {{
-  background: var(--studio-accent-soft);
+  background: none;
   color: var(--studio-accent);
 }}
-.is-embed .kpi-delta .delta[data-dir="up"]::before {{ content: "▲"; font-size: 8.5px; }}
+.is-embed .kpi-delta .delta[data-dir="up"]::before {{ content: "▲ "; font-size: 8.5px; }}
 .is-embed .kpi-delta .delta[data-dir="down"] {{
-  background: #fef2f2;
+  background: none;
   color: #b91c1c;
 }}
-.is-embed .kpi-delta .delta[data-dir="down"]::before {{ content: "▼"; font-size: 8.5px; }}
-.is-embed .kpi-delta .delta-prev {{ display: inline; color: var(--muted); font-weight: 400; }}
+.is-embed .kpi-delta .delta[data-dir="down"]::before {{ content: "▼ "; font-size: 8.5px; }}
+.is-embed .kpi-delta .delta-prev {{ display: inline; color: var(--muted); font-weight: 400; white-space: nowrap; }}
+/* a bolinha do fim da mini-linha fica esticada (o SVG estica para caber no cartão) */
+.is-embed .kpi .spark circle {{ display: none; }}
 .is-embed .kpi .spark {{
   position: absolute;
   left: 0;
