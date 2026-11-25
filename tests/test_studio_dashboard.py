@@ -13,7 +13,7 @@ def test_ranking_draws_from_sql_when_planner_returns_only_a_table(monkeypatch):
     ]
     result = studio.build_studio_dashboard("Ranking de alertas", [
         {"label": "D1", "purpose": "Área de alertas", "columns": list(rows[0]), "rows": rows},
-    ])
+    ], plan_with_llm=True)
     chart = next(w for w in result["widgets"] if w["kind"] == "bar")
     assert (chart["x"], chart["y"], chart["unit"]) == ("municipio", ["area_km2"], "km²")
     assert result["tables"][0]["rows"] == rows
@@ -27,7 +27,7 @@ def test_chronological_chart_survives_provider_failure_and_retains_gaps(monkeypa
     rows = [{"ano": 2017, "volume_t": 10}, {"ano": 2018, "volume_t": None}, {"ano": 2019, "volume_t": 12}]
     result = studio.build_studio_dashboard("Série", [
         {"label": "D1", "purpose": "Volume", "columns": list(rows[0]), "rows": rows},
-    ])
+    ], plan_with_llm=True)
     chart = result["widgets"][0]
     assert (chart["kind"], chart["x"], chart["sort_by"], chart["ascending"]) == ("line", "ano", "ano", True)
     assert result["tables"][0]["rows"][1]["volume_t"] is None
@@ -83,3 +83,31 @@ def test_temporal_tables_omit_empty_coverage_and_single_territory_ranking():
     result = studio.build_studio_dashboard("Sorriso", [], evidence, plan_with_llm=False)
     assert [t["label"] for t in result["tables"]] == ["T1"]
     assert result["tables"][0]["columns"] == ["periodo", "valor"]
+
+
+def test_studio_dashboard_skips_llm_by_default_and_for_temporal_evidence(monkeypatch):
+    calls = []
+    monkeypatch.setattr(studio, "propose_dashboard_spec", lambda *args, **kwargs: calls.append(args))
+
+    rows = [{"ano": 2024, "area_km2": 10.0}, {"ano": 2025, "area_km2": 12.0}]
+    res_default = studio.build_studio_dashboard("SQL", [
+        {"label": "D1", "purpose": "Alertas", "columns": ["ano", "area_km2"], "rows": rows},
+    ])
+    assert res_default["widgets"]
+    assert calls == []
+
+    evidence = {
+        "label": "Produção de soja",
+        "unit": "t",
+        "source": "IBGE PAM",
+        "scope": "MT",
+        "method_url": "/metodologia#ibge_soja_producao_t",
+        "frames": [
+            {"period": "2024", "value": 100, "areas": []},
+            {"period": "2025", "value": 120, "areas": []},
+        ],
+        "facts": [],
+    }
+    res_temporal = studio.build_studio_dashboard("Evolução", [], evidence, plan_with_llm=True)
+    assert res_temporal["widgets"]
+    assert calls == []

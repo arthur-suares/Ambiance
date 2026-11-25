@@ -21,7 +21,25 @@ PG_DATABASE="${PG_DATABASE:-trase_rag}"
 RELEASE_TAG="${AGRO_DATA_RELEASE:-data-v1}"
 REPO="arthur-suares/Ambiance"
 DEFAULT_DUMP="data/backups/agro_full.dump"
+GEOJSON_FILE="data/raw/onda2/ibge_malha_municipios_br.geojson"
 DUMP_FILE="${1:-$DEFAULT_DUMP}"
+
+download_release_asset() {
+  local asset="$1"
+  local dest="$2"
+  mkdir -p "$(dirname "$dest")"
+  if command -v gh >/dev/null 2>&1; then
+    gh release download "$RELEASE_TAG" -R "$REPO" -p "$asset" -D "$(dirname "$dest")" --clobber
+  elif command -v curl >/dev/null 2>&1; then
+    if ! curl -fL "https://github.com/$REPO/releases/download/$RELEASE_TAG/$asset" -o "$dest"; then
+      echo "Erro ao baixar $asset via curl. Se o repositório for privado, instale o GitHub CLI ('gh'), execute 'gh auth login' ou baixe manualmente de https://github.com/$REPO/releases/tag/$RELEASE_TAG para $dest." >&2
+      exit 1
+    fi
+  else
+    echo "Erro: instale 'gh' (GitHub CLI) ou 'curl', ou baixe manualmente $asset de https://github.com/$REPO/releases/tag/$RELEASE_TAG para $dest." >&2
+    exit 1
+  fi
+}
 
 echo "[1/5] Subindo containers Docker (postgres + pgadmin)..."
 docker compose up -d
@@ -45,17 +63,16 @@ if [ ! -f "$DUMP_FILE" ]; then
     exit 1
   fi
   echo "[3/5] Baixando $DEFAULT_DUMP da Release $RELEASE_TAG..."
-  mkdir -p "$(dirname "$DEFAULT_DUMP")"
-  if command -v gh >/dev/null 2>&1; then
-    gh release download "$RELEASE_TAG" -R "$REPO" -p agro_full.dump -D "$(dirname "$DEFAULT_DUMP")" --clobber
-  elif command -v curl >/dev/null 2>&1; then
-    curl -fL "https://github.com/$REPO/releases/download/$RELEASE_TAG/agro_full.dump" -o "$DEFAULT_DUMP"
-  else
-    echo "Erro: instale 'gh' (GitHub CLI) ou 'curl', ou baixe manualmente agro_full.dump para $DEFAULT_DUMP." >&2
-    exit 1
-  fi
+  download_release_asset "agro_full.dump" "$DEFAULT_DUMP"
 else
   echo "[3/5] Usando dump local: $DUMP_FILE"
+fi
+
+if [ ! -f "$GEOJSON_FILE" ]; then
+  echo "[3/5] Baixando malha municipal ($GEOJSON_FILE) da Release $RELEASE_TAG..."
+  download_release_asset "ibge_malha_municipios_br.geojson" "$GEOJSON_FILE"
+else
+  echo "[3/5] Usando malha municipal local: $GEOJSON_FILE"
 fi
 
 echo "[4/5] Preparando extensões, role agro_ro e limpando schemas alvo..."
@@ -103,3 +120,9 @@ UNION ALL SELECT 'agro.fato_inpe_deter', COUNT(*) FROM agro.fato_inpe_deter
 UNION ALL SELECT 'agro.fato_seeg_emissoes', COUNT(*) FROM agro.fato_seeg_emissoes
 UNION ALL SELECT 'gold.mv_territorio_municipal_ano', COUNT(*) FROM gold.mv_territorio_municipal_ano;
 SQL
+
+if [ -f "$GEOJSON_FILE" ]; then
+  echo "Malha municipal pronta: $GEOJSON_FILE"
+fi
+echo "Para iniciar a aplicação:"
+echo "  python -m src.web --port 8001"

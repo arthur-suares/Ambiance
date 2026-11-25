@@ -34,6 +34,8 @@
   const exampleScope = {metric: "ibge_soja_producao_t", uf: "MT", start_year: 2015, end_year: 2025};
   const tabViews = {timeline: "timeline", charts: "dashboard", data: "data"};
   const sessionHistory = [];
+  const createSessionId = () => `sess-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+  let chatSessionId = createSessionId();
   let activeTurnId = null;
   let activeSpec = null;
   let activeTab = "map";
@@ -52,6 +54,7 @@
   let currentBasemap = "light";
   let lastBbox = null;
   let chartInstances = [];
+  let chartConfigs = [];
   let progressTimer = null;
   let mbData = null;
   let mbState = {year: 2025, mode: "dominant", classIds: [], uf: "", bioma: ""};
@@ -462,18 +465,20 @@
 
     if (spec?.show_deter && deterData?.points?.length) {
       if (spec.deter_mode === "hex" && deck.HexagonLayer) {
+        const is3d = (currentView.pitch || 0) >= 10;
+        const scopedView = Boolean(spec.uf || spec.bioma || spec.highlight_codes?.length);
         layers.push(new deck.HexagonLayer({
           id: "deter-hex",
           data: deterData.points,
           pickable: true,
-          extruded: true,
+          extruded: is3d,
           gpuAggregation: false,
-          radius: 24000,
-          coverage: 0.78,
+          radius: spec.uf ? 16000 : 22000,
+          coverage: 0.8,
           lowerPercentile: 10,
           upperPercentile: 98,
-          elevationScale: 520,
-          elevationRange: [0, 2200],
+          elevationScale: is3d ? (scopedView ? 65 : 130) : 0,
+          elevationRange: [0, 1000],
           colorRange: HEX_DETER_RANGE,
           material: MATERIAL_3D,
           getPosition: d => [d.lon, d.lat],
@@ -482,6 +487,7 @@
           getColorWeight: d => Math.max(0.05, d.area_km2 || 0.1),
           colorAggregation: "SUM",
           extensions: terrainExtensions,
+          updateTriggers: {getElevationWeight: [is3d, scopedView]},
           onHover: showTooltip,
         }));
       } else {
@@ -863,13 +869,14 @@
     ]);
     if (activeSpec !== spec) return;
     [choroData, flowsData, deterData, facilitiesData] = [choro, flows, deter, facilities];
+    const want3d = spec.view_3d === true || spec.deter_mode === "hex";
+    const targetPitch = want3d ? 42 : 0;
+    currentView.pitch = targetPitch;
     updateLegendAndScope(spec);
     drawMapLayers(spec);
 
     const hlBbox = grain === "municipality" ? computeHighlightBbox(spec.highlight_codes) : null;
     lastBbox = hlBbox || choroData?.bbox || null;
-    const want3d = spec.view_3d === true || spec.deter_mode === "hex";
-    const targetPitch = want3d ? 42 : 0;
     if (lastBbox) {
       fitBbox(lastBbox, targetPitch);
     } else {
@@ -930,6 +937,127 @@
       try { c.destroy(); } catch {}
     }
     chartInstances = [];
+    chartConfigs = [];
+  }
+
+  function buildChartView(cfg) {
+    const indices = cfg.labels.map((_, i) => i);
+    if (cfg.order === "desc" || cfg.order === "asc") {
+      const firstVals = cfg.series[0]?.values || [];
+      const sign = cfg.order === "asc" ? 1 : -1;
+      indices.sort((a, b) => {
+        const va = firstVals[a];
+        const vb = firstVals[b];
+        if (va == null || vb == null) return Number(va == null) - Number(vb == null);
+        return sign * (va - vb);
+      });
+    }
+    const sliced = cfg.topN > 0 ? indices.slice(0, cfg.topN) : indices;
+    return {
+      labels: sliced.map(i => cfg.labels[i]),
+      series: cfg.series.map(s => ({...s, values: sliced.map(i => s.values[i])})),
+    };
+  }
+
+  function renderSingleChart(idx, card) {
+    const cfg = chartConfigs[idx];
+    if (!cfg) return;
+    if (chartInstances[idx]) {
+      try { chartInstances[idx].destroy(); } catch {}
+      chartInstances[idx] = null;
+    }
+    const wrap = card.querySelector(".chart-canvas-wrap");
+    if (!wrap) return;
+    wrap.innerHTML = "<canvas></canvas>";
+    const ctx = wrap.querySelector("canvas").getContext("2d");
+    const view = buildChartView(cfg);
+    const activeType = cfg.type;
+    const isHoriz = activeType === "horizontal_bar";
+    const isDoughnut = activeType === "doughnut";
+    const isArea = activeType === "area";
+    const chartJsType = isHoriz ? "bar" : (isArea ? "line" : activeType);
+
+    const datasets = view.series.map((s, sIdx) => {
+      const base = s.color || CHART_COLORS[sIdx % CHART_COLORS.length];
+      if (isDoughnut) {
+        return {
+          label: s.name,
+          data: s.values,
+          backgroundColor: view.labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
+          borderColor: "#ffffff",
+          borderWidth: 2,
+        };
+      }
+      return {
+        label: s.name,
+        data: s.values,
+        backgroundColor: isArea ? `${base}33` : `${base}cc`,
+        borderColor: base,
+        borderWidth: 2,
+        borderRadius: (chartJsType === "bar") ? 5 : 0,
+        fill: isArea,
+        tension: cfg.timeline ? 0 : 0.25,
+        pointRadius: chartJsType === "line" ? context =>
+          view.labels[context.dataIndex] === cfg.milestone?.period ? 6 : 3 : 0,
+        pointBackgroundColor: context => view.labels[context.dataIndex] === cfg.milestone?.period ? "#a66a2b" : base,
+        pointBorderColor: context => view.labels[context.dataIndex] === cfg.milestone?.period ? "#a66a2b" : base,
+        spanGaps: false,
+      };
+    });
+
+    try {
+      chartInstances[idx] = new Chart(ctx, {
+        type: chartJsType,
+        data: {labels: view.labels, datasets},
+        options: {
+          responsive: true,
+          locale: "pt-BR",
+          maintainAspectRatio: false,
+          indexAxis: isHoriz ? "y" : "x",
+          onClick: cfg.timeline ? (_event, elements) => {
+            const point = elements[0];
+            if (point) {
+              switchCanvasTab("timeline");
+              AmbianceTimeline.goTo(view.labels[point.index]);
+            }
+          } : undefined,
+          plugins: {
+            legend: {
+              display: view.series.length > 1 || isDoughnut,
+              labels: {color: "#16211b", font: {size: 11}},
+            },
+            tooltip: {
+              callbacks: {
+                label: c => {
+                  const val = typeof c.raw === "number" ? fmt.format(c.raw) : c.raw;
+                  return `${c.dataset.label}: ${val}${cfg.unit ? " " + cfg.unit : ""}`;
+                },
+              },
+            },
+          },
+          scales: isDoughnut ? {} : {
+            x: {
+              stacked: Boolean(cfg.stacked && isHoriz),
+              ticks: {color: "#5a6a61", font: {size: 11}},
+              grid: {color: "rgba(22, 33, 27, 0.08)"},
+              title: cfg.x_label ? {display: true, text: cfg.x_label, color: "#5a6a61"} : undefined,
+            },
+            y: {
+              stacked: Boolean(cfg.stacked && (!isHoriz || isArea)),
+              ticks: {color: "#5a6a61", font: {size: 11}},
+              grid: {color: "rgba(22, 33, 27, 0.08)"},
+              title: cfg.y_label ? {display: true, text: cfg.y_label, color: "#5a6a61"} : undefined,
+            },
+          },
+        },
+      });
+    } catch {
+      const status = document.createElement("p");
+      status.textContent = "Falha ao desenhar este gráfico. Os valores estão disponíveis na tabela.";
+      wrap.replaceWith(status);
+      const dl = card.querySelector("[data-dl]");
+      if (dl) dl.hidden = true;
+    }
   }
 
   function renderCharts(charts) {
@@ -946,13 +1074,49 @@
     }
 
     charts.forEach((ch, idx) => {
+      const cfg = {
+        ...ch,
+        type: ch.chart_type || "bar",
+        topN: 0,
+        order: "original",
+      };
+      chartConfigs.push(cfg);
+
       const card = document.createElement("div");
       card.className = "chart-card";
+      card.dataset.chartIdx = String(idx);
       const sub = ch.subtitle ? `<p>${escapeHtml(ch.subtitle)}</p>` : "";
+      const allowType = cfg.type !== "doughnut";
+      const allowSlice = allowType && !ch.timeline && ch.labels.length > 3;
+      const typeControl = allowType ? `
+        <select class="chart-ctrl-select" data-chart-type aria-label="Tipo de gráfico">
+          <option value="horizontal_bar">Barra horizontal</option>
+          <option value="bar">Barra vertical</option>
+          <option value="line">Linha</option>
+          <option value="area">Área</option>
+        </select>` : "";
+      const sliceControls = allowSlice ? `
+        <select class="chart-ctrl-select" data-chart-top aria-label="Quantidade exibida">
+          <option value="0">Todos (${ch.labels.length})</option>
+          <option value="3">Top 3</option>
+          <option value="5">Top 5</option>
+          <option value="10">Top 10</option>
+          <option value="15">Top 15</option>
+        </select>
+        <select class="chart-ctrl-select" data-chart-order aria-label="Ordenação">
+          <option value="original">Ordem original</option>
+          <option value="desc">Maior → Menor</option>
+          <option value="asc">Menor → Maior</option>
+        </select>` : "";
+
       card.innerHTML = `
         <div class="chart-head">
           <div><h3>${escapeHtml(ch.title)}</h3>${sub}</div>
-          <button type="button" class="btn-ghost-sm" data-dl="${idx}">Baixar imagem</button>
+          <div class="chart-controls">
+            ${typeControl}
+            ${sliceControls}
+            <button type="button" class="btn-ghost-sm" data-dl="${idx}">Baixar imagem</button>
+          </div>
         </div>
         <div class="chart-canvas-wrap"><canvas></canvas></div>
       `;
@@ -964,103 +1128,101 @@
       }
       wrap.append(card);
 
-      const ctx = card.querySelector("canvas").getContext("2d");
-      const isHoriz = ch.chart_type === "horizontal_bar";
-      const isDoughnut = ch.chart_type === "doughnut";
-      const isArea = ch.chart_type === "area";
-      const chartJsType = isHoriz ? "bar" : (isArea ? "line" : ch.chart_type);
-
-      const datasets = ch.series.map((s, sIdx) => {
-        const base = s.color || CHART_COLORS[sIdx % CHART_COLORS.length];
-        if (isDoughnut) {
-          return {
-            label: s.name,
-            data: s.values,
-            backgroundColor: ch.labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]),
-            borderColor: "#ffffff",
-            borderWidth: 2,
-          };
-        }
-        return {
-          label: s.name,
-          data: s.values,
-          backgroundColor: isArea ? `${base}33` : `${base}cc`,
-          borderColor: base,
-          borderWidth: 2,
-          borderRadius: (chartJsType === "bar") ? 5 : 0,
-          fill: isArea,
-          tension: ch.timeline ? 0 : 0.25,
-          pointRadius: chartJsType === "line" ? context =>
-            ch.labels[context.dataIndex] === ch.milestone?.period ? 6 : 3 : 0,
-          pointBackgroundColor: context => ch.labels[context.dataIndex] === ch.milestone?.period ? "#a66a2b" : base,
-          pointBorderColor: context => ch.labels[context.dataIndex] === ch.milestone?.period ? "#a66a2b" : base,
-          spanGaps: false,
-        };
-      });
-
-      let instance;
-      try {
-        instance = new Chart(ctx, {
-          type: chartJsType,
-          data: {labels: ch.labels, datasets},
-          options: {
-            responsive: true,
-            locale: "pt-BR",
-            maintainAspectRatio: false,
-            indexAxis: isHoriz ? "y" : "x",
-            onClick: ch.timeline ? (_event, elements) => {
-              const point = elements[0];
-              if (point) {
-                switchCanvasTab("timeline");
-                AmbianceTimeline.goTo(ch.labels[point.index]);
-              }
-            } : undefined,
-            plugins: {
-              legend: {
-                display: ch.series.length > 1 || isDoughnut,
-                labels: {color: "#16211b", font: {size: 11}},
-              },
-              tooltip: {
-                callbacks: {
-                  label: c => {
-                    const val = typeof c.raw === "number" ? fmt.format(c.raw) : c.raw;
-                    return `${c.dataset.label}: ${val}${ch.unit ? " " + ch.unit : ""}`;
-                  },
-                },
-              },
-            },
-            scales: isDoughnut ? {} : {
-              x: {
-                stacked: Boolean(ch.stacked && isHoriz),
-                ticks: {color: "#5a6a61", font: {size: 11}},
-                grid: {color: "rgba(22, 33, 27, 0.08)"},
-                title: ch.x_label ? {display: true, text: ch.x_label, color: "#5a6a61"} : undefined,
-              },
-              y: {
-                stacked: Boolean(ch.stacked && (!isHoriz || isArea)),
-                ticks: {color: "#5a6a61", font: {size: 11}},
-                grid: {color: "rgba(22, 33, 27, 0.08)"},
-                title: ch.y_label ? {display: true, text: ch.y_label, color: "#5a6a61"} : undefined,
-              },
-            },
-          },
+      const typeSel = card.querySelector("[data-chart-type]");
+      if (typeSel) {
+        typeSel.value = cfg.type;
+        typeSel.addEventListener("change", () => {
+          cfg.type = typeSel.value;
+          renderSingleChart(idx, card);
         });
-      } catch {
-        const status = document.createElement("p");
-        status.textContent = "Falha ao desenhar este gráfico. Os valores estão disponíveis na tabela.";
-        card.querySelector(".chart-canvas-wrap").replaceWith(status);
-        card.querySelector("[data-dl]").hidden = true;
-        return;
       }
-      chartInstances.push(instance);
+      const topSel = card.querySelector("[data-chart-top]");
+      if (topSel) {
+        topSel.addEventListener("change", () => {
+          cfg.topN = Number(topSel.value) || 0;
+          renderSingleChart(idx, card);
+        });
+      }
+      const orderSel = card.querySelector("[data-chart-order]");
+      if (orderSel) {
+        orderSel.addEventListener("change", () => {
+          cfg.order = orderSel.value;
+          renderSingleChart(idx, card);
+        });
+      }
+
+      renderSingleChart(idx, card);
 
       card.querySelector("[data-dl]").addEventListener("click", () => {
+        const instance = chartInstances[idx];
+        if (!instance) return;
         const a = document.createElement("a");
         a.href = instance.toBase64Image();
         a.download = `agro-grafico-${idx + 1}.png`;
         a.click();
       });
     });
+  }
+
+  function applyLocalChartTweak(question) {
+    if (!chartConfigs.length) return null;
+    const norm = question.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const visualVerb = /(mude|alter|troc|converta|mostr|exib|mudar|alterar|trocar|deixe|faca)/.test(norm);
+    const chartSubject = /(grafico|barra|barras|linha|linhas|area|top\s*\d+|\d+\s*primeir|ordem|crescente|decrescente)/.test(norm);
+    const needsNewData = /(lei|codigo|reserva|sql|20\d\d|19\d\d|compare|comparar|soja|bovino|gado|desmat|emiss|bioma|estado|mapa|frigorific|silo|alerta|exporta)/.test(norm);
+    if (!visualVerb || !chartSubject || needsNewData) return null;
+
+    let newType = null;
+    if (/barra.*vertical|colunas?\b/.test(norm)) newType = "bar";
+    else if (/barra.*horizontal|horizont/.test(norm)) newType = "horizontal_bar";
+    else if (/\blinha\b|\blinhas\b/.test(norm)) newType = "line";
+    else if (/\barea\b/.test(norm)) newType = "area";
+
+    let newTop = null;
+    const topMatch = norm.match(/(?:top|apenas\s+os?|somente\s+os?|so\s+os?)\s*(\d{1,2})\b|\b(\d{1,2})\s*(?:primeiros?|maiores?|menores?)/);
+    if (topMatch) newTop = Number(topMatch[1] || topMatch[2]);
+    else if (/\btodos\b/.test(norm)) newTop = 0;
+
+    let newOrder = null;
+    if (/menor.*maior|crescente|menores/.test(norm)) newOrder = "asc";
+    else if (/maior.*menor|decrescente|maiores|top\s*\d+/.test(norm)) newOrder = "desc";
+
+    if (newType === null && newTop === null && newOrder === null) return null;
+
+    const changes = [];
+    chartConfigs.forEach((cfg, idx) => {
+      if (cfg.type === "doughnut") return;
+      const card = document.querySelector(`.chart-card[data-chart-idx="${idx}"]`);
+      if (!card) return;
+      if (newType) {
+        cfg.type = newType;
+        const sel = card.querySelector("[data-chart-type]");
+        if (sel) sel.value = newType;
+      }
+      if (newTop !== null && !cfg.timeline) {
+        cfg.topN = newTop;
+        const sel = card.querySelector("[data-chart-top]");
+        if (sel) {
+          if (newTop > 0 && ![...sel.options].some(o => Number(o.value) === newTop)) {
+            sel.add(new Option(`Top ${newTop}`, String(newTop)));
+          }
+          sel.value = String(newTop);
+        }
+      }
+      if (newOrder && !cfg.timeline) {
+        cfg.order = newOrder;
+        const sel = card.querySelector("[data-chart-order]");
+        if (sel) sel.value = newOrder;
+      }
+      renderSingleChart(idx, card);
+    });
+    if (newType) {
+      const names = {bar: "barras verticais", horizontal_bar: "barras horizontais", line: "linha", area: "área"};
+      changes.push(`tipo para ${names[newType]}`);
+    }
+    if (newTop !== null) changes.push(newTop ? `top ${newTop}` : "todos os itens");
+    if (newOrder) changes.push(newOrder === "asc" ? "menor → maior" : "maior → menor");
+    return changes.join(", ");
   }
 
   function downloadCsv(tbl) {
@@ -1539,13 +1701,46 @@
     }
   }
 
-  function buildFollowups(data) {
+  function buildFollowups(turn) {
+    const data = turn.data;
     const chips = [];
     const ms = data.map_spec;
-    if (ms?.show_deter && ms.deter_mode !== "hex") chips.push("Mostre esses alertas de satélite em colunas 3D");
-    if (ms && !ms.show_facilities) chips.push("Adicione os frigoríficos e armazéns da região");
-    if (data.domain !== "mixed") chips.push("Quais leis ambientais se aplicam a esse caso?");
-    chips.push("Mostre a evolução ano a ano (2015–2025) em gráfico");
+    if (ms?.show_deter && ms.deter_mode !== "hex") {
+      chips.push({
+        label: "Ver alertas em colunas 3D",
+        run: async () => {
+          await openCanvasForTurn(turn, "map");
+          await renderMapSpec({...ms, deter_mode: "hex", view_3d: true});
+        },
+      });
+    }
+    if (ms && !ms.show_facilities) {
+      chips.push({
+        label: "Adicionar frigoríficos e silos",
+        run: async () => {
+          await openCanvasForTurn(turn, "map");
+          await renderMapSpec({...ms, show_facilities: true});
+        },
+      });
+    }
+    if (ms?.metric && !data.temporal) {
+      chips.push({
+        label: "Reproduzir evolução (2015–2025)",
+        run: () => requestTemporal({
+          metric: ms.metric,
+          uf: ms.uf || "",
+          bioma: ms.bioma || "",
+          start_year: 2015,
+          end_year: ms.year || 2025,
+        }, "timeline"),
+      });
+    }
+    if (data.domain !== "mixed") {
+      chips.push({
+        label: "Quais leis ambientais se aplicam a esse caso?",
+        run: () => sendQuestion("Quais leis ambientais se aplicam a esse caso?"),
+      });
+    }
     return chips.slice(0, 3);
   }
 
@@ -1603,16 +1798,16 @@
       aEl.append(box);
     }
 
-    const followups = buildFollowups(d);
+    const followups = buildFollowups(turn);
     if (followups.length) {
       const row = document.createElement("div");
       row.className = "followup-row";
-      followups.forEach(q => {
+      followups.forEach(item => {
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = "followup-chip";
-        chip.textContent = q;
-        chip.addEventListener("click", () => sendQuestion(q));
+        chip.textContent = item.label;
+        chip.addEventListener("click", item.run);
         row.append(chip);
       });
       aEl.append(row);
@@ -1620,7 +1815,9 @@
 
     const metaEl = document.createElement("div");
     metaEl.className = "msg-meta";
-    metaEl.textContent = `Respondido em ${d.seconds}s`;
+    metaEl.textContent = d.local_action
+      ? "Ajuste local (0 tokens de IA)"
+      : d.cached_response ? "Respondido do cache (0 tokens de IA)" : `Respondido em ${d.seconds}s`;
     aEl.append(metaEl);
 
     wrap.append(aEl);
@@ -1653,9 +1850,31 @@
     const q = question.trim();
     if (!q) return;
 
+    const mode = $("ask-mode").value;
+    if (mode === "agro" && !$("canvas-pane").hidden && activeTurnObj?.data?.dashboard) {
+      const localChange = applyLocalChartTweak(q);
+      if (localChange) {
+        $("chat-input").value = "";
+        const localTurn = {
+          id: turns.length + 1,
+          question: q,
+          data: {
+            answer: `Ajuste aplicado localmente no gráfico: **${localChange}** (sem nova chamada de IA).`,
+            seconds: 0,
+            local_action: true,
+            available_views: [],
+          },
+        };
+        turns.push(localTurn);
+        appendMessageTurn(localTurn);
+        switchCanvasTab("charts", document.body.dataset.productView === "studio" && matchMedia("(min-width: 1100px)").matches);
+        $("chat-input").focus();
+        return;
+      }
+    }
+
     $("chat-input").value = "";
     $("send-btn").disabled = true;
-    const mode = $("ask-mode").value;
     startProgress(mode);
 
     const timeData = $("canvas-pane").hidden ? null : activeTurnObj?.data?.temporal;
@@ -1673,12 +1892,13 @@
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
-        headers: {"Content-Type": "application/json"},
+        headers: {"Content-Type": "application/json", "X-Session-Id": chatSessionId},
         body: JSON.stringify({
           question: q,
           mode,
           domain: mode === "laws" ? "law" : "auto",
           k: 6,
+          session_id: chatSessionId,
           view_context: viewContext,
           history: sessionHistory.slice(-6),
         }),
@@ -1717,6 +1937,7 @@
     mbRasterRequest?.abort();
     turns.length = 0;
     sessionHistory.length = 0;
+    chatSessionId = createSessionId();
     activeTurnId = null;
     activeTurnObj = null;
     activeSpec = null;
@@ -1782,16 +2003,21 @@
     $("product-title").textContent = AmbianceProduct.pages[view].label;
     updateProductScope();
     AmbianceProduct.highlight(view);
-    const external = view === "explore" || view === "method";
+    const external = view === "explore" || view === "method" || view === "monitor";
     document.querySelector(".studio-workspace").hidden = external;
     $("product-external").hidden = !external;
     $("product-explore").hidden = view !== "explore";
     $("product-method").hidden = view !== "method";
+    $("product-monitor").hidden = view !== "monitor";
     $("open-mapbiomas-btn").hidden = view !== "studio";
     $("new-chat-btn").hidden = view !== "studio" || !turns.length;
   }
 
   function updateProductScope(period) {
+    if (document.body.dataset.productView === "monitor") {
+      $("product-scope").textContent = "Consumo de IA · Tokens, etapas e Langfuse";
+      return;
+    }
     const {temporal, map_spec: map} = activeTurnObj?.data || {};
     const year = period || temporal?.frames.findLast(frame => frame.value != null)?.period || map?.year;
     const territory = temporal?.scope || map?.uf || map?.bioma || "Brasil";
@@ -1828,12 +2054,14 @@
     if (frame.dataset.route !== url.href) {
       frame.dataset.route = url.href;
       frame.src = url.href;
+    } else if (view === "monitor") {
+      frame.contentWindow?.postMessage({type: "ambiance:monitor-refresh"}, location.origin);
     }
     requestAnimationFrame(() => frame.contentWindow?.dispatchEvent(new frame.contentWindow.Event("resize")));
   }
 
   function navigateProduct(view, href, carryContext = false) {
-    if (view === "explore" || view === "method") {
+    if (view === "explore" || view === "method" || view === "monitor") {
       openExternalView(view, href, carryContext);
       return;
     }
@@ -1890,7 +2118,7 @@
       navigateProduct(event.detail.view, event.detail.href, Boolean(event.detail.carryContext)));
     window.addEventListener("message", event => {
       if (event.origin !== location.origin || event.data?.type !== "ambiance:navigate") return;
-      if (![$("product-explore").contentWindow, $("product-method").contentWindow].includes(event.source)) return;
+      if (![$("product-explore").contentWindow, $("product-method").contentWindow, $("product-monitor").contentWindow].includes(event.source)) return;
       if (Object.hasOwn(AmbianceProduct.pages, event.data.view)) {
         navigateProduct(event.data.view, event.data.href, Boolean(event.data.carryContext));
       }
@@ -1992,8 +2220,14 @@
     });
 
     $("map-brazil").addEventListener("click", () => drillState(""));
-    $("btn-cam-2d").addEventListener("click", () => setView({pitch: 0, bearing: 0}));
-    $("btn-cam-3d").addEventListener("click", () => setView({pitch: 46, bearing: -10}));
+    $("btn-cam-2d").addEventListener("click", () => {
+      setView({pitch: 0, bearing: 0});
+      drawMapLayers(activeSpec);
+    });
+    $("btn-cam-3d").addEventListener("click", () => {
+      setView({pitch: 46, bearing: -10});
+      drawMapLayers(activeSpec);
+    });
     $("btn-terrain").addEventListener("click", () => {
       currentBasemap = currentBasemap === "terrain" ? "light" : "terrain";
       $("btn-terrain").classList.toggle("is-active", currentBasemap === "terrain");

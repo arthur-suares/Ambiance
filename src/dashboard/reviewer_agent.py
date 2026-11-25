@@ -276,14 +276,17 @@ def check_methodological_llm(
         f"Especificação JSON proposta para o dashboard:\n{spec_json}"
     )
 
-    payload, in_tok, out_tok = call_structured_llm(
-        system=REVIEWER_SYSTEM_PROMPT,
-        user_content=user_msg,
-        tool_name="emit_review",
-        tool_description="Registra o parecer metodológico sobre a especificação do dashboard.",
-        input_schema=REVIEW_TOOL_SCHEMA,
-        max_tokens=2048,
-    )
+    from src.llm_tracker import llm_stage
+
+    with llm_stage("dashboard.reviewer.review_spec"):
+        payload, in_tok, out_tok = call_structured_llm(
+            system=REVIEWER_SYSTEM_PROMPT,
+            user_content=user_msg,
+            tool_name="emit_review",
+            tool_description="Registra o parecer metodológico sobre a especificação do dashboard.",
+            input_schema=REVIEW_TOOL_SCHEMA,
+            max_tokens=2048,
+        )
 
     valid_ids = {w.id for w in spec.widgets}
     issues: list[WidgetIssue] = []

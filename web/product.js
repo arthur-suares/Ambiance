@@ -8,6 +8,7 @@
     dashboard: {label: "Dashboard", href: "/?view=dashboard", icon: "▥"},
     data: {label: "Dados", href: "/?view=data", icon: "▤"},
     method: {label: "Metodologia", href: "/metodologia", icon: "◎"},
+    monitor: {label: "Monitor IA", href: "/monitor", icon: "◈"},
   };
   const layout = document.body;
   const hosted = window.parent !== window && new URLSearchParams(location.search).get("embedded") === "1";
@@ -61,7 +62,8 @@
       if (!jump && (!url || url.origin !== location.origin || link.target || link.download)) return;
       const view = jump?.dataset.productJump || link?.dataset.view ||
         (url.pathname === "/metodologia" && layout.dataset.productPage !== "method" ? "method" :
-          url.pathname === "/explorar" && layout.dataset.productPage !== "explore" ? "explore" : null);
+          url.pathname === "/monitor" && layout.dataset.productPage !== "monitor" ? "monitor" :
+            url.pathname === "/explorar" && layout.dataset.productPage !== "explore" ? "explore" : null);
       if (!pages[view]) return;
       event.preventDefault();
       const carryContext = Boolean(jump);

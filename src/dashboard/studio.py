@@ -125,7 +125,7 @@ def _temporal_tables(evidence):
     return tables
 
 
-def build_studio_dashboard(question, tables, evidence=None, *, plan_with_llm=True):
+def build_studio_dashboard(question, tables, evidence=None, *, plan_with_llm=False):
     datasets = {}
     browser_tables = [*_temporal_tables(evidence), *tables] if evidence else tables
     for table in browser_tables:
@@ -142,10 +142,13 @@ def build_studio_dashboard(question, tables, evidence=None, *, plan_with_llm=Tru
         return None
     headline = evidence["label"] if evidence else question[:140]
     proposed = []
-    if plan_with_llm:
+    if plan_with_llm and not evidence:
+        from src.llm_tracker import llm_stage
+
         plan = OrchestratorPlan(question=question, domain="agro", dashboard_goal=headline)
         try:
-            spec, _, _ = propose_dashboard_spec(question, plan, list(datasets.values()), studio=True)
+            with llm_stage("dashboard.studio.propose_spec"):
+                spec, _, _ = propose_dashboard_spec(question, plan, list(datasets.values()), studio=True)
             proposed = spec.widgets[:8]
         except Exception:
             # Provider failure leaves the evidence and deterministic widgets available.

@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Monitor IA · Ambiance</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500;6..72,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/studio.css" />
+  <link rel="stylesheet" href="/product.css" />
+  <script src="/product.js" defer></script>
+  <script src="/monitor.js" defer></script>
+</head>
+<body data-product-page="monitor">
+  <main class="monitor-page">
+    <header class="monitor-header">
+      <div class="monitor-heading">
+        <h1>Monitor de IA</h1>
+        <p>Audite traces, sessões de conversa, waterfall de spans/generations, prompts completos, uso de tokens, cache e custo estimado.</p>
+      </div>
+      <div class="monitor-toolbar">
+        <span id="monitor-lf-badge" class="monitor-badge">Verificando…</span>
+        <a id="monitor-lf-link" class="monitor-btn monitor-btn-primary" target="_blank" rel="noopener noreferrer" hidden>Abrir Langfuse ↗</a>
+        <button type="button" id="monitor-refresh" class="monitor-btn">Atualizar</button>
+        <label class="monitor-toggle">
+          <input type="checkbox" id="monitor-auto" checked />
+          Auto (5s)
+        </label>
+        <select id="monitor-limit" class="monitor-select" aria-label="Limite de eventos">
+          <option value="50">50 chamadas</option>
+          <option value="200" selected>200 chamadas</option>
+          <option value="500">500 chamadas</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="monitor-subbar">
+      <div class="monitor-tabs" role="tablist" aria-label="Visões de observabilidade">
+        <button type="button" class="monitor-tab is-active" data-monitor-tab="traces" role="tab" aria-selected="true">Traces</button>
+        <button type="button" class="monitor-tab" data-monitor-tab="sessions" role="tab" aria-selected="false">Sessões</button>
+        <button type="button" class="monitor-tab" data-monitor-tab="generations" role="tab" aria-selected="false">Generations</button>
+      </div>
+      <p id="monitor-status" class="monitor-status" role="status">Carregando métricas de LLM…</p>
+    </div>
+
+    <section id="monitor-kpis" class="dashboard-kpis monitor-kpis" aria-label="Resumo de consumo"></section>
+
+    <div id="monitor-tab-traces" class="monitor-tab-pane">
+      <section class="product-card monitor-section" aria-labelledby="monitor-hist-heading">
+        <div class="monitor-section-head">
+          <div>
+            <h2 id="monitor-hist-heading">Atividade recente (tokens por trace)</h2>
+            <p class="monitor-hint">Passe o mouse ou clique em uma barra para auditar o trace completo.</p>
+          </div>
+        </div>
+        <div id="monitor-histogram" class="monitor-histogram"></div>
+      </section>
+
+      <section class="product-card monitor-section" aria-labelledby="monitor-stages-heading">
+        <div class="monitor-section-head">
+          <div>
+            <h2 id="monitor-stages-heading">Consumo por etapa</h2>
+            <p class="monitor-hint">Clique em uma etapa para abrir a aba Generations filtrada por ela.</p>
+          </div>
+        </div>
+        <div id="monitor-stages" class="monitor-table-wrap"></div>
+      </section>
+
+      <section class="product-card monitor-section" aria-labelledby="monitor-traces-heading">
+        <div class="monitor-section-head">
+          <div>
+            <h2 id="monitor-traces-heading">Requisições recentes (Traces)</h2>
+            <p class="monitor-hint">Clique em qualquer trace para abrir o auditor completo com Waterfall, Spans e Prompt Inspector.</p>
+          </div>
+        </div>
+        <div id="monitor-traces" class="monitor-table-wrap"></div>
+      </section>
+    </div>
+
+    <div id="monitor-tab-sessions" class="monitor-tab-pane" hidden>
+      <section class="product-card monitor-section" aria-labelledby="monitor-sessions-heading">
+        <div class="monitor-section-head">
+          <div>
+            <h2 id="monitor-sessions-heading">Sessões de conversa</h2>
+            <p class="monitor-hint">Traces agrupados por conversa contínua no Studio (session_id).</p>
+          </div>
+        </div>
+        <div id="monitor-sessions" class="monitor-sessions-list"></div>
+      </section>
+    </div>
+
+    <div id="monitor-tab-generations" class="monitor-tab-pane" hidden>
+      <section class="product-card monitor-section" aria-labelledby="monitor-events-heading">
+        <div class="monitor-section-head">
+          <div>
+            <h2 id="monitor-events-heading">Generations (chamadas de modelo)</h2>
+            <p id="monitor-events-count" class="monitor-hint"></p>
+          </div>
+          <div class="monitor-filters">
+            <select id="monitor-filter-stage" class="monitor-select" aria-label="Filtrar por etapa">
+              <option value="">Todas as etapas</option>
+            </select>
+            <select id="monitor-filter-status" class="monitor-select" aria-label="Filtrar por status">
+              <option value="all">Todos os status</option>
+              <option value="ok">Somente OK</option>
+              <option value="error">Somente erros</option>
+            </select>
+            <span id="monitor-trace-pill" class="monitor-trace-pill" hidden></span>
+            <button type="button" id="monitor-clear-filters" class="monitor-btn" hidden>Limpar filtros</button>
+          </div>
+        </div>
+        <div id="monitor-events" class="monitor-table-wrap"></div>
+      </section>
+    </div>
+  </main>
+
+  <div id="trace-drawer" class="trace-drawer" hidden role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <div id="trace-drawer-backdrop" class="trace-drawer-backdrop"></div>
+    <aside class="trace-drawer-panel">
+      <header class="drawer-header">
+        <div class="drawer-title-group">
+          <div class="drawer-title-row">
+            <h2 id="drawer-title">Auditoria do Trace</h2>
+            <span id="drawer-status-pill" class="monitor-status-ok">OK</span>
+          </div>
+          <div id="drawer-badges" class="drawer-badges"></div>
+        </div>
+        <div class="drawer-header-actions">
+          <a id="drawer-lf-link" class="monitor-btn monitor-btn-primary" target="_blank" rel="noopener noreferrer" hidden>Abrir no Langfuse ↗</a>
+          <button type="button" id="drawer-close" class="monitor-btn" aria-label="Fechar auditoria">✕ Fechar</button>
+        </div>
+      </header>
+
+      <div id="drawer-body" class="drawer-body">
+        <section id="drawer-io" class="drawer-io-grid"></section>
+
+        <section class="drawer-card" aria-labelledby="drawer-wf-heading">
+          <div class="drawer-card-head">
+            <h3 id="drawer-wf-heading">Fluxo de execução &amp; Waterfall (Observations)</h3>
+            <span id="drawer-wf-summary" class="monitor-hint"></span>
+          </div>
+          <div id="drawer-waterfall" class="waterfall-list"></div>
+        </section>
+
+        <section id="drawer-obs-detail" class="drawer-card" aria-label="Detalhe da observation selecionada"></section>
+      </div>
+    </aside>
+  </div>
+</body>
+</html>

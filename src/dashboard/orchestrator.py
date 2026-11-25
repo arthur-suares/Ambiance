@@ -113,14 +113,17 @@ def create_plan(question: str, domain: str) -> OrchestratorPlan:
         f"Bancos disponíveis: carne bovina (trase.duckdb)={'sim' if beef_ok else 'não'}, "
         f"soja (soy.duckdb)={'sim' if soy_ok else 'não'}."
     )
-    payload, in_tok, out_tok = call_structured_llm(
-        system=ORCHESTRATOR_SYSTEM_PROMPT,
-        user_content=user_msg,
-        tool_name="emit_plan",
-        tool_description="Define o plano de consultas e visuais do dashboard.",
-        input_schema=PLAN_TOOL_SCHEMA,
-        max_tokens=1500,
-    )
+    from src.llm_tracker import llm_stage
+
+    with llm_stage("dashboard.orchestrator.plan"):
+        payload, in_tok, out_tok = call_structured_llm(
+            system=ORCHESTRATOR_SYSTEM_PROMPT,
+            user_content=user_msg,
+            tool_name="emit_plan",
+            tool_description="Define o plano de consultas e visuais do dashboard.",
+            input_schema=PLAN_TOOL_SCHEMA,
+            max_tokens=1500,
+        )
 
     requests: list[DataRequest] = []
     for idx, item in enumerate(payload.get("data_requests") or [], start=1):
@@ -200,7 +203,10 @@ def generate_dashboard(
             warnings=[reason],
         )
     else:
-        spec, d_in, d_out = propose_dashboard_spec(question, plan, datasets)
+        from src.llm_tracker import llm_stage
+
+        with llm_stage("dashboard.orchestrator.propose_spec"):
+            spec, d_in, d_out = propose_dashboard_spec(question, plan, datasets)
         total_in += d_in
         total_out += d_out
 
@@ -215,7 +221,8 @@ def generate_dashboard(
 
             if attempt < MAX_REVISIONS:
                 revisions_used += 1
-                spec, r_in, r_out = revise_dashboard_spec(question, plan, datasets, spec, review)
+                with llm_stage(f"dashboard.orchestrator.revise_{revisions_used}"):
+                    spec, r_in, r_out = revise_dashboard_spec(question, plan, datasets, spec, review)
                 total_in += r_in
                 total_out += r_out
             else:

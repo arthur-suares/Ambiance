@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from math import isfinite
 from numbers import Real
@@ -13,8 +14,13 @@ from src.agro_db import CHOROPLETH_METRICS, run_readonly_sql
 from src.config import LLM_EXTRA_PARAMS, LLM_MAX_TOKENS, LLM_MODEL
 from src.temporal import METRICS, get_temporal
 
-MAX_TURNS = 6
+MAX_TURNS = 4
 logger = logging.getLogger(__name__)
+_LAW_HINT_RE = re.compile(
+    r"\b(lei|leis|c[oó]digo|florestal|reserva\s+legal|app|car|pra|embargo|crime|licenciamento|"
+    r"obriga[cç][aã]o|obriga[cç][oõ]es|art\.?|artigo|norma|decreto|resolu[cç][aã]o)\b",
+    re.I,
+)
 
 SYSTEM_PROMPT = """\
 Você é o assistente analítico e socioambiental da plataforma Agro/Ambiance.
@@ -54,15 +60,14 @@ Comece a resposta final com uma conclusão em texto, mesmo que o usuário peça 
 - Inclua `codigo_municipio_ibge` nos SELECTs municipais para que o mapa destaque os municípios encontrados.
 - **Mapa sob demanda (`set_map_view`):** sempre chame quando a pergunta envolver território, municípios, biomas, estados, fluxos, instalações, cobertura MapBiomas ou alertas DETER. Ative apenas as camadas relevantes para a pergunta, defina um `title` descritivo e escolha o recorte (`uf`/`bioma`/`year`/`metric`/`deter_mode`/`show_facilities`/`mapbiomas_mode`).
 - Quando o usuário pedir **cobertura e uso da terra (MapBiomas, floresta vs pastagem vs soja, 1985–2025)**, use `mapbiomas_mode: true`, `mapbiomas_year` (1985–2025) e `mapbiomas_classes` (opcional, IDs como 3=Floresta, 4=Savânica, 15=Pastagem, 39=Soja, 21=Mosaico, 24=Urbana, 33=Água).
-- **Evolução territorial:** quando a pergunta pedir intervalo, evolução, série, play, marcos ou animação de uma métrica territorial, use `set_temporal_view` antes de responder. A ferramenta consulta números e distingue anos ausentes. Para esse indicador use os valores [T1] da ferramenta como fonte dos números; SQL separado só para contexto complementar. Não chame `set_map_view` em paralelo para repetir a mesma visualização.
-- Selecione os fatos mais relevantes com `choose_temporal_milestones`, em ordem do tempo. A interface escreve os textos dos marcos a partir dos fatos calculados e mostra suas fontes. Para datas não informadas, use o intervalo pertinente à pergunta e explique o recorte. Use meses apenas para DETER.
-- **Dashboard:** os resultados das ferramentas alimentam o agente de Dashboard. Prefira resultados com colunas claras e unidades no nome ou no propósito da consulta.
+- **Evolução territorial:** quando a pergunta pedir intervalo, evolução, série, play, marcos ou animação de uma métrica territorial, use `set_temporal_view` uma única vez. Os marcos, o mapa animado e o Dashboard são gerados automaticamente a partir da série [T1] — não chame `set_map_view` nem repita consultas SQL sobre o mesmo indicador. Só chame `search_laws` se a pergunta pedir legislação. Para datas não informadas, use o intervalo pertinente à pergunta e explique o recorte. Use meses apenas para DETER.
+- **Dashboard:** os resultados das ferramentas alimentam o Dashboard interativo automaticamente. Prefira resultados com colunas claras e unidades no nome ou no propósito da consulta.
 - Para perguntas sobre leis, obrigações, Código Florestal, CAR, PRA, crimes ambientais ou licenciamento, chame `search_laws`.
 - Em pedidos de refinamento conversacional ("filtre só 2025", "troque para hexágonos 3D", "mostre os frigoríficos", "compare com Altamira"), preserve ou adapte o recorte do Canvas atual.
 - Regras de clareza e linguagem acessível:
   - Escreva para qualquer pessoa (cidadãos, pesquisadores, gestores e empresas), em português natural e claro.
   - NUNCA use siglas técnicas sem explicá-las em palavras comuns primeiro (evite siglas soltas como DETER, SEEG, APP, CAR, PRA, SIF, IBGE, MUT, UNKNOWN ou SQL; escreva "alertas de satélite do INPE", "emissões de carbono e uso da terra", "área de preservação permanente", "cadastro ambiental rural", "frigoríficos e abatedouros", "parcela sem origem identificada").
-  - Nos títulos de gráficos e mapas (`title`, `subtitle`), também use linguagem humana sem siglas técnicas.
+  - Nos títulos dos mapas (`title`), também use linguagem humana sem siglas técnicas.
 - Regras metodológicas:
   - NUNCA some `trase_*_exposicao_5a_ha` entre anos (janela móvel de 5 anos).
   - NUNCA trate exposição ao desmatamento ou alerta territorial como prova de ilegalidade individual.
@@ -94,14 +99,6 @@ TOOLS = [
                 "classes": {"type": "array", "items": {"type": "integer"},
                             "description": "Para land_cover: 3 floresta, 15 pastagem, 39 soja, entre outras classes."},
             },
-        },
-    },
-    {
-        "name": "choose_temporal_milestones",
-        "description": "Seleciona as evidências que viram marcos. Os textos, datas e números são montados a partir dos fatos retornados.",
-        "input_schema": {
-            "type": "object", "required": ["ids"],
-            "properties": {"ids": {"type": "array", "items": {"type": "string"}, "maxItems": 6}},
         },
     },
     {
@@ -170,43 +167,6 @@ TOOLS = [
             },
         },
     },
-    {
-        "name": "create_chart",
-        "description": "Cria um gráfico interativo (Chart.js) no Canvas com base nos dados consultados via SQL.",
-        "input_schema": {
-            "type": "object",
-            "required": ["title", "chart_type", "labels", "series"],
-            "properties": {
-                "title": {"type": "string", "description": "Título do gráfico."},
-                "subtitle": {"type": "string", "description": "Fonte, ano ou nota metodológica curta."},
-                "chart_type": {
-                    "type": "string",
-                    "enum": list(CHART_TYPES),
-                    "description": "Tipo de gráfico: horizontal_bar (ranking), bar (comparação), line/area (série temporal), doughnut (composição).",
-                },
-                "x_label": {"type": "string"},
-                "y_label": {"type": "string"},
-                "unit": {"type": "string", "description": "Unidade dos valores (ex.: km², ha, t, tCO2e)."},
-                "labels": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Rótulos do eixo de categorias/tempo (até 30 itens).",
-                },
-                "series": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["name", "values"],
-                        "properties": {
-                            "name": {"type": "string"},
-                            "values": {"type": "array", "items": {"type": "number"}},
-                            "color": {"type": "string", "description": "Cor hex opcional (ex.: #10b981)."},
-                        },
-                    },
-                },
-            },
-        },
-    },
 ]
 
 
@@ -216,9 +176,9 @@ def _format_table_for_llm(cols: list[str], rows: list[dict[str, Any]], label: st
     header = " | ".join(cols)
     sep = " | ".join("---" for _ in cols)
     body = []
-    for r in rows[:40]:
+    for r in rows[:20]:
         body.append(" | ".join("" if r.get(c) is None else str(r.get(c)) for c in cols))
-    note = f"\n(mostrando 40 de {len(rows)} linhas)" if len(rows) > 40 else ""
+    note = f"\n(mostrando 20 de {len(rows)} linhas)" if len(rows) > 20 else ""
     return f"[{label}] {purpose} ({len(rows)} linhas)\n{header}\n{sep}\n" + "\n".join(body) + note
 
 
@@ -468,10 +428,12 @@ def ask_agro(
     view_context: dict[str, Any] | None = None,
     history: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    from src.llm_tracker import current_trace_id, llm_span, llm_stage
     from src.rag import get_client
 
     client = get_client()
     user_content = _format_view_context(view_context) + question
+    system_blocks = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
     messages: list[dict[str, Any]] = [*_sanitize_history(history), {"role": "user", "content": user_content}]
     tool_calls_log: list[dict[str, Any]] = []
     law_sources: list[dict[str, Any]] = []
@@ -480,31 +442,58 @@ def ask_agro(
     map_spec: dict[str, Any] = {}
     discovered_codes: list[str] = []
     temporal = None
-    milestone_ids = []
+    used_law_search = False
 
     in_tokens = 0
     out_tokens = 0
+    cache_read_tokens = 0
+    cache_creation_tokens = 0
+    llm_calls = 0
     d_idx = 0
     final_text = ""
     stop_reason = ""
 
-    for _ in range(MAX_TURNS):
-        try:
-            resp = client.messages.create(
-                model=LLM_MODEL,
-                max_tokens=min(LLM_MAX_TOKENS, 4096),
-                system=SYSTEM_PROMPT,
-                messages=messages,
-                tools=TOOLS,
-                **LLM_EXTRA_PARAMS,
+    def _with_tool_cache(tools_list: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not tools_list:
+            return []
+        return [
+            {**tool, "cache_control": {"type": "ephemeral"}} if idx == len(tools_list) - 1 else tool
+            for idx, tool in enumerate(tools_list)
+        ]
+
+    for turn_idx in range(1, MAX_TURNS + 1):
+        if temporal is not None:
+            turn_tools = (
+                [t for t in TOOLS if t["name"] == "search_laws"]
+                if (not used_law_search and _LAW_HINT_RE.search(question))
+                else []
             )
+        else:
+            turn_tools = TOOLS
+
+        req_kwargs: dict[str, Any] = {
+            "model": LLM_MODEL,
+            "max_tokens": min(LLM_MAX_TOKENS, 4096),
+            "system": system_blocks,
+            "messages": messages,
+            **LLM_EXTRA_PARAMS,
+        }
+        if turn_tools:
+            req_kwargs["tools"] = _with_tool_cache(turn_tools)
+
+        try:
+            with llm_stage(f"agro_chat.loop.turn_{turn_idx}"):
+                resp = client.messages.create(**req_kwargs)
         except Exception:
             if not (tables or temporal or law_sources or map_spec or charts):
                 raise
             logger.warning("Resposta interrompida após recuperar evidências.", exc_info=True)
             break
-        in_tokens += resp.usage.input_tokens
-        out_tokens += resp.usage.output_tokens
+        llm_calls += 1
+        in_tokens += int(getattr(resp.usage, "input_tokens", 0) or 0)
+        out_tokens += int(getattr(resp.usage, "output_tokens", 0) or 0)
+        cache_read_tokens += int(getattr(resp.usage, "cache_read_input_tokens", 0) or 0)
+        cache_creation_tokens += int(getattr(resp.usage, "cache_creation_input_tokens", 0) or 0)
         stop_reason = resp.stop_reason or ""
 
         assistant_blocks = resp.content
@@ -521,131 +510,125 @@ def ask_agro(
             name = tu.name
             inp = tu.input or {}
             if name == "set_temporal_view":
-                try:
-                    temporal = get_temporal(inp)
-                    milestone_ids = []
-                    out_txt = json.dumps({
-                        "source": temporal["source"], "scope": temporal["scope"], "unit": temporal["unit"],
-                        "series_T1": [(f["period"], f["value"], f.get("coverage_through")) for f in temporal["frames"]],
-                        "milestone_options": temporal["facts"],
-                    }, ensure_ascii=False)
-                except (ValueError, TypeError) as exc:
-                    out_txt = f"Recorte temporal inválido: {exc}"
+                with llm_span("tool:set_temporal_view", input_data=inp) as sp:
+                    try:
+                        temporal = get_temporal(inp)
+                        out_txt = json.dumps({
+                            "source": temporal["source"], "scope": temporal["scope"], "unit": temporal["unit"],
+                            "series_T1": [(f["period"], f["value"], f.get("coverage_through")) for f in temporal["frames"]],
+                            "facts": temporal["facts"],
+                        }, ensure_ascii=False)
+                        sp.set_output({"source": temporal["source"], "scope": temporal["scope"], "frames": len(temporal["frames"])})
+                    except (ValueError, TypeError) as exc:
+                        out_txt = f"Recorte temporal inválido: {exc}"
+                        sp.set_output({"error": str(exc)})
                 tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out_txt})
-
-            elif name == "choose_temporal_milestones":
-                valid = {f["id"] for f in temporal["facts"]} if temporal else set()
-                items = inp.get("ids")
-                if valid and isinstance(items, list):
-                    milestone_ids = list(dict.fromkeys(i for i in items if isinstance(i, str) and i in valid))[:6]
-                tool_results.append({"type": "tool_result", "tool_use_id": tu.id,
-                                     "content": f"Marcos associados aos fatos: {', '.join(milestone_ids)}."})
 
             elif name == "query_agro_sql":
                 d_idx += 1
                 label = f"D{d_idx}"
                 sql = str(inp.get("sql", ""))
                 purpose = str(inp.get("purpose", "Consulta SQL"))
-                try:
-                    cols, rows = run_readonly_sql(sql, max_rows=100)
-                    for r in rows[:20]:
-                        code = r.get("codigo_municipio_ibge") or r.get("code")
-                        if isinstance(code, str) and len(code) == 7 and code.isdigit() and code not in discovered_codes:
-                            discovered_codes.append(code)
-                    tables.append({"label": label, "purpose": purpose, "columns": cols, "rows": rows,
-                                   "row_limit": 100, "at_limit": len(rows) == 100})
-                    out_txt = _format_table_for_llm(cols, rows, label, purpose)
-                    tool_calls_log.append({
-                        "label": label, "name": name, "summary": purpose,
-                        "ok": True, "rows": len(rows), "seconds": round(time.perf_counter() - t0, 2),
-                        "output": sql,
-                    })
-                except Exception as exc:
-                    out_txt = f"[{label}] ERRO SQL: {exc}"
-                    tool_calls_log.append({
-                        "label": label, "name": name, "summary": purpose,
-                        "ok": False, "rows": 0, "seconds": round(time.perf_counter() - t0, 2),
-                        "output": f"{sql}\nErro: {exc}",
-                    })
+                with llm_span("tool:query_agro_sql", input_data={"purpose": purpose, "sql": sql}) as sp:
+                    try:
+                        cols, rows = run_readonly_sql(sql, max_rows=100)
+                        for r in rows[:20]:
+                            code = r.get("codigo_municipio_ibge") or r.get("code")
+                            if isinstance(code, str) and len(code) == 7 and code.isdigit() and code not in discovered_codes:
+                                discovered_codes.append(code)
+                        tables.append({"label": label, "purpose": purpose, "columns": cols, "rows": rows,
+                                       "row_limit": 100, "at_limit": len(rows) == 100})
+                        out_txt = _format_table_for_llm(cols, rows, label, purpose)
+                        tool_calls_log.append({
+                            "label": label, "name": name, "summary": purpose,
+                            "ok": True, "rows": len(rows), "seconds": round(time.perf_counter() - t0, 2),
+                            "output": sql,
+                        })
+                        sp.set_output({"label": label, "rows": len(rows), "columns": cols, "sample": rows[:5]})
+                    except Exception as exc:
+                        out_txt = f"[{label}] ERRO SQL: {exc}"
+                        tool_calls_log.append({
+                            "label": label, "name": name, "summary": purpose,
+                            "ok": False, "rows": 0, "seconds": round(time.perf_counter() - t0, 2),
+                            "output": f"{sql}\nErro: {exc}",
+                        })
+                        sp.set_output({"label": label, "error": str(exc)})
                 tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out_txt})
 
             elif name == "search_laws":
+                used_law_search = True
                 q = str(inp.get("query", question))
-                try:
-                    hits = _run_law_search(q, k=k_laws)
-                    chunks_txt = []
-                    for h in hits:
-                        law_sources.append(h)
-                        idx_l = len(law_sources)
-                        art = h["metadata"].get("artigo", "")
-                        chunks_txt.append(f"[L{idx_l}] {h['title']} (art. {art})\n{h['content']}")
-                    out_txt = "\n\n".join(chunks_txt) if chunks_txt else "Nenhum trecho jurídico encontrado."
-                    tool_calls_log.append({
-                        "label": f"L1..L{len(law_sources)}", "name": name, "summary": q,
-                        "ok": True, "rows": len(hits), "seconds": round(time.perf_counter() - t0, 2),
-                        "output": q,
-                    })
-                except Exception as exc:
-                    out_txt = f"Busca jurídica indisponível: {exc}"
-                    tool_calls_log.append({
-                        "label": "L", "name": name, "summary": q,
-                        "ok": False, "rows": 0, "seconds": round(time.perf_counter() - t0, 2),
-                        "output": str(exc),
-                    })
+                with llm_span("retrieve-documents", input_data={"query": q, "k": k_laws}) as sp:
+                    try:
+                        hits = _run_law_search(q, k=k_laws)
+                        chunks_txt = []
+                        for h in hits:
+                            law_sources.append(h)
+                            idx_l = len(law_sources)
+                            art = h["metadata"].get("artigo", "")
+                            chunks_txt.append(f"[L{idx_l}] {h['title']} (art. {art})\n{h['content']}")
+                        out_txt = "\n\n".join(chunks_txt) if chunks_txt else "Nenhum trecho jurídico encontrado."
+                        tool_calls_log.append({
+                            "label": f"L1..L{len(law_sources)}", "name": name, "summary": q,
+                            "ok": True, "rows": len(hits), "seconds": round(time.perf_counter() - t0, 2),
+                            "output": q,
+                        })
+                        sp.set_output({"hits": len(hits), "laws": [h["title"] for h in hits[:6]]})
+                    except Exception as exc:
+                        out_txt = f"Busca jurídica indisponível: {exc}"
+                        tool_calls_log.append({
+                            "label": "L", "name": name, "summary": q,
+                            "ok": False, "rows": 0, "seconds": round(time.perf_counter() - t0, 2),
+                            "output": str(exc),
+                        })
+                        sp.set_output({"error": str(exc)})
                 tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out_txt})
 
             elif name == "set_map_view":
-                spec: dict[str, Any] = {}
-                if isinstance(inp.get("title"), str) and inp["title"].strip():
-                    spec["title"] = inp["title"].strip()[:120]
-                if inp.get("metric") in CHOROPLETH_METRICS:
-                    spec["metric"] = inp["metric"]
-                if isinstance(inp.get("year"), int):
-                    spec["year"] = inp["year"]
-                if isinstance(inp.get("uf"), str) and inp["uf"].strip():
-                    spec["uf"] = inp["uf"].strip().upper()[:2]
-                if isinstance(inp.get("bioma"), str) and inp["bioma"].strip():
-                    spec["bioma"] = inp["bioma"].strip()
-                if isinstance(inp.get("show_flows"), bool):
-                    spec["show_flows"] = inp["show_flows"]
-                if inp.get("flow_product") in ("soja", "bovinos"):
-                    spec["flow_product"] = inp["flow_product"]
-                if isinstance(inp.get("show_deter"), bool):
-                    spec["show_deter"] = inp["show_deter"]
-                if isinstance(inp.get("deter_year"), int):
-                    spec["deter_year"] = inp["deter_year"]
-                if inp.get("deter_mode") in ("hex", "points"):
-                    spec["deter_mode"] = inp["deter_mode"]
-                if isinstance(inp.get("show_facilities"), bool):
-                    spec["show_facilities"] = inp["show_facilities"]
-                if inp.get("facilities_chain") in ("bovinos", "soja"):
-                    spec["facilities_chain"] = inp["facilities_chain"]
-                if isinstance(inp.get("view_3d"), bool):
-                    spec["view_3d"] = inp["view_3d"]
-                if inp.get("basemap") in ("dark", "terrain", "light"):
-                    spec["basemap"] = inp["basemap"]
-                if isinstance(inp.get("mapbiomas_mode"), bool):
-                    spec["mapbiomas_mode"] = inp["mapbiomas_mode"]
-                if isinstance(inp.get("mapbiomas_year"), int):
-                    spec["mapbiomas_year"] = max(1985, min(2025, inp["mapbiomas_year"]))
-                if isinstance(inp.get("mapbiomas_classes"), list):
-                    spec["mapbiomas_classes"] = [int(c) for c in inp["mapbiomas_classes"] if isinstance(c, int)][:25]
-                if isinstance(inp.get("highlight_codes"), list):
-                    spec["highlight_codes"] = [
-                        str(c).strip() for c in inp["highlight_codes"]
-                        if str(c).strip().isdigit() and len(str(c).strip()) == 7
-                    ][:25]
-                map_spec.update(spec)
+                with llm_span("tool:set_map_view", input_data=inp) as sp:
+                    spec: dict[str, Any] = {}
+                    if isinstance(inp.get("title"), str) and inp["title"].strip():
+                        spec["title"] = inp["title"].strip()[:120]
+                    if inp.get("metric") in CHOROPLETH_METRICS:
+                        spec["metric"] = inp["metric"]
+                    if isinstance(inp.get("year"), int):
+                        spec["year"] = inp["year"]
+                    if isinstance(inp.get("uf"), str) and inp["uf"].strip():
+                        spec["uf"] = inp["uf"].strip().upper()[:2]
+                    if isinstance(inp.get("bioma"), str) and inp["bioma"].strip():
+                        spec["bioma"] = inp["bioma"].strip()
+                    if isinstance(inp.get("show_flows"), bool):
+                        spec["show_flows"] = inp["show_flows"]
+                    if inp.get("flow_product") in ("soja", "bovinos"):
+                        spec["flow_product"] = inp["flow_product"]
+                    if isinstance(inp.get("show_deter"), bool):
+                        spec["show_deter"] = inp["show_deter"]
+                    if isinstance(inp.get("deter_year"), int):
+                        spec["deter_year"] = inp["deter_year"]
+                    if inp.get("deter_mode") in ("hex", "points"):
+                        spec["deter_mode"] = inp["deter_mode"]
+                    if isinstance(inp.get("show_facilities"), bool):
+                        spec["show_facilities"] = inp["show_facilities"]
+                    if inp.get("facilities_chain") in ("bovinos", "soja"):
+                        spec["facilities_chain"] = inp["facilities_chain"]
+                    if isinstance(inp.get("view_3d"), bool):
+                        spec["view_3d"] = inp["view_3d"]
+                    if inp.get("basemap") in ("dark", "terrain", "light"):
+                        spec["basemap"] = inp["basemap"]
+                    if isinstance(inp.get("mapbiomas_mode"), bool):
+                        spec["mapbiomas_mode"] = inp["mapbiomas_mode"]
+                    if isinstance(inp.get("mapbiomas_year"), int):
+                        spec["mapbiomas_year"] = max(1985, min(2025, inp["mapbiomas_year"]))
+                    if isinstance(inp.get("mapbiomas_classes"), list):
+                        spec["mapbiomas_classes"] = [int(c) for c in inp["mapbiomas_classes"] if isinstance(c, int)][:25]
+                    if isinstance(inp.get("highlight_codes"), list):
+                        spec["highlight_codes"] = [
+                            str(c).strip() for c in inp["highlight_codes"]
+                            if str(c).strip().isdigit() and len(str(c).strip()) == 7
+                        ][:25]
+                    map_spec.update(spec)
+                    sp.set_output(spec)
                 tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": "MapSpec atualizado no Canvas."})
-
-            elif name == "create_chart":
-                chart = _sanitize_chart(inp)
-                if chart:
-                    charts.append(chart)
-                    out_txt = f"Gráfico '{chart['title']}' ({chart['chart_type']}) adicionado ao Canvas."
-                else:
-                    out_txt = "Parâmetros de gráfico inválidos; forneça labels e series numéricas não vazias."
-                tool_results.append({"type": "tool_result", "tool_use_id": tu.id, "content": out_txt})
 
         messages.append({"role": "user", "content": tool_results})
 
@@ -663,15 +646,19 @@ def ask_agro(
         else:
             messages.append({"role": "user", "content": [note]})
         try:
-            response = client.with_options(timeout=12, max_retries=0).messages.create(
-                model=LLM_MODEL,
-                max_tokens=1400,
-                system=SYSTEM_PROMPT,
-                messages=messages,
-                **LLM_EXTRA_PARAMS,
-            )
-            in_tokens += response.usage.input_tokens
-            out_tokens += response.usage.output_tokens
+            with llm_stage("agro_chat.synthesis_fallback"):
+                response = client.with_options(timeout=12, max_retries=0).messages.create(
+                    model=LLM_MODEL,
+                    max_tokens=2048,
+                    system=system_blocks,
+                    messages=messages,
+                    **LLM_EXTRA_PARAMS,
+                )
+            llm_calls += 1
+            in_tokens += int(getattr(response.usage, "input_tokens", 0) or 0)
+            out_tokens += int(getattr(response.usage, "output_tokens", 0) or 0)
+            cache_read_tokens += int(getattr(response.usage, "cache_read_input_tokens", 0) or 0)
+            cache_creation_tokens += int(getattr(response.usage, "cache_creation_input_tokens", 0) or 0)
             stop_reason = response.stop_reason or stop_reason
             final_text = "\n".join(b.text for b in response.content if b.type == "text").strip()
         except Exception:
@@ -711,11 +698,13 @@ def ask_agro(
     if tables or temporal:
         from src.dashboard.studio import build_studio_dashboard
 
-        dashboard = build_studio_dashboard(question, tables, temporal)
+        with llm_span("build_studio_dashboard", input_data={"tables": len(tables), "has_temporal": bool(temporal)}) as sp:
+            dashboard = build_studio_dashboard(question, tables, temporal)
+            if dashboard:
+                sp.set_output({"title": dashboard.get("title"), "widgets": len(dashboard.get("widgets") or [])})
         if dashboard:
             if temporal:
-                chosen = set(milestone_ids)
-                temporal["milestones"] = [f["id"] for f in temporal["facts"] if not chosen or f["id"] in chosen]
+                temporal["milestones"] = [f["id"] for f in temporal["facts"][:6]]
                 final_map = None
                 available_views = [v for v in available_views if v["key"] not in {"map", "data", "charts"}]
                 available_views.insert(0, {"key": "timeline", "label": "Reproduzir evolução", "summary": temporal["label"]})
@@ -735,6 +724,11 @@ def ask_agro(
         "stop_reason": stop_reason,
         "input_tokens": in_tokens,
         "output_tokens": out_tokens,
+        "cache_read_tokens": cache_read_tokens,
+        "cache_creation_tokens": cache_creation_tokens,
+        "total_tokens": in_tokens + out_tokens + cache_read_tokens + cache_creation_tokens,
+        "llm_calls": llm_calls,
+        "llm_trace_id": current_trace_id() or None,
         "tool_calls": tool_calls_log,
         "tables": tables,
         "charts": final_charts,

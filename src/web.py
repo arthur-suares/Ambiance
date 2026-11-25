@@ -10,8 +10,10 @@ Só escuta em 127.0.0.1 (acessível apenas nesta máquina).
 """
 
 import argparse
+from collections import OrderedDict
 import importlib.util
 import json
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
@@ -20,6 +22,33 @@ from src.config import DUCKDB_PATH, OPENROUTER_API_KEY, PROJECT_ROOT
 
 INDEX_HTML = PROJECT_ROOT / "web" / "index.html"
 WEB_ROOT = PROJECT_ROOT / "web"
+
+_ASK_CACHE_LOCK = threading.Lock()
+_ASK_CACHE: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+_ASK_CACHE_TTL_SECONDS = 900.0
+_ASK_CACHE_MAX_ITEMS = 32
+
+
+def _ask_cache_get(key: str) -> dict | None:
+    now = time.monotonic()
+    with _ASK_CACHE_LOCK:
+        entry = _ASK_CACHE.get(key)
+        if not entry:
+            return None
+        ts, payload = entry
+        if now - ts > _ASK_CACHE_TTL_SECONDS:
+            _ASK_CACHE.pop(key, None)
+            return None
+        _ASK_CACHE.move_to_end(key)
+        return dict(payload)
+
+
+def _ask_cache_set(key: str, payload: dict) -> None:
+    with _ASK_CACHE_LOCK:
+        _ASK_CACHE[key] = (time.monotonic(), dict(payload))
+        _ASK_CACHE.move_to_end(key)
+        while len(_ASK_CACHE) > _ASK_CACHE_MAX_ITEMS:
+            _ASK_CACHE.popitem(last=False)
 
 
 def _analytics_available() -> bool:
@@ -68,6 +97,9 @@ class Handler(BaseHTTPRequestHandler):
             "/map_layers.css": ("map_layers.css", "text/css; charset=utf-8"),
             "/metodologia": ("methodology.html", "text/html; charset=utf-8"),
             "/metodologia/": ("methodology.html", "text/html; charset=utf-8"),
+            "/monitor": ("monitor.html", "text/html; charset=utf-8"),
+            "/monitor/": ("monitor.html", "text/html; charset=utf-8"),
+            "/monitor.js": ("monitor.js", "text/javascript; charset=utf-8"),
             "/explorar": ("agro_map.html", "text/html; charset=utf-8"),
             "/explorar/": ("agro_map.html", "text/html; charset=utf-8"),
             "/explorar/agro_map.css": ("agro_map.css", "text/css; charset=utf-8"),
@@ -225,15 +257,52 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(200, {"ok": True, "analytics_available": _analytics_available(),
                                     "map_chat_available": _map_chat_available(),
                                     "agro_postgres_available": agro_available()})
+        parsed = urlsplit(self.path)
+        if parsed.path == "/api/llm/tracker":
+            from src.llm_tracker import get_events, summarize_events
+
+            qs = parse_qs(parsed.query)
+            trace_id = (qs.get("trace_id", [""])[0] or "").strip() or None
+            stage = (qs.get("stage", [""])[0] or "").strip() or None
+            try:
+                raw_limit = int((qs.get("limit", ["200"])[0] or "200"))
+            except ValueError:
+                raw_limit = 200
+            limit = max(1, min(500, raw_limit))
+            events = get_events(trace_id=trace_id, limit=limit, stage=stage)
+            return self._json(200, {"events": events, "summary": summarize_events(events)})
+        if parsed.path == "/api/llm/trace":
+            from src.llm_tracker import get_trace_detail
+
+            qs = parse_qs(parsed.query)
+            trace_id = (qs.get("id", [""])[0] or "").strip()
+            if not trace_id:
+                return self._json(400, {"error": "Parâmetro 'id' é obrigatório."})
+            detail = get_trace_detail(trace_id)
+            if detail is None:
+                return self._json(404, {"error": "Trace não encontrado."})
+            return self._json(200, detail)
         if self.path not in ("/", "/index.html"):
             return self._send(404, "text/plain", b"not found")
         self._send(200, "text/html; charset=utf-8", INDEX_HTML.read_bytes())
 
     def do_POST(self):
+        from src.llm_tracker import llm_trace
+
+        with llm_trace(
+            trace_id=self.headers.get("X-Trace-Id") or None,
+            route=f"POST {self.path}",
+            session_id=self.headers.get("X-Session-Id") or "",
+        ):
+            self._handle_post()
+
+    def _handle_post(self):
         if self.path == "/api/agro/temporal":
             return self._temporal()
         if self.path != "/api/ask":
             return self._send(404, "text/plain", b"not found")
+        from src.llm_tracker import llm_event, set_trace_io
+
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
             question = (body.get("question") or "").strip()
@@ -243,6 +312,52 @@ class Handler(BaseHTTPRequestHandler):
 
             start = time.perf_counter()
             mode = body.get("mode", "agent")
+            session_id = (body.get("session_id") or self.headers.get("X-Session-Id") or "").strip()
+            trace_name = (
+                "pergunta-legislacao"
+                if mode == "laws"
+                else ("mapa-soja" if mode == "map" else "chatbot-request")
+            )
+            set_trace_io(
+                name=trace_name,
+                session_id=session_id or None,
+                input_data={
+                    "question": question,
+                    "mode": mode,
+                    "domain": (body.get("domain") or "auto").strip().lower(),
+                    "k": k,
+                    "history_turns": len(body.get("history") or []),
+                },
+            )
+            no_cache = (self.headers.get("X-No-Cache") or "").strip() == "1"
+            cache_key = None
+            if mode in ("agro", "laws", "map"):
+                cache_key = json.dumps({
+                    "mode": mode,
+                    "domain": (body.get("domain") or "auto").strip().lower(),
+                    "k": k,
+                    "question": " ".join(question.lower().split()),
+                    "view_context": body.get("view_context"),
+                    "history": body.get("history"),
+                }, sort_keys=True, ensure_ascii=False)
+                if not no_cache:
+                    cached = _ask_cache_get(cache_key)
+                    if cached is not None:
+                        cached["seconds"] = 0.0
+                        cached["cached_response"] = True
+                        llm_event(
+                            "ask_cache_hit",
+                            input_data={"question": question},
+                            output_data={"cached_response": True},
+                        )
+                        set_trace_io(
+                            output_data={
+                                "answer": (cached.get("answer") or "")[:1200],
+                                "cached_response": True,
+                            }
+                        )
+                        return self._json(200, cached)
+
             if mode == "agro":
                 if not OPENROUTER_API_KEY:
                     return self._json(503, {"error": "Configure OPENROUTER_API_KEY no .env para usar o assistente IA."})
@@ -254,6 +369,18 @@ class Handler(BaseHTTPRequestHandler):
                     history=body.get("history"),
                 )
                 result["seconds"] = round(time.perf_counter() - start, 1)
+                set_trace_io(
+                    output_data={
+                        "answer": (result.get("answer") or "")[:2000],
+                        "domain": result.get("domain"),
+                        "views": [v.get("key") for v in (result.get("available_views") or [])],
+                        "sources_count": len(result.get("sources") or []),
+                        "llm_calls": result.get("llm_calls"),
+                        "total_tokens": result.get("total_tokens"),
+                    }
+                )
+                if cache_key and not result.get("error"):
+                    _ask_cache_set(cache_key, result)
                 return self._json(200, result)
             if mode == "map":
                 if not _map_chat_available():
@@ -262,6 +389,14 @@ class Handler(BaseHTTPRequestHandler):
                 result = ask_map(question, k)
                 result["sources"] = [_law_source(source) for source in result["sources"]]
                 result["seconds"] = round(time.perf_counter() - start, 1)
+                set_trace_io(
+                    output_data={
+                        "answer": (result.get("answer") or "")[:2000],
+                        "sources_count": len(result.get("sources") or []),
+                    }
+                )
+                if cache_key:
+                    _ask_cache_set(cache_key, result)
                 return self._json(200, result)
 
             from src.rag import AGENT_DOMAINS, answer, build_context, resolve_domain
@@ -287,7 +422,7 @@ class Handler(BaseHTTPRequestHandler):
                 "what_you_receive": "Texto original dos artigos consultados e link direto para o documento oficial.",
             }] if formatted_sources else []
 
-            self._json(200, {
+            payload = {
                 "answer": result.text,
                 "stop_reason": result.stop_reason,
                 "input_tokens": result.input_tokens,
@@ -297,8 +432,20 @@ class Handler(BaseHTTPRequestHandler):
                 "context": build_context(result.sources) if result.sources else "",
                 "available_views": available_views,
                 "sources": formatted_sources,
-            })
+            }
+            set_trace_io(
+                output_data={
+                    "answer": (result.text or "")[:2000],
+                    "domain": result.domain,
+                    "views": [v.get("key") for v in available_views],
+                    "sources_count": len(formatted_sources),
+                }
+            )
+            if cache_key:
+                _ask_cache_set(cache_key, payload)
+            self._json(200, payload)
         except Exception as e:  # mostra o erro na página em vez de derrubar o servidor
+            set_trace_io(ok=False, error=f"{type(e).__name__}: {e}")
             self._json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def _temporal(self):

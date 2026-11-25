@@ -188,14 +188,17 @@ def run_data_agent(question: str, plan: OrchestratorPlan) -> DataAgentResult:
     session = _DataSession()
     result = DataAgentResult()
 
-    for _ in range(MAX_DATA_TURNS):
-        response = get_client().messages.create(
-            model=LLM_MODEL,
-            max_tokens=4096,
-            system=system,
-            tools=tools,
-            messages=messages,
-        )
+    from src.llm_tracker import llm_stage
+
+    for turn_idx in range(1, MAX_DATA_TURNS + 1):
+        with llm_stage(f"dashboard.data_agent.turn_{turn_idx}"):
+            response = get_client().messages.create(
+                model=LLM_MODEL,
+                max_tokens=4096,
+                system=system,
+                tools=tools,
+                messages=messages,
+            )
         result.input_tokens += getattr(response.usage, "input_tokens", 0) or 0
         result.output_tokens += getattr(response.usage, "output_tokens", 0) or 0
 

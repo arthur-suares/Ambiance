@@ -98,10 +98,12 @@ class RagAnswer:
 
 
 @lru_cache(maxsize=1)
-def get_client() -> anthropic.Anthropic:
+def get_client():
     if not OPENROUTER_API_KEY:
         raise RuntimeError("Defina OPENROUTER_API_KEY no .env.")
-    return anthropic.Anthropic(base_url=LLM_BASE_URL, auth_token=OPENROUTER_API_KEY, api_key=None)
+    from src.llm_tracker import TrackedClient
+
+    return TrackedClient(anthropic.Anthropic(base_url=LLM_BASE_URL, auth_token=OPENROUTER_API_KEY, api_key=None))
 
 
 # Domínios atendidos pelo agente de src/agent.py (dados da carne bovina e da soja + leis).
@@ -336,21 +338,26 @@ def build_context(chunks: list[dict]) -> str:
 
 
 def answer(question: str, k: int = 6, doc_type: str | None = None, domain: str | None = None) -> RagAnswer:
+    from src.llm_tracker import llm_span, llm_stage
+
     resolved_domain = resolve_domain(question, domain)
-    chunks = retrieve(question, k, doc_type)
+    with llm_span("retrieve-documents", input_data={"question": question, "k": k, "doc_type": doc_type}) as sp:
+        chunks = retrieve(question, k, doc_type)
+        sp.set_output({"chunks": len(chunks), "titles": list(dict.fromkeys(c["title"] for c in chunks))})
     if not chunks:
         return RagAnswer(question, "Nenhum trecho encontrado na base para essa pergunta.", [], None, 0, 0, domain=resolved_domain)
 
-    response = get_client().messages.create(
-        model=LLM_MODEL,
-        max_tokens=16000,
-        system=DOMAIN_SYSTEM_PROMPTS.get(resolved_domain, LAW_SYSTEM_PROMPT),
-        messages=[{
-            "role": "user",
-            "content": f"{build_context(chunks)}\n\nPergunta: {question}",
-        }],
-        **LLM_EXTRA_PARAMS,
-    )
+    with llm_stage("rag.answer"):
+        response = get_client().messages.create(
+            model=LLM_MODEL,
+            max_tokens=16000,
+            system=DOMAIN_SYSTEM_PROMPTS.get(resolved_domain, LAW_SYSTEM_PROMPT),
+            messages=[{
+                "role": "user",
+                "content": f"{build_context(chunks)}\n\nPergunta: {question}",
+            }],
+            **LLM_EXTRA_PARAMS,
+        )
 
     text = "".join(b.text for b in response.content if b.type == "text").strip()
     if response.stop_reason == "refusal":

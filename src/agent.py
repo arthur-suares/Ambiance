@@ -540,11 +540,14 @@ def ask(question: str, k_laws: int = 6, history: list[dict] | None = None,
     session = _Session(k_laws)
     result = AgentAnswer(question, "")
 
-    for _ in range(MAX_TURNS):
-        response = get_client().messages.create(
-            model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, system=system, tools=tools, messages=messages,
-            **LLM_EXTRA_PARAMS,
-        )
+    from src.llm_tracker import llm_stage
+
+    for turn_idx in range(1, MAX_TURNS + 1):
+        with llm_stage(f"agent.loop.turn_{turn_idx}"):
+            response = get_client().messages.create(
+                model=LLM_MODEL, max_tokens=LLM_MAX_TOKENS, system=system, tools=tools, messages=messages,
+                **LLM_EXTRA_PARAMS,
+            )
         total_in, cached_in = _usage_input(response.usage)
         result.input_tokens += total_in
         result.cached_input_tokens += cached_in
