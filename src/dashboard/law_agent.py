@@ -418,6 +418,7 @@ def extract_facts(question: str, chunks: list[dict]) -> tuple[list[dict], int, i
     """O LLM extrai linhas dos trechos (o código confere depois em `verify_rows`)."""
     if not chunks:
         return [], 0, 0
+    from src.config import LAW_AGENT_EXTRA_PARAMS
     from src.dashboard._llm import call_structured_llm
     from src.rag import build_context  # só leitura
 
@@ -428,6 +429,8 @@ def extract_facts(question: str, chunks: list[dict]) -> tuple[list[dict], int, i
         tool_description="Linhas de fatos copiados dos trechos de lei.",
         input_schema=EXTRACT_SCHEMA,
         max_tokens=3000,
+        # Cópia literal da lei: aqui o "thinking" do modelo continua ligado (ver LAW_AGENT_THINKING).
+        extra_params=LAW_AGENT_EXTRA_PARAMS,
     )
     return list(payload.get("rows") or []), in_tok, out_tok
 

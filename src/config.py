@@ -75,6 +75,11 @@ JUDGE_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if JUDGE_THINKING 
 # Padrão: desligado. DASHBOARD_THINKING=default devolve o comportamento do modelo.
 DASHBOARD_THINKING = os.getenv("DASHBOARD_THINKING", "disabled").strip().lower()
 DASHBOARD_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if DASHBOARD_THINKING == "disabled" else {}
+# Exceção: a extração de fatos das LEIS (src/dashboard/law_agent.py) precisa copiar frases literais da norma,
+# conferidas em código palavra por palavra; sem "thinking" o modelo copia com menos cuidado e mais fatos caem
+# na conferência. Padrão: comportamento do modelo (thinking ligado). LAW_AGENT_THINKING=disabled desliga.
+LAW_AGENT_THINKING = os.getenv("LAW_AGENT_THINKING", "default").strip().lower()
+LAW_AGENT_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if LAW_AGENT_THINKING == "disabled" else {}
 DASHBOARD_OUTPUT_DIR = resolve_project_path(
     os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
 )

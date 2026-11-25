@@ -19,6 +19,7 @@ def call_structured_llm(
     tool_description: str,
     input_schema: dict,
     max_tokens: int = 4096,
+    extra_params: dict | None = None,
 ) -> tuple[dict, int, int]:
     """Solicita ao LLM uma saída JSON estruturada via ferramenta dedicada.
 
@@ -42,7 +43,7 @@ def call_structured_llm(
             }],
             tool_choice={"type": "tool", "name": tool_name},
             messages=[{"role": "user", "content": user_content}],
-            **DASHBOARD_EXTRA_PARAMS,
+            **(DASHBOARD_EXTRA_PARAMS if extra_params is None else extra_params),
         )
         if response.stop_reason != "max_tokens" or attempt == 1:
             break
