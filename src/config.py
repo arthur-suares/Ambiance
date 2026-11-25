@@ -78,3 +78,5 @@ DASHBOARD_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if DASHBOARD_T
 DASHBOARD_OUTPUT_DIR = resolve_project_path(
     os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
 )
+# Validade do cache persistente de painéis (outputs/dashboards/cache.json), em dias. 0 desliga o cache.
+DASHBOARD_CACHE_DAYS = float(os.getenv("DASHBOARD_CACHE_DAYS", "7"))

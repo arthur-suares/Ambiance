@@ -13,10 +13,10 @@ Só escuta em 127.0.0.1 (acessível apenas nesta máquina).
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-import hashlib
 import importlib.util
 import threading
 import json
+import logging
 from pathlib import Path
 import re
 import time
@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import src.config as config_mod
 from src.config import DUCKDB_PATH, OPENROUTER_API_KEY, PROJECT_ROOT
+from src.dashboard.cache import dashboard_cache_key, get_cached_dashboard, save_cached_dashboard
 # O agente e o pipeline de chat carregam o DuckDB: são importados só quando usados (ver /api/chat),
 # para o servidor subir também no modo jurídico, sem a base analítica.
 from src.pipeline.session import (
@@ -39,25 +40,49 @@ INDEX_HTML = PROJECT_ROOT / "web" / "index.html"
 WEB_ROOT = PROJECT_ROOT / "web"
 DASHBOARD_FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-]+\.html$")
 
+logger = logging.getLogger(__name__)
+
 SESSION_MANAGER = SessionManager()
 
-# Painéis do agente de dashboard: um trabalho por (pergunta, contexto). O front pede o painel assim que a
-# resposta chega (pré-geração) e de novo quando a pessoa clica; a segunda chamada só espera o mesmo trabalho.
+# Painéis do agente de dashboard, só sob demanda (clique, abrir o canvas ou hover no cartão). Um trabalho por
+# (pergunta normalizada, contexto): chamadas repetidas esperam o mesmo trabalho. Além da memória, painéis prontos
+# ficam em outputs/dashboards/cache.json (src/dashboard/cache.py) e sobrevivem a reinícios do servidor.
 _DASH_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dashboard")
 _DASH_JOBS: dict = {}
 _DASH_LOCK = threading.Lock()
 _DASH_MAX_CACHED = 40
 
 
+def _result_is_cacheable(result) -> bool:
+    """Painel com arquivo existente e pelo menos um componente (falha ou painel vazio não vale como pronto)."""
+    path = getattr(result, "output_path", None)
+    spec = getattr(result, "spec", None)
+    return bool(path and Path(path).is_file() and getattr(spec, "widgets", None))
+
+
+def _run_and_cache_dashboard(question: str, chat_context: dict | None):
+    from src.dashboard.orchestrator import generate_dashboard
+
+    result = generate_dashboard(question, chat_context=chat_context)
+    if _result_is_cacheable(result):
+        title = getattr(result.spec, "title", "") or getattr(getattr(result, "plan", None), "dashboard_goal", "")
+        save_cached_dashboard(question, chat_context, output_path=result.output_path, title=title,
+                              domain=getattr(result, "domain", "auto"))
+    else:
+        logger.warning("painel sem arquivo ou sem componentes: não entra no cache persistente")
+    return result
+
+
 def _dashboard_job(question: str, chat_context: dict | None):
-    key = hashlib.sha1(json.dumps([question, chat_context], sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+    key = dashboard_cache_key(question, chat_context)
     with _DASH_LOCK:
         fut = _DASH_JOBS.get(key)
-        if fut is not None and fut.done() and fut.exception() is not None:
-            fut = None  # falhou antes: tenta de novo
+        if fut is not None and fut.done():
+            # falhou, ficou vazio ou o arquivo foi apagado: tenta de novo em vez de devolver algo inútil
+            if fut.exception() is not None or not _result_is_cacheable(fut.result()):
+                fut = None
         if fut is None:
-            from src.dashboard.orchestrator import generate_dashboard
-            fut = _DASH_POOL.submit(generate_dashboard, question, chat_context=chat_context)
+            fut = _DASH_POOL.submit(_run_and_cache_dashboard, question, chat_context)
             _DASH_JOBS[key] = fut
             while len(_DASH_JOBS) > _DASH_MAX_CACHED:
                 _DASH_JOBS.pop(next(iter(_DASH_JOBS)))
@@ -385,6 +410,16 @@ class Handler(BaseHTTPRequestHandler):
             if not _analytics_available():
                 return self._json(503, {"error": "O painel completo precisa da base DuckDB (Trase) em data/processed/."})
             chat_context = body.get("context") if isinstance(body.get("context"), dict) else None
+            cached = get_cached_dashboard(question, chat_context)
+            if cached is not None:  # painel já gerado antes (inclusive antes de reiniciar o servidor): sem LLM
+                return self._json(200, {
+                    "url": f"/dashboards/{cached['filename']}",
+                    "title": cached["title"] or question,
+                    "domain": cached["domain"],
+                    "seconds": 0.0,
+                    "revisions": 0,
+                    "cached": True,
+                })
             result = _dashboard_job(question, chat_context).result(timeout=600)
             if not result.output_path:
                 return self._json(500, {"error": "O agente não gerou o arquivo do painel."})
@@ -394,8 +429,10 @@ class Handler(BaseHTTPRequestHandler):
                 "domain": result.domain,
                 "seconds": round(result.seconds, 1),
                 "revisions": result.revisions_used,
+                "cached": False,
             })
         except Exception as exc:
+            logger.exception("Erro em POST /api/dashboard")
             return self._json(500, {"error": f"{type(exc).__name__}: {exc}"})
 
     def _agent(self, question, k, start, domain):
