@@ -19,7 +19,7 @@ import pandas as pd
 
 from src import queries
 from src.agent import QUERY_FUNCS, SOY_RULES, SOY_TOOLS, SOY_UNAVAILABLE, TOOLS, ToolCall, tool_call_summary
-from src.config import DUCKDB_PATH, LLM_MODEL
+from src.config import DASHBOARD_EXTRA_PARAMS, DUCKDB_PATH, LLM_MODEL
 from src.dashboard.data_base import common_base_line
 from src.dashboard.dimensions import DIMENSIONS, GLOSSARY_PROMPT, dimension_line
 from src.dashboard.schemas import DataAgentResult, DatasetResult, MAX_ROWS_TO_LLM, OrchestratorPlan, round_sig
@@ -40,6 +40,7 @@ de dados tabulares necessários para construir um painel analítico que responda
 seguindo o plano do Orquestrador.
 
 Regras de coleta:
+- Velocidade importa: chame TODAS as consultas independentes do plano de uma vez, na MESMA resposta (várias chamadas de ferramenta em paralelo). Só faça uma nova rodada se precisar do resultado de uma consulta anterior (ex.: confirmar grafia com find_entity antes de filtrar).
 - Use apenas as ferramentas disponíveis (consultas prontas e SELECT somente-leitura via run_sql / run_soy_sql).
 - Prefira as consultas prontas quando cobrirem o recorte; use run_sql (carne bovina) ou run_soy_sql (soja) \
 quando precisar cruzar dimensões, filtrar por estado/bioma/empresa específicos ou agregar para KPIs.
@@ -243,6 +244,7 @@ def run_data_agent(question: str, plan: OrchestratorPlan, *, start_index: int = 
             system=system,
             tools=tools,
             messages=messages,
+            **DASHBOARD_EXTRA_PARAMS,
         )
         result.input_tokens += getattr(response.usage, "input_tokens", 0) or 0
         result.output_tokens += getattr(response.usage, "output_tokens", 0) or 0

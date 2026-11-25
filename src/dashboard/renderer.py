@@ -2050,6 +2050,27 @@ def _plan_groups(widgets, by_id):
         ordered.extend(members[g])
     return ordered, ranges, sections
 
+def _promote_single_value(w: WidgetSpec, by_id: dict[str, DatasetResult]) -> WidgetSpec:
+    """Um "gráfico" cujo dataset tem uma única linha é, na verdade, um número: vira KPI.
+
+    Sem isso o cartão caía no fallback ("Os dados encontrados não têm todas as informações…") e
+    aparecia no meio da faixa de indicadores com uma tabela de uma célula.
+    """
+    if w.kind not in ("bar", "line", "area", "pie", "donut", "progress", "waterfall") or w.dataset_id not in by_id:
+        return w
+    if _is_law(w, by_id):
+        return w
+    df = by_id[w.dataset_id].df
+    if len(df) != 1:
+        return w
+    numeric = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c]) and not _is_time(c)]
+    col = next((c for c in (w.y or []) if c in numeric), numeric[0] if numeric else None)
+    if col is None:
+        return w
+    return replace(w, kind="kpi", column=col, agg="first", valid=True, validation_codes=[],
+                   group=None, span=1)
+
+
 def _render_fallback(w: WidgetSpec, by_id: dict[str, DatasetResult], codes: list[str]) -> str:
     """Gráfico reprovado: mostra os MESMOS dados como lista, com uma frase simples do motivo.
 
@@ -2177,7 +2198,9 @@ def render_dashboard_html(
     needs_plotly = False
     first_kpi = True
 
-    ordered, group_ranges, group_section = _plan_groups(spec.widgets, by_id)
+    widgets = [_promote_single_value(w, by_id) for w in spec.widgets]
+    ordered, group_ranges, group_section = _plan_groups(widgets, by_id)
+    fallbacks: list[tuple[str, str]] = []  # (seção, html) — decididos no fim, quando já se sabe quantos gráficos deram certo
     spans = _final_spans(ordered, group_section, _main_chart_ids(ordered, group_section, by_id), by_id)
     espans = _embed_spans(ordered, group_section, by_id)
     chart_count = 0
@@ -2200,7 +2223,7 @@ def render_dashboard_html(
         blocking = [i for i in validate_widget_deterministic(w, by_id) if i.blocking]
         if not w.valid or blocking:
             codes = list(w.validation_codes) or [i.code for i in blocking]
-            cards[section].append(_render_fallback(w, by_id, codes))
+            fallbacks.append((section, _render_fallback(w, by_id, codes)))
             continue
         df = by_id[w.dataset_id].df
         try:
@@ -2249,7 +2272,13 @@ def render_dashboard_html(
                 chart_count += 1
         except Exception:
             logger.exception("Falha ao desenhar o componente %s", w.id)
-            cards[section].append(_render_fallback(w, by_id, []))
+            fallbacks.append((section, _render_fallback(w, by_id, [])))
+
+    # Cartões que não puderam ser desenhados não ficam no meio do painel quando já há gráficos bons:
+    # vão para o Detalhamento (recolhido). Sem gráficos bons, continuam no lugar (é o que há para mostrar).
+    for sec, card_html in fallbacks:
+        target = "detalhamento" if chart_count >= 2 and sec != "base-legal" else sec
+        cards[target].append(card_html)
 
     # 2 a 3 números-síntese para a faixa do cabeçalho no modo embed (sem inventar valores).
     all_years: list[int] = []

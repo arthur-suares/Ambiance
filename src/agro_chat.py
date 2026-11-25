@@ -534,6 +534,28 @@ def ask_agro(
 
         messages.append({"role": "user", "content": tool_results})
 
+    # Limite de rodadas atingido ainda chamando ferramentas: a resposta ficaria vazia ("Sem resposta textual").
+    # Faz uma última chamada SEM ferramentas para escrever a resposta com o que já foi consultado.
+    if not final_text and messages and messages[-1]["role"] == "user":
+        messages[-1]["content"] = list(messages[-1]["content"]) + [{
+            "type": "text",
+            "text": "Limite de consultas atingido. Escreva agora a resposta final em português usando apenas "
+                    "os dados e trechos de lei já obtidos acima, citando [D#]/[L#]. Não chame mais ferramentas.",
+        }]
+        resp = client.messages.create(
+            model=LLM_MODEL,
+            max_tokens=LLM_MAX_TOKENS,  # resposta longa + raciocínio do modelo: 4096 cortava o texto
+            system=SYSTEM_PROMPT,
+            messages=messages,
+            tools=TOOLS,
+            tool_choice={"type": "none"},
+            **LLM_EXTRA_PARAMS,
+        )
+        in_tokens += resp.usage.input_tokens
+        out_tokens += resp.usage.output_tokens
+        stop_reason = resp.stop_reason or stop_reason
+        final_text = "\n".join(b.text for b in resp.content if b.type == "text").strip()
+
     if discovered_codes and map_spec and "highlight_codes" not in map_spec:
         map_spec["highlight_codes"] = discovered_codes[:15]
 

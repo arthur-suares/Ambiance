@@ -997,16 +997,31 @@
   }
 
   // Painel completo: pede ao agente de dashboard (uma vez por resposta) e embute o HTML gerado.
+  // Pede o painel ao servidor uma única vez por resposta (a pré-geração e o clique compartilham a mesma promessa).
+  function requestDashboard(turn) {
+    if (!turn.dashPromise) {
+      turn.dashPromise = fetchDashboard(turn).catch(err => { turn.dashPromise = null; throw err; });
+    }
+    return turn.dashPromise;
+  }
+
   async function loadDashboard(turn) {
     if (!turn) return;
     const frame = $("dash-frame"), loading = $("dash-loading");
     if (turn.dashUrl) { showDashFrame(turn.dashUrl); return; }
-    if (turn.dashLoading) return;
-    turn.dashLoading = true;
     frame.hidden = true;
     loading.hidden = false;
-    $("dash-loading-txt").textContent = "O agente de dashboard está montando o painel: escolhe os dados, desenha os gráficos e revisa… (cerca de 1 minuto)";
+    $("dash-loading-txt").textContent = "O agente de dashboard está montando o painel: escolhe os dados, desenha os gráficos e revisa… (cerca de 30 segundos)";
     try {
+      const url = await requestDashboard(turn);
+      if (activeTurnObj === turn && activeTab === "dash") showDashFrame(url);
+    } catch (err) {
+      $("dash-loading-txt").textContent = `Não foi possível gerar o painel: ${err.message}`;
+    }
+  }
+
+  async function fetchDashboard(turn) {
+    {
       const chatCharts = (turn.data?.charts || []).map(c => ({
         title: c.title || "",
         subtitle: c.subtitle || "",
@@ -1037,11 +1052,7 @@
       const d = await res.json();
       if (!res.ok) throw new Error(d.error || "Falha ao gerar o painel.");
       turn.dashUrl = d.url;
-      if (activeTurnObj === turn && activeTab === "dash") showDashFrame(d.url);
-    } catch (err) {
-      $("dash-loading-txt").textContent = `Não foi possível gerar o painel: ${err.message}`;
-    } finally {
-      turn.dashLoading = false;
+      return d.url;
     }
   }
 
@@ -1163,6 +1174,8 @@
 
     const views = normalizeViews(d);
     turn.views = views;
+    // Pré-gera o Painel completo em segundo plano: quando a pessoa clicar, ele já está pronto (ou quase).
+    if (views.some(v => v.key === "dash")) requestDashboard(turn).catch(() => {});
 
     if (views.length) {
       const box = document.createElement("div");

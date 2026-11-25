@@ -12,7 +12,10 @@ Só escuta em 127.0.0.1 (acessível apenas nesta máquina).
 """
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import importlib.util
+import threading
 import json
 from pathlib import Path
 import re
@@ -37,6 +40,28 @@ WEB_ROOT = PROJECT_ROOT / "web"
 DASHBOARD_FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-]+\.html$")
 
 SESSION_MANAGER = SessionManager()
+
+# Painéis do agente de dashboard: um trabalho por (pergunta, contexto). O front pede o painel assim que a
+# resposta chega (pré-geração) e de novo quando a pessoa clica; a segunda chamada só espera o mesmo trabalho.
+_DASH_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="dashboard")
+_DASH_JOBS: dict = {}
+_DASH_LOCK = threading.Lock()
+_DASH_MAX_CACHED = 40
+
+
+def _dashboard_job(question: str, chat_context: dict | None):
+    key = hashlib.sha1(json.dumps([question, chat_context], sort_keys=True, ensure_ascii=False, default=str).encode()).hexdigest()
+    with _DASH_LOCK:
+        fut = _DASH_JOBS.get(key)
+        if fut is not None and fut.done() and fut.exception() is not None:
+            fut = None  # falhou antes: tenta de novo
+        if fut is None:
+            from src.dashboard.orchestrator import generate_dashboard
+            fut = _DASH_POOL.submit(generate_dashboard, question, chat_context=chat_context)
+            _DASH_JOBS[key] = fut
+            while len(_DASH_JOBS) > _DASH_MAX_CACHED:
+                _DASH_JOBS.pop(next(iter(_DASH_JOBS)))
+    return fut
 
 
 def resolve_dashboard_path(raw_request_path: str, base_dir: Path | None = None) -> Path | None:
@@ -359,9 +384,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(400, {"error": "Pergunta vazia."})
             if not _analytics_available():
                 return self._json(503, {"error": "O painel completo precisa da base DuckDB (Trase) em data/processed/."})
-            from src.dashboard.orchestrator import generate_dashboard
             chat_context = body.get("context") if isinstance(body.get("context"), dict) else None
-            result = generate_dashboard(question, chat_context=chat_context)
+            result = _dashboard_job(question, chat_context).result(timeout=600)
             if not result.output_path:
                 return self._json(500, {"error": "O agente não gerou o arquivo do painel."})
             return self._json(200, {

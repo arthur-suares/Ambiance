@@ -6,7 +6,7 @@ Segue o mesmo padrão de `src/rag.py` e `src/agent.py`: usa `get_client()`
 
 from __future__ import annotations
 
-from src.config import LLM_MAX_TOKENS, LLM_MODEL
+from src.config import DASHBOARD_EXTRA_PARAMS, LLM_MAX_TOKENS, LLM_MODEL
 from src.dashboard.schemas import extract_json_dict
 from src.rag import get_client
 
@@ -42,6 +42,7 @@ def call_structured_llm(
             }],
             tool_choice={"type": "tool", "name": tool_name},
             messages=[{"role": "user", "content": user_content}],
+            **DASHBOARD_EXTRA_PARAMS,
         )
         if response.stop_reason != "max_tokens" or attempt == 1:
             break

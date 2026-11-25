@@ -70,6 +70,11 @@ JUDGE_THINKING = os.getenv("JUDGE_THINKING", LLM_THINKING if JUDGE_MODEL == LLM_
 JUDGE_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if JUDGE_THINKING == "disabled" else {}
 
 # --- Dashboards gerados dinamicamente ---
+# As chamadas do agente de dashboard (plano, consultas, montagem do JSON e revisão) são tarefas de formatação:
+# o "thinking" do modelo quase triplica o tempo (ex.: revisor 32 s → poucos segundos) sem ganho visível.
+# Padrão: desligado. DASHBOARD_THINKING=default devolve o comportamento do modelo.
+DASHBOARD_THINKING = os.getenv("DASHBOARD_THINKING", "disabled").strip().lower()
+DASHBOARD_EXTRA_PARAMS: dict = {"thinking": {"type": "disabled"}} if DASHBOARD_THINKING == "disabled" else {}
 DASHBOARD_OUTPUT_DIR = resolve_project_path(
     os.getenv("DASHBOARD_OUTPUT_DIR", "outputs/dashboards")
 )
