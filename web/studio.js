@@ -915,6 +915,12 @@
             what_you_receive: "Valores anuais detalhados ao passar o mouse e opção para baixar o gráfico como imagem.",
           };
     }
+    if (!view && tabName === "dash") {
+      view = {
+        what_you_see: "Painel montado pelo agente de dashboard: ele escolhe os dados na base Trase (carne e soja), desenha os gráficos e um revisor confere antes de mostrar.",
+        what_you_receive: "Indicadores e gráficos interativos (passe o mouse para ver os valores). Por usar consulta própria, alguns números podem diferir dos da resposta.",
+      };
+    }
     if (!view) {
       $("canvas-desc-bar").hidden = true;
       return;
@@ -941,6 +947,46 @@
     if (tabName === "map") {
       requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
     }
+    if (tabName === "dash") loadDashboard(activeTurnObj);
+  }
+
+  // Painel completo: pede ao agente de dashboard (uma vez por resposta) e embute o HTML gerado.
+  async function loadDashboard(turn) {
+    if (!turn) return;
+    const frame = $("dash-frame"), loading = $("dash-loading");
+    if (turn.dashUrl) { showDashFrame(turn.dashUrl); return; }
+    if (turn.dashLoading) return;
+    turn.dashLoading = true;
+    frame.hidden = true;
+    loading.hidden = false;
+    $("dash-loading-txt").textContent = "O agente de dashboard está montando o painel: escolhe os dados, desenha os gráficos e revisa… (cerca de 1 minuto)";
+    try {
+      const res = await fetch("/api/dashboard", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({question: turn.question}),
+      });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || "Falha ao gerar o painel.");
+      turn.dashUrl = d.url;
+      if (activeTurnObj === turn && activeTab === "dash") showDashFrame(d.url);
+    } catch (err) {
+      $("dash-loading-txt").textContent = `Não foi possível gerar o painel: ${err.message}`;
+    } finally {
+      turn.dashLoading = false;
+    }
+  }
+
+  function showDashFrame(url) {
+    const frame = $("dash-frame");
+    $("dash-loading").hidden = true;
+    frame.hidden = false;
+    if (frame.dataset.src === url) return;
+    frame.dataset.src = url;
+    frame.onload = () => {
+      try { frame.contentDocument.documentElement.classList.add("is-embed"); } catch { /* mesma origem */ }
+    };
+    frame.src = `${url}?embed=1`;
   }
 
   async function openCanvasForTurn(turn, targetTab = null) {
@@ -955,6 +1001,7 @@
     const hasLaws = Boolean(d.sources?.length);
 
     if (!hasMap && !hasCharts && !hasData && !hasLaws) return;
+    const hasDash = hasData && d.domain !== "law";
 
     activeTurnId = turn.id;
     activeTurnObj = turn;
@@ -966,6 +1013,7 @@
     $("tab-btn-charts").hidden = !hasCharts;
     $("tab-btn-data").hidden = !hasData;
     $("tab-btn-laws").hidden = !hasLaws;
+    $("tab-btn-dash").hidden = !hasDash;
 
     $("tab-btn-charts").textContent = hasCharts ? `Gráficos (${d.charts.length})` : "Gráficos";
     $("tab-btn-data").textContent = hasData ? `Tabela (${d.tables.length})` : "Tabela";
@@ -1031,6 +1079,13 @@
           ...(d.tables?.length ? [{key: "data", label: `Ver tabela completa (${d.tables.length})`, summary: "Números detalhados e planilha"}] : []),
           ...(d.sources?.length ? [{key: "laws", label: `Ler trechos da lei (${d.sources.length})`, summary: "Artigos citados na resposta"}] : []),
         ];
+    if (d.tables?.length && d.domain !== "law" && !views.some(v => v.key === "dash")) {
+      views.push({
+        key: "dash", label: "Painel completo", summary: "Gerado pelo agente de dashboard (leva cerca de 1 minuto)",
+        what_you_see: "Painel montado pelo agente de dashboard: ele escolhe os dados na base Trase (carne e soja), desenha os gráficos e um revisor confere antes de mostrar.",
+        what_you_receive: "Indicadores e gráficos interativos (passe o mouse para ver os valores). Por usar consulta própria, alguns números podem diferir dos da resposta.",
+      });
+    }
 
     if (views.length) {
       const box = document.createElement("div");

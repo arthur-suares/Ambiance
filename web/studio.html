@@ -92,6 +92,7 @@
             <button type="button" class="canvas-tab is-active" data-tab="map" id="tab-btn-map">Mapa</button>
             <button type="button" class="canvas-tab" data-tab="charts" id="tab-btn-charts">Gráficos</button>
             <button type="button" class="canvas-tab" data-tab="data" id="tab-btn-data">Tabela</button>
+            <button type="button" class="canvas-tab" data-tab="dash" id="tab-btn-dash" hidden>Painel completo</button>
             <button type="button" class="canvas-tab" data-tab="laws" id="tab-btn-laws">Trechos da Lei</button>
           </div>
           <button id="canvas-close" type="button" class="icon-btn" title="Fechar painel">×</button>
@@ -179,6 +180,13 @@
 
           <div id="panel-data" class="canvas-panel scrollable" hidden>
             <div id="data-container" class="data-stack"></div>
+          </div>
+
+          <div id="panel-dash" class="canvas-panel scrollable" hidden>
+            <div id="dash-loading" class="dash-loading" hidden>
+              <span id="dash-loading-txt">O agente de dashboard está montando o painel: escolhe os dados, desenha os gráficos e revisa… (cerca de 1 minuto)</span>
+            </div>
+            <iframe id="dash-frame" title="Painel do agente de dashboard" hidden></iframe>
           </div>
 
           <div id="panel-laws" class="canvas-panel scrollable" hidden>
