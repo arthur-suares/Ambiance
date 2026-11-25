@@ -1034,9 +1034,11 @@
     if (resolved === "dash") loadDashboard(activeTurnObj);
   }
 
-  // Painel completo: pede ao agente de dashboard (uma vez por resposta) e embute o HTML gerado.
-  // Pede o painel ao servidor uma única vez por resposta (a pré-geração e o clique compartilham a mesma promessa).
+  // Painel completo: só é pedido quando há intenção (clique, abrir o canvas da resposta ou hover/foco no cartão).
+  // Hover, abertura do canvas e clique compartilham a mesma promessa: o painel nunca é gerado duas vezes.
   function requestDashboard(turn) {
+    if (!turn) return Promise.reject(new Error("Turno inválido."));
+    if (turn.dashUrl) return Promise.resolve(turn.dashUrl);
     if (!turn.dashPromise) {
       turn.dashPromise = fetchDashboard(turn).catch(err => { turn.dashPromise = null; throw err; });
     }
@@ -1059,39 +1061,38 @@
   }
 
   async function fetchDashboard(turn) {
-    {
-      const chatCharts = (turn.data?.charts || []).map(c => ({
-        title: c.title || "",
-        subtitle: c.subtitle || "",
-        chart_type: c.chart_type || "bar",
-        x_label: c.x_label || "",
-        y_label: c.y_label || "",
-        unit: c.unit || "",
-        labels: Array.isArray(c.labels) ? c.labels.slice(0, 30) : [],
-        series: Array.isArray(c.series)
-          ? c.series.map(s => ({name: s.name || "", values: Array.isArray(s.values) ? s.values.slice(0, 30) : []}))
-          : [],
-      }));
-      const chatTables = (turn.data?.tables || []).map(t => ({
-        label: t.label || "",
-        purpose: t.purpose || "",
-        columns: Array.isArray(t.columns) ? t.columns : [],
-        rows: Array.isArray(t.rows) ? t.rows.slice(0, 60) : [],
-      }));
-      const payload = {question: turn.question};
-      if (chatCharts.length || chatTables.length) {
-        payload.context = {charts: chatCharts, tables: chatTables};
-      }
-      const res = await fetch("/api/dashboard", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify(payload),
-      });
-      const d = await res.json();
-      if (!res.ok) throw new Error(d.error || "Falha ao gerar o painel.");
-      turn.dashUrl = d.url;
-      return d.url;
+    const chatCharts = (turn.data?.charts || []).map(c => ({
+      title: c.title || "",
+      subtitle: c.subtitle || "",
+      chart_type: c.chart_type || "bar",
+      x_label: c.x_label || "",
+      y_label: c.y_label || "",
+      unit: c.unit || "",
+      labels: Array.isArray(c.labels) ? c.labels.slice(0, 30) : [],
+      series: Array.isArray(c.series)
+        ? c.series.map(s => ({name: s.name || "", values: Array.isArray(s.values) ? s.values.slice(0, 30) : []}))
+        : [],
+    }));
+    const chatTables = (turn.data?.tables || []).map(t => ({
+      label: t.label || "",
+      purpose: t.purpose || "",
+      columns: Array.isArray(t.columns) ? t.columns : [],
+      rows: Array.isArray(t.rows) ? t.rows.slice(0, 60) : [],
+    }));
+    const payload = {question: turn.question};
+    if (chatCharts.length || chatTables.length) {
+      payload.context = {charts: chatCharts, tables: chatTables};
     }
+    const res = await fetch("/api/dashboard", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(payload),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(d.error || "Falha ao gerar o painel.");
+    if (!d.url) throw new Error("Resposta do servidor sem URL do painel.");
+    turn.dashUrl = d.url;
+    return d.url;
   }
 
   function showDashFrame(url) {
@@ -1151,6 +1152,8 @@
 
     const defaultTab = targetTab || (hasMap ? "map" : (hasDados ? "data" : "laws"));
     switchCanvasTab(defaultTab);
+    // Abrir o canvas da resposta (qualquer aba) já indica interesse: aquece o Painel completo uma única vez.
+    if (hasDash && defaultTab !== "dash") requestDashboard(turn).catch(() => {});
 
     const chartsWrap = $("charts-container");
     const dataWrap = $("data-container");
@@ -1212,8 +1215,6 @@
 
     const views = normalizeViews(d);
     turn.views = views;
-    // Pré-gera o Painel completo em segundo plano: quando a pessoa clicar, ele já está pronto (ou quase).
-    if (views.some(v => v.key === "dash")) requestDashboard(turn).catch(() => {});
 
     if (views.length) {
       const box = document.createElement("div");
@@ -1233,6 +1234,27 @@
           </div>
           <span class="view-action-cta">Abrir visualização →</span>
         `;
+        if (v.key === "dash") {
+          // Hover/foco por ~420 ms no cartão indica intenção: aquece o painel (os listeners vivem só neste botão).
+          let hoverTimer = null;
+          const startWarmup = () => {
+            if (turn.dashUrl || turn.dashPromise || hoverTimer) return;
+            hoverTimer = setTimeout(() => {
+              hoverTimer = null;
+              if (turns.includes(turn)) requestDashboard(turn).catch(() => {});
+            }, 420);
+          };
+          const cancelWarmup = () => {
+            if (!hoverTimer) return;
+            clearTimeout(hoverTimer);
+            hoverTimer = null;
+          };
+          btn.addEventListener("mouseenter", startWarmup);
+          btn.addEventListener("mouseleave", cancelWarmup);
+          btn.addEventListener("focus", startWarmup);
+          btn.addEventListener("blur", cancelWarmup);
+          btn.addEventListener("click", cancelWarmup);
+        }
         btn.addEventListener("click", () => openCanvasForTurn(turn, v.key));
         grid.append(btn);
       });
